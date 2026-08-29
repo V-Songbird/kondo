@@ -11,8 +11,15 @@ coverage/
 .env
 .env.*
 
-# Claude Code: rules/ is shared and committed. Everything else under .claude/
-# is per-machine — an empty settings stub, IDE-bundled skills, local overrides.
+# Claude Code: rules/ is shared and committed, and so is any skill that
+# carries project knowledge rather than machine setup. Everything else under
+# .claude/ is per-machine — an empty settings stub, IDE-bundled skills that
+# depend on a running IDE, local overrides.
+# git will not look inside an excluded directory, so skills/ is re-included
+# before its contents are excluded again.
 .claude/*
 !.claude/rules/
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/run-kondo/
 .claude/settings.local.json
