@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { channels, type KondoApi } from '../../shared/contract'
+import { channels, type CapabilityOperation, type KondoApi } from '../../shared/contract'
 
 /**
  * Channel registration: one line per KondoApi method, argument types checked
@@ -19,6 +19,9 @@ export function registerIpc(api: KondoApi): void {
   )
   ipcMain.handle(channels.desktopSessions, () => api.desktopSessions())
   ipcMain.handle(channels.skillsList, () => api.skillsList())
+  ipcMain.handle(channels.skillToggle, (_event, skillId: unknown, operation: unknown) =>
+    api.skillToggle(String(skillId), operation as CapabilityOperation)
+  )
   ipcMain.handle(channels.pluginsList, () => api.pluginsList())
   ipcMain.handle(channels.hooksList, () => api.hooksList())
   ipcMain.handle(channels.settingsLayers, () => api.settingsLayers())

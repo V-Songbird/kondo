@@ -21,6 +21,8 @@ export type ScanErrorCode =
   | 'bad-request'
   /** A store manifest pointed outside the store; the pointer was not followed. */
   | 'out-of-store'
+  /** The capability matrix refuses the operation on this entity (ADR-0006). */
+  | 'not-permitted'
 
 export interface ScanError {
   code: ScanErrorCode
@@ -153,7 +155,12 @@ export interface DesktopSession extends EntityIdentity {
 // ---------------------------------------------------------------------------
 // Skills / plugins / hooks / settings
 
-export type SkillScope = 'user' | 'user-disabled' | 'plugin' | 'project'
+export type SkillScope =
+  | 'user'
+  | 'user-disabled'
+  | 'plugin'
+  | 'project'
+  | 'project-disabled'
 
 export interface SkillInfo extends EntityIdentity {
   /** `skill:<scope>:<key>` */
@@ -249,6 +256,17 @@ export interface KondoApi {
   sessionDetail(sessionId: string): Promise<Scan<SessionDetail | null>>
   desktopSessions(): Promise<Scan<DesktopSession[]>>
   skillsList(): Promise<Scan<SkillInfo[]>>
+  /**
+   * Move one skill between its scope's `skills` and `skills.disabled`
+   * directories (ADR-0006), journaled and reversible (ADR-0001). The matrix
+   * refuses what Claude's conventions do not permit, so the renderer reads
+   * `SkillInfo.capabilities` to know which direction — if any — to offer.
+   * The move changes the skill's id: callers re-read rather than patching.
+   */
+  skillToggle(
+    skillId: string,
+    operation: CapabilityOperation
+  ): Promise<Scan<JournalEntryInfo | null>>
   pluginsList(): Promise<Scan<PluginInfo[]>>
   hooksList(): Promise<Scan<HookInfo[]>>
   settingsLayers(): Promise<Scan<SettingsLayerInfo[]>>
@@ -267,6 +285,7 @@ export const channels = {
   sessionDetail: 'kondo:session-detail',
   desktopSessions: 'kondo:desktop-sessions',
   skillsList: 'kondo:skills-list',
+  skillToggle: 'kondo:skill-toggle',
   pluginsList: 'kondo:plugins-list',
   hooksList: 'kondo:hooks-list',
   settingsLayers: 'kondo:settings-layers',

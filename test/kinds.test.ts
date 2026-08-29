@@ -106,13 +106,19 @@ describe('kind registry and capability matrix', () => {
     expect(await kinds.session.discover(await context())).toBeNull()
   })
 
-  it('builds no mutation plan yet, even where the matrix permits one', async () => {
+  it('builds a plan only where the matrix permits one', async () => {
     const skills = (await kinds.skill.discover(await context())) ?? []
     const benched = skills.find((skill) => skill.scope === 'user-disabled')!
     expect(benched.capabilities.enable.allowed).toBe(true)
-    // Permitted is not implemented: this slice ships no write path of its own.
-    expect(kinds.skill.enable(benched)).toBeNull()
+    expect(kinds.skill.enable(benched)?.steps).toEqual([
+      { type: 'move', store: 'user', from: 'skills.disabled/beta-skill', to: 'skills/beta-skill' }
+    ])
+    // The same entity, the direction the matrix refuses: no plan at all.
     expect(kinds.skill.disable(benched)).toBeNull()
+
+    // A kind whose mutation has not shipped keeps its unwired seat.
+    const layers = (await kinds.settings.discover(await context())) ?? []
+    expect(kinds.settings.disable(layers[0]!)).toBeNull()
   })
 
   // -------------------------------------------------------------------------

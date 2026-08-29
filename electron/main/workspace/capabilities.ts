@@ -47,7 +47,8 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
     user: { enable: deny(ALREADY_ENABLED), disable: ALLOW },
     'user-disabled': { enable: ALLOW, disable: deny(ALREADY_DISABLED) },
     plugin: neither(PLUGIN_OWNED),
-    project: { enable: deny(ALREADY_ENABLED), disable: ALLOW }
+    project: { enable: deny(ALREADY_ENABLED), disable: ALLOW },
+    'project-disabled': { enable: ALLOW, disable: deny(ALREADY_DISABLED) }
   },
   // `enabledPlugins` in the settings layer for the scope (domain.md).
   plugin: {

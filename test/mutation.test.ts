@@ -1,68 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createHash } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { createLocator } from '../electron/main/workspace/locator'
 import { createMutations, type Mutations } from '../electron/main/workspace/mutations'
-import { makeWorld, skillManifest, writeFileTree, type FixtureWorld } from './helpers'
+import {
+  exists,
+  hashTree,
+  makeWorld,
+  recordWrites,
+  skillManifest,
+  writeFileTree,
+  type FixtureWorld
+} from './helpers'
 
 /**
  * The ADR-0001 safety invariants docs/testing.md defers to the first
  * mutation. These tests must never be deleted: they are the whole of the
  * promise that every mutation kondo performs can be undone.
  */
-
-/** Names + bytes of a whole tree, so "restored" means byte-for-byte. */
-async function hashTree(root: string): Promise<string> {
-  const entries = await fsp.readdir(root, { withFileTypes: true, recursive: true })
-  const manifest = entries
-    .map((entry) => {
-      const rel = path
-        .relative(root, path.join(entry.parentPath, entry.name))
-        .split(path.sep)
-        .join('/')
-      return entry.isDirectory() ? `${rel}/` : rel
-    })
-    .sort()
-  const hash = createHash('sha256')
-  for (const rel of manifest) {
-    hash.update(rel)
-    if (rel.endsWith('/')) continue
-    hash.update(await fsp.readFile(path.join(root, ...rel.split('/'))))
-  }
-  return hash.digest('hex')
-}
-
-async function exists(target: string): Promise<boolean> {
-  try {
-    await fsp.stat(target)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** Every fs entry point that can change bytes on disk. */
-const WRITE_METHODS = ['open', 'rename', 'writeFile', 'mkdir', 'cp', 'copyFile', 'rm'] as const
-
-/**
- * Wrap — not stub — every write entry point, appending each target to `into`
- * in call order. vi.spyOn replaces the implementation; ordering and boundary
- * proofs need the real call to still happen, so the originals are patched
- * back in by the returned restores.
- */
-function recordWrites(into: string[]): Array<() => void> {
-  return WRITE_METHODS.map((method) => {
-    const original = fsp[method] as (...args: unknown[]) => unknown
-    const patched = (...args: unknown[]): unknown => {
-      if (typeof args[0] === 'string') into.push(args[0])
-      return original(...args)
-    }
-    Object.defineProperty(fsp, method, { value: patched, configurable: true, writable: true })
-    return () =>
-      Object.defineProperty(fsp, method, { value: original, configurable: true, writable: true })
-  })
-}
 
 describe('mutation safety invariants (ADR-0001)', () => {
   let world: FixtureWorld

@@ -314,11 +314,15 @@ export async function scanSkills(
     )
   }
   for (const project of projects) {
+    // ADR-0002: the project store is its .claude directory and nothing above
+    // it. ADR-0006: skills.disabled is Claude's own convention, scoped.
+    const claudeDir = path.join(project.absPath, '.claude')
+    await addFrom(path.join(claudeDir, 'skills'), 'project', `project/${project.dirName}`, true)
     await addFrom(
-      path.join(project.absPath, '.claude', 'skills'),
-      'project',
-      `project/${project.dirName}`,
-      true
+      path.join(claudeDir, 'skills.disabled'),
+      'project-disabled',
+      `project-disabled/${project.dirName}`,
+      false
     )
   }
 

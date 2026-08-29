@@ -20,7 +20,14 @@ import { tildify } from './display'
  *
  * Paths never come from a caller as absolutes: a step names a store root and
  * a path relative to it, and `resolveIn` refuses anything that escapes.
+ *
+ * `user` and `desktop` are fixed by the locator. Any other name is resolved
+ * by `extraRoot` — the workspace's project stores, which are discovered per
+ * scan and cannot be known here (ADR-0003).
  */
+
+/** Resolves a store name the locator does not fix; null when unknown. */
+export type ExtraRoot = (store: string) => Promise<string | null>
 
 // ---------------------------------------------------------------------------
 // What a caller plans
@@ -94,7 +101,11 @@ class Refused extends Error {
   }
 }
 
-export function createMutations(locator: StoreLocator, now: () => number = Date.now): Mutations {
+export function createMutations(
+  locator: StoreLocator,
+  now: () => number = Date.now,
+  extraRoot: ExtraRoot = () => Promise.resolve(null)
+): Mutations {
   const kondoData = locator.kondoDataRoot
   const journalFile = path.join(kondoData, 'journal.jsonl')
   const trashRoot = path.join(kondoData, 'trash')
@@ -111,11 +122,26 @@ export function createMutations(locator: StoreLocator, now: () => number = Date.
   // -------------------------------------------------------------------------
   // Paths
 
-  const resolveIn = (store: string, relative: string): string => {
-    const root = roots.get(store)
-    if (root === undefined) {
+  const rootOf = async (store: string): Promise<string> => {
+    const fixed = roots.get(store)
+    if (fixed !== undefined) return fixed
+    const dynamic = await extraRoot(store)
+    if (dynamic === null) {
       throw new Refused('out-of-store', store, `Unknown store root "${store}".`)
     }
+    // ADR-0001 decision 6, for a root the locator did not fix at startup.
+    if (kondoData === dynamic || pathWithin(kondoData, dynamic)) {
+      throw new Refused(
+        'out-of-store',
+        store,
+        `Kondo's data directory sits inside "${store}" — refusing to write (ADR-0001).`
+      )
+    }
+    return dynamic
+  }
+
+  const resolveIn = async (store: string, relative: string): Promise<string> => {
+    const root = await rootOf(store)
     const target = path.resolve(root, relative)
     if (!pathWithin(target, root)) {
       throw new Refused('out-of-store', relative, 'A step may not leave its store root.')
@@ -137,8 +163,7 @@ export function createMutations(locator: StoreLocator, now: () => number = Date.
   }
 
   /** Directories that must be created to hold `target`, deepest first. */
-  const missingAncestors = async (target: string, store: string): Promise<string[]> => {
-    const root = roots.get(store) as string
+  const missingAncestors = async (target: string, root: string): Promise<string[]> => {
     const made: string[] = []
     let current = path.dirname(target)
     while (pathWithin(current, root) && !(await exists(current))) {
@@ -166,7 +191,7 @@ export function createMutations(locator: StoreLocator, now: () => number = Date.
   const dropCreated = async (created: string[] | undefined, store: string): Promise<void> => {
     for (const relative of created ?? []) {
       try {
-        await fs.rmdir(resolveIn(store, relative))
+        await fs.rmdir(await resolveIn(store, relative))
       } catch {
         // Not empty any more, or already gone: leaving it is always safe.
       }
@@ -255,15 +280,16 @@ export function createMutations(locator: StoreLocator, now: () => number = Date.
   ): Promise<void> => {
     for (const [index, step] of steps.entries()) {
       if (step.type === 'move') {
-        await fs.mkdir(path.dirname(resolveIn(step.store, step.to as string)), { recursive: true })
-        await relocate(resolveIn(step.store, step.from), resolveIn(step.store, step.to as string))
+        const destination = await resolveIn(step.store, step.to as string)
+        await fs.mkdir(path.dirname(destination), { recursive: true })
+        await relocate(await resolveIn(step.store, step.from), destination)
       } else if (step.type === 'trash') {
         await relocate(
-          resolveIn(step.store, step.from),
+          await resolveIn(step.store, step.from),
           trashPath(journalId, step.displaced as string)
         )
       } else {
-        const target = resolveIn(step.store, step.from)
+        const target = await resolveIn(step.store, step.from)
         if (step.displaced) {
           await fs.mkdir(path.dirname(trashPath(journalId, step.displaced)), { recursive: true })
           await fs.cp(target, trashPath(journalId, step.displaced), { recursive: true })
@@ -278,11 +304,12 @@ export function createMutations(locator: StoreLocator, now: () => number = Date.
     const steps: JournalStep[] = []
     for (const step of planned) {
       const relative = step.type === 'write' ? step.at : step.from
-      const target = resolveIn(step.store, relative)
+      const target = await resolveIn(step.store, relative)
+      const root = await rootOf(step.store)
       const displaced = `${step.store}/${relative}`
 
       if (step.type === 'move') {
-        const destination = resolveIn(step.store, step.to)
+        const destination = await resolveIn(step.store, step.to)
         if (!(await exists(target))) {
           throw new Refused('read-failed', relative, 'Nothing to move at that path.')
         }
@@ -294,7 +321,7 @@ export function createMutations(locator: StoreLocator, now: () => number = Date.
           store: step.store,
           from: relative,
           to: step.to,
-          created: await missingAncestors(destination, step.store)
+          created: await missingAncestors(destination, root)
         })
       } else if (step.type === 'trash') {
         if (!(await exists(target))) {
@@ -308,7 +335,7 @@ export function createMutations(locator: StoreLocator, now: () => number = Date.
           store: step.store,
           from: relative,
           ...(had ? { displaced } : {}),
-          created: await missingAncestors(target, step.store)
+          created: await missingAncestors(target, root)
         })
       }
     }
@@ -410,16 +437,16 @@ export function createMutations(locator: StoreLocator, now: () => number = Date.
         for (const step of [...original.steps].reverse()) {
           if (step.type === 'move') {
             await relocate(
-              resolveIn(step.store, step.to as string),
-              resolveIn(step.store, step.from)
+              await resolveIn(step.store, step.to as string),
+              await resolveIn(step.store, step.from)
             )
           } else if (step.type === 'trash') {
             await relocate(
               trashPath(original.id, step.displaced as string),
-              resolveIn(step.store, step.from)
+              await resolveIn(step.store, step.from)
             )
           } else {
-            const target = resolveIn(step.store, step.from)
+            const target = await resolveIn(step.store, step.from)
             // Nothing is destroyed: the current bytes go to the undo's trash
             // before whatever they displaced comes back.
             if (await exists(target)) {

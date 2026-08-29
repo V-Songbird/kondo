@@ -31,7 +31,9 @@ in temp directories by the builders in `test/helpers.ts`.
      the fixture byte-for-byte, nothing is unlinked, and no write lands
      outside a known store root or `<kondo-data>` —
      `test/mutation.test.ts` (ADR-0001). A mutation PR that does not extend
-     these is incomplete.
+     these is incomplete — the first one, the skill toggle, extends them in
+     `test/skill-toggle.test.ts` (journal before the move, both scopes, and
+     the matrix refusal).
 5. **End-to-end** (later): the built app driven against a fixture store via a
    `KONDO_STORE_ROOT` override.
 

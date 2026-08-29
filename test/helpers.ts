@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -103,3 +104,58 @@ export function healthyTranscript(sessionId: string): string {
 export const UUID_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 export const UUID_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 export const UUID_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+
+// ---------------------------------------------------------------------------
+// Write-path probes (ADR-0001), shared by every mutation suite
+
+/** Names + bytes of a whole tree, so "restored" means byte-for-byte. */
+export async function hashTree(root: string): Promise<string> {
+  const entries = await fs.readdir(root, { withFileTypes: true, recursive: true })
+  const manifest = entries
+    .map((entry) => {
+      const rel = path
+        .relative(root, path.join(entry.parentPath, entry.name))
+        .split(path.sep)
+        .join('/')
+      return entry.isDirectory() ? `${rel}/` : rel
+    })
+    .sort()
+  const hash = createHash('sha256')
+  for (const rel of manifest) {
+    hash.update(rel)
+    if (rel.endsWith('/')) continue
+    hash.update(await fs.readFile(path.join(root, ...rel.split('/'))))
+  }
+  return hash.digest('hex')
+}
+
+export async function exists(target: string): Promise<boolean> {
+  try {
+    await fs.stat(target)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Every fs entry point that can change bytes on disk. */
+const WRITE_METHODS = ['open', 'rename', 'writeFile', 'mkdir', 'cp', 'copyFile', 'rm'] as const
+
+/**
+ * Wrap — not stub — every write entry point, appending each target to `into`
+ * in call order. vi.spyOn replaces the implementation; ordering and boundary
+ * proofs need the real call to still happen, so the originals are patched
+ * back in by the returned restores.
+ */
+export function recordWrites(into: string[]): Array<() => void> {
+  return WRITE_METHODS.map((method) => {
+    const original = fs[method] as (...args: unknown[]) => unknown
+    const patched = (...args: unknown[]): unknown => {
+      if (typeof args[0] === 'string') into.push(args[0])
+      return original(...args)
+    }
+    Object.defineProperty(fs, method, { value: patched, configurable: true, writable: true })
+    return () =>
+      Object.defineProperty(fs, method, { value: original, configurable: true, writable: true })
+  })
+}

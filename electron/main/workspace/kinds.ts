@@ -1,5 +1,6 @@
 import type {
   Capabilities,
+  CapabilityOperation,
   DesktopSession,
   EntityIdentity,
   EntityKind,
@@ -114,15 +115,15 @@ export interface EntityKindDefinition<T extends EntityIdentity, D = T> {
   capabilities(scope: string): Capabilities
   /**
    * The store change that would enable (disable) one entity, or null when
-   * there is none to make. No kind builds a plan yet: the matrix says what
-   * Claude's conventions permit, and the mutations that act on it ship with
-   * the features that need them (ADR-0006).
+   * there is none to make. The matrix is the gate: a kind returns null for
+   * anything it refuses, so a refused operation never reaches a plan
+   * (ADR-0006). Kinds whose mutation has not shipped return null always.
    */
   enable(entity: T): MutationPlan | null
   disable(entity: T): MutationPlan | null
 }
 
-/** Every kind's enable/disable today — the seats, with nothing wired in. */
+/** A kind whose enable/disable has not shipped yet — the seat, unwired. */
 const noPlanYet = {
   enable: (): MutationPlan | null => null,
   disable: (): MutationPlan | null => null
@@ -139,6 +140,54 @@ async function findById<T extends EntityIdentity>(
 // ---------------------------------------------------------------------------
 // The kinds
 
+// Claude's own convention, and the whole of kondo's disable mechanism
+// (ADR-0006): the two sibling directories a skill moves between.
+const SKILLS = 'skills'
+const SKILLS_DISABLED = 'skills.disabled'
+
+/**
+ * The store a skill lives in and the move that flips its state. The store is
+ * `user` for the user scope and `project:<dirName>` for a project's — whose
+ * root is that project's `.claude` directory, so a step can never address
+ * anything above it (ADR-0002). Plugin-shipped skills have no placement:
+ * they live inside their plugin's tree and follow it.
+ */
+function skillPlacement(entity: SkillInfo): { store: string; from: string; to: string } | null {
+  // The id is `skill:<key>:<name>` by construction, so the key is exactly
+  // what sits between — no split a ':' in a directory name could confuse.
+  const key = entity.id.slice('skill:'.length, entity.id.length - entity.name.length - 1)
+  const between = (store: string, disabled: boolean) => ({
+    store,
+    from: `${disabled ? SKILLS_DISABLED : SKILLS}/${entity.name}`,
+    to: `${disabled ? SKILLS : SKILLS_DISABLED}/${entity.name}`
+  })
+  switch (entity.scope) {
+    case 'user':
+      return between('user', false)
+    case 'user-disabled':
+      return between('user', true)
+    case 'project':
+      return between(`project:${key.slice('project/'.length)}`, false)
+    case 'project-disabled':
+      return between(`project:${key.slice('project-disabled/'.length)}`, true)
+    default:
+      return null
+  }
+}
+
+function skillPlan(entity: SkillInfo, operation: CapabilityOperation): MutationPlan | null {
+  if (!entity.capabilities[operation].allowed) return null
+  const placement = skillPlacement(entity)
+  if (!placement) return null
+  return {
+    op: 'move',
+    kind: 'skill',
+    entityId: entity.id,
+    summary: `${operation === 'enable' ? 'Enable' : 'Disable'} skill ${entity.name} (${entity.scope})`,
+    steps: [{ type: 'move', ...placement }]
+  }
+}
+
 const skill: EntityKindDefinition<SkillInfo> = {
   kind: 'skill',
   scopes: scopesFor('skill'),
@@ -153,7 +202,8 @@ const skill: EntityKindDefinition<SkillInfo> = {
     return findById(id, skill.discover(context))
   },
   capabilities: (scope) => capabilitiesFor('skill', scope),
-  ...noPlanYet
+  enable: (entity) => skillPlan(entity, 'enable'),
+  disable: (entity) => skillPlan(entity, 'disable')
 }
 
 const plugin: EntityKindDefinition<PluginInfo> = {

@@ -79,6 +79,10 @@ usage):
   `enabledPlugins`, `hooks`, `permissions` appear here too.
 - `skills/`, `commands/`, `agents/`, `rules/`, `hooks/` ◇ — project-scope
   variants.
+- `skills.disabled/` ◇ — the project-scope counterpart of the user store's
+  disable convention. Unobserved in the wild; kondo writes it because ADR-0006
+  chose the scoped equivalent over inventing state, and reads it back as the
+  `project-disabled` skill scope.
 - Settings precedence: local > project > user ◇. The settings viewer renders
   these as layers.
 

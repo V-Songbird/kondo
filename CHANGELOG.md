@@ -31,3 +31,9 @@ All notable changes to kondo are documented here. The format follows
   entity now crosses the seam carrying its `kind` and what may be done to
   it, so the UI can say *why* something is read-only. No mutation is wired
   into the registry yet.
+- Enable and disable a skill from the skills view — kondo's first mutation. The
+  skill directory moves between `skills` and `skills.disabled` in its own scope
+  (ADR-0006), through the journal, so every toggle is undoable. Project skills
+  toggle inside their own project's `.claude`; plugin-shipped skills are refused
+  by the capability matrix with the reason shown on the button. The list is
+  re-read from the store after every toggle rather than patched.

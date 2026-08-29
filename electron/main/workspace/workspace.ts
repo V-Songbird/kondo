@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
+  CapabilityOperation,
+  JournalEntryInfo,
   KondoApi,
   Scan,
   ScanError,
@@ -39,6 +41,9 @@ export interface WorkspaceOptions {
   guessExists?: (target: string) => Promise<boolean>
 }
 
+/** The store-name prefix a project's `.claude` root answers to (ADR-0008). */
+const PROJECT_STORE = 'project:'
+
 interface InventoryState {
   scan: Scan<SessionInventory>
   verified: VerifiedProject[]
@@ -50,9 +55,18 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
   let inventoryState: Promise<InventoryState> | null = null
 
-  // The write path (ADR-0001). No mutation channel ships yet; the journal
-  // and the trash are readable and reversible from the moment they exist.
-  const mutations = createMutations(locator, now)
+  // The write path (ADR-0001). `user` and `desktop` come from the locator;
+  // a project store is resolved here, because only the workspace knows which
+  // projects verified — and it resolves to the project's `.claude` directory,
+  // never the project itself (ADR-0002).
+  const mutations = createMutations(locator, now, async (store) => {
+    if (!store.startsWith(PROJECT_STORE)) return null
+    const dirName = store.slice(PROJECT_STORE.length)
+    const project = (await inventory()).verified.find(
+      (candidate) => candidate.dirName === dirName
+    )
+    return project ? path.join(project.absPath, '.claude') : null
+  })
 
   const inventory = (refresh = false): Promise<InventoryState> => {
     if (!inventoryState || refresh) {
@@ -193,6 +207,35 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     async skillsList() {
       const c = collector()
       return finish((await kinds.skill.discover(context(c))) ?? [], c)
+    },
+
+    async skillToggle(
+      skillId: string,
+      operation: CapabilityOperation
+    ): Promise<Scan<JournalEntryInfo | null>> {
+      if (typeof skillId !== 'string' || !skillId.startsWith('skill:')) {
+        return badRequest(null, 'skillToggle expects a skill: id.')
+      }
+      if (operation !== 'enable' && operation !== 'disable') {
+        return badRequest(null, 'skillToggle expects enable or disable.')
+      }
+      const c = collector()
+      const entity = await kinds.skill.read(skillId, context(c))
+      if (!entity) return unknownId(null, skillId)
+
+      const plan =
+        operation === 'enable' ? kinds.skill.enable(entity) : kinds.skill.disable(entity)
+      if (!plan) {
+        // The matrix refused, not the UI — its reason is the whole answer.
+        c.errors.push({
+          code: 'not-permitted',
+          path: skillId,
+          message:
+            entity.capabilities[operation].reason ?? `kondo cannot ${operation} this skill.`
+        })
+        return finish(null, c)
+      }
+      return mutations.mutate(plan)
     },
 
     async pluginsList() {
