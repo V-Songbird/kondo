@@ -96,6 +96,24 @@ describe('workspace (KondoApi)', () => {
     expect(project?.keys).toContain('outputStyle')
   })
 
+  it('exposes an empty journal and trash before anything has been written', async () => {
+    const journal = await api.journalList()
+    expect(journal.errors).toEqual([])
+    expect(journal.data).toEqual([])
+
+    const trash = await api.trashSize()
+    expect(trash.errors).toEqual([])
+    expect(trash.data.bytes).toBe(0)
+    expect(trash.data.entryCount).toBe(0)
+    expect(trash.data.root.endsWith('trash')).toBe(true)
+  })
+
+  it('refuses an undo id that is not a journal id', async () => {
+    const bad = await api.journalUndo('skill:user:alpha-skill')
+    expect(bad.data).toBeNull()
+    expect(bad.errors[0]?.code).toBe('bad-request')
+  })
+
   it('summarizes both stores in the overview', async () => {
     const overview = await api.storesOverview()
     expect(overview.data.sessions.projectCount).toBe(1)

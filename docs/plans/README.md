@@ -14,7 +14,7 @@ between the two is the part a later reader needs.
 ## Index
 
 - [v0.1 — the read-only core](v1-read-only-core.md) — **done**
-- [001 — the mutation journal and kondo trash](001-mutation-journal-and-trash.md) — in progress
+- [001 — the mutation journal and kondo trash](001-mutation-journal-and-trash.md) — **done**
 
 ## Template
 

@@ -70,6 +70,8 @@ describe('privacy boundary (ADR-0002)', () => {
     await api.pluginsList()
     await api.hooksList()
     await api.settingsLayers()
+    await api.journalList()
+    await api.trashSize()
 
     const claudeDir = path.join(workdir, '.claude')
     const allowed = (target: string): boolean => {
@@ -77,7 +79,14 @@ describe('privacy boundary (ADR-0002)', () => {
         const rel = path.relative(root, target)
         return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
       }
-      return inside(world.userRoot) || inside(world.desktopRoot) || inside(claudeDir) || target === workdir
+      return (
+        inside(world.userRoot) ||
+        inside(world.desktopRoot) ||
+        // Kondo's own footprint: the journal and the trash (ADR-0001).
+        inside(world.kondoDataRoot) ||
+        inside(claudeDir) ||
+        target === workdir
+      )
     }
 
     const touched = spies

@@ -1,6 +1,6 @@
 # Plan: 001 — the mutation journal and kondo trash
 
-Status: **in progress**
+Status: **done**
 
 Roadmap entry `001`. ADR-0001 says every mutation kondo performs can be
 undone, and the mechanism is uniform rather than per-feature. Nothing in the
@@ -88,3 +88,21 @@ A test-only mutation runs end to end against a fixture store, its journal
 entry is on disk before the change, and `undo` restores the fixture
 byte-for-byte. `npm test`, `npm run typecheck`, `npm run lint` and
 `npm run guards` all green.
+
+## What actually shipped
+
+`electron/main/workspace/mutations.ts` holds `mutate`, `undo`, `list` and
+`trashSize`; the workspace exposes the last three on the seam as
+`journalList`, `journalUndo` and `trashSize`. `mutate` stays main-process
+only — there is still nothing to mutate. Four places where the code differs
+from the design above:
+
+| # | Divergence | Why |
+|---|---|---|
+| 1 | `undoneBy` is not stored; it is derived at read time from the undo entry's `undoOf` | The file is append-only, so it cannot also rewrite a past line. One field on the undo entry says the same thing and keeps that true. |
+| 2 | Each step records `created` — the directories it had to make | Without it an undone move leaves an empty `skills.disabled/` behind, and "byte-for-byte" is a lie. Undo removes those directories only while they are still empty. |
+| 3 | Store roots are named (`user`, `desktop`), and a step names one plus a relative path | Decision 4 wanted store-relative paths; naming the root is what makes them resolvable, and it is also the confinement check. Project roots arrive with `005`. |
+| 4 | Undoing a `write` first moves the current bytes into the undo's own trash | "Nothing is unlinked" has to hold for undo too, or a restore silently destroys what kondo wrote. |
+
+The safety invariants live in `test/mutation.test.ts` (12 cases), and
+`test/boundary.test.ts` now sweeps the journal and trash reads too.

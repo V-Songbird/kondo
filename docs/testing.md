@@ -27,10 +27,11 @@ in temp directories by the builders in `test/helpers.ts`.
    - The renderer has no filesystem or Electron access, the contract stays
      platform-free, and only the locator and composition root resolve
      machine locations — `test/safety.test.ts` (structural).
-   - **v0.2, lands with the first mutation:** every mutation writes a
-     journal entry before touching the store, its undo restores the fixture
-     byte-for-byte, and no code path writes outside a known store or kondo's
-     own data directory. A mutation PR without these tests is incomplete.
+   - Every mutation journals before it touches the store, its undo restores
+     the fixture byte-for-byte, nothing is unlinked, and no write lands
+     outside a known store root or `<kondo-data>` —
+     `test/mutation.test.ts` (ADR-0001). A mutation PR that does not extend
+     these is incomplete.
 5. **End-to-end** (later): the built app driven against a fixture store via a
    `KONDO_STORE_ROOT` override.
 

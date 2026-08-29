@@ -1,0 +1,2 @@
+{"foreman_notes_format":1}
+{"area":"test","paths":["CHANGELOG.md","docs/plans/001-mutation-journal-and-trash.md","docs/plans/README.md","docs/testing.md","test/boundary.test.ts","test/mutation.test.ts","test/workspace.test.ts"],"entry":"001","anchor":{"kind":"entry"},"date":"2026-08-29","lesson":"electron/main/workspace/mutations.ts keeps journal.jsonl strictly append-only: undoneBy is derived at read time from each undo entry undoOf field, so no code may rewrite a past journal line."}

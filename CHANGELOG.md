@@ -18,3 +18,9 @@ All notable changes to kondo are documented here. The format follows
 - Four jig guards enforcing renderer purity, the no-network promise, ids
   across the seam, and tests never touching a real store — blocking in CI via
   `npm run guards`.
+- The write path (ADR-0001): an append-only mutation journal at
+  `<kondo-data>/journal.jsonl` written durably before any store byte moves, a
+  kondo-owned trash at `<kondo-data>/trash/<journal-id>/` that keeps every
+  displaced byte, and `undo` restoring a whole multi-step operation. Readable
+  across the seam as `journalList`, `journalUndo` and `trashSize`; no
+  mutation channel ships yet.
