@@ -1,0 +1,8 @@
+{
+  "ledger": {
+    "enabled": true
+  },
+  "fableEnabled": true,
+  "omitSections": ["tone", "output_format"],
+  "usePersona": false
+}
