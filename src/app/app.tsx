@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Dashboard } from '../features/dashboard/dashboard'
 import { Sessions } from '../features/sessions/sessions'
+import { Tidy } from '../features/tidy/tidy'
 import { Skills } from '../features/skills/skills'
 import { Plugins } from '../features/plugins/plugins'
 import { Hooks } from '../features/hooks/hooks'
@@ -9,6 +10,7 @@ import { Settings } from '../features/settings/settings'
 const views = [
   { key: 'dashboard', label: 'Dashboard', component: Dashboard },
   { key: 'sessions', label: 'Sessions', component: Sessions },
+  { key: 'tidy', label: 'Tidy', component: Tidy },
   { key: 'skills', label: 'Skills', component: Skills },
   { key: 'plugins', label: 'Plugins', component: Plugins },
   { key: 'hooks', label: 'Hooks', component: Hooks },

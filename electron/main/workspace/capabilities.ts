@@ -44,6 +44,8 @@ const HOOK_HAS_NO_CONVENTION =
 const NOT_A_TOGGLE = 'A settings layer is a file, not a toggle.'
 const SESSIONS_ARE_SWEPT =
   'Sessions have no enabled state; they are swept through the kondo trash.'
+const STORE_IS_NOT_A_TOGGLE =
+  'A store is not a toggle; the tidy sweep is the only thing that writes at this level.'
 
 /**
  * The matrix itself. Second key is the entity's scope — the middle segment
@@ -84,6 +86,13 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
   },
   project: {
     code: neither(SESSIONS_ARE_SWEPT)
+  },
+  // No listing produces a `store:` entity — this row exists so the sweep's
+  // journal entry can name what it acted on truthfully, and so that anything
+  // later reaching for a store-level toggle is refused rather than invented.
+  store: {
+    user: neither(STORE_IS_NOT_A_TOGGLE),
+    desktop: neither(STORE_IS_NOT_A_TOGGLE)
   }
 }
 

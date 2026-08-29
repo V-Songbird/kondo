@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { channels, type KondoApi, type ToggleOperation } from '../../shared/contract'
+import {
+  channels,
+  type KondoApi,
+  type TidyCategory,
+  type ToggleOperation
+} from '../../shared/contract'
 
 /** The bridge stays dumb: one invoke per method, no logic, no state. */
 const api: KondoApi = {
@@ -24,6 +29,9 @@ const api: KondoApi = {
     ipcRenderer.invoke(channels.pluginToggle, pluginId, layerId, operation, createLayer === true),
   hooksList: () => ipcRenderer.invoke(channels.hooksList),
   settingsLayers: () => ipcRenderer.invoke(channels.settingsLayers),
+  tidyPreview: () => ipcRenderer.invoke(channels.tidyPreview),
+  tidySweep: (categories: TidyCategory[]) =>
+    ipcRenderer.invoke(channels.tidySweep, categories),
   journalList: () => ipcRenderer.invoke(channels.journalList),
   journalUndo: (journalId: string) => ipcRenderer.invoke(channels.journalUndo, journalId),
   trashSize: () => ipcRenderer.invoke(channels.trashSize)

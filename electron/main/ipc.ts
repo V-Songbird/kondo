@@ -1,5 +1,10 @@
 import { ipcMain } from 'electron'
-import { channels, type KondoApi, type ToggleOperation } from '../../shared/contract'
+import {
+  channels,
+  type KondoApi,
+  type TidyCategory,
+  type ToggleOperation
+} from '../../shared/contract'
 
 /**
  * Channel registration: one line per KondoApi method, argument types checked
@@ -38,6 +43,10 @@ export function registerIpc(api: KondoApi): void {
   )
   ipcMain.handle(channels.hooksList, () => api.hooksList())
   ipcMain.handle(channels.settingsLayers, () => api.settingsLayers())
+  ipcMain.handle(channels.tidyPreview, () => api.tidyPreview())
+  ipcMain.handle(channels.tidySweep, (_event, categories: unknown) =>
+    api.tidySweep(categories as TidyCategory[])
+  )
   ipcMain.handle(channels.journalList, () => api.journalList())
   ipcMain.handle(channels.journalUndo, (_event, journalId: unknown) =>
     api.journalUndo(String(journalId))

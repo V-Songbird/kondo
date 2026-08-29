@@ -7,6 +7,8 @@ import type {
   ScanError,
   SessionDetail,
   StoresOverview,
+  TidyCategory,
+  TidyPreview,
   ToggleOperation
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
@@ -27,6 +29,7 @@ import { userStoreReport, type VerifiedProject } from './user-store'
 import { desktopStoreReport } from './desktop-store'
 import { isStale } from './analysis'
 import { createMutations } from './mutations'
+import { readCategories, scanTidyCandidates, tidyPlan, toTidyPreview } from './tidy'
 
 /**
  * The workspace: the server side of KondoApi. Owns the cached session
@@ -83,6 +86,15 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       })()
     }
     return inventoryState
+  }
+
+  /**
+   * ADR-0006: the store is the state. A sweep — or the undo of one — changes
+   * the very tree the inventory was built from, so the cache is dropped and
+   * the next read rescans instead of replaying what is no longer there.
+   */
+  const dropInventory = (): void => {
+    inventoryState = null
   }
 
   /** Projects whose reconstructed path exists AND has a .claude directory. */
@@ -319,15 +331,53 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       return finish((await kinds.settings.discover(context(c))) ?? [], c)
     },
 
+    async tidyPreview(): Promise<Scan<TidyPreview>> {
+      const c = collector()
+      const { scan } = await inventory()
+      const candidates = await scanTidyCandidates(locator, scan.data, now(), c)
+      return {
+        data: toTidyPreview(candidates),
+        errors: [...scan.errors, ...c.errors],
+        unknown: [...scan.unknown, ...c.unknown]
+      }
+    },
+
+    async tidySweep(categories: TidyCategory[]): Promise<Scan<JournalEntryInfo | null>> {
+      const chosen = readCategories(categories)
+      if (chosen === null) {
+        return badRequest(null, 'tidySweep expects an array of known tidy categories.')
+      }
+      const c = collector()
+      // The same cached scan the preview was built from (ADR-0007), so the
+      // sweep moves the set the user confirmed rather than one rediscovered
+      // a moment later. An item that vanished in between refuses the whole
+      // plan in `mutate` — all of the preview or none of it.
+      const { scan } = await inventory()
+      const plan = tidyPlan(await scanTidyCandidates(locator, scan.data, now(), c), chosen)
+      // Nothing to sweep is the ordinary answer on a tidy store, not an
+      // error: no journal entry, and not a byte touched.
+      if (plan === null) return finish<JournalEntryInfo | null>(null, c)
+
+      const result = await mutations.mutate(plan)
+      if (result.data) dropInventory()
+      return {
+        data: result.data,
+        errors: [...c.errors, ...result.errors],
+        unknown: [...c.unknown, ...result.unknown]
+      }
+    },
+
     journalList() {
       return mutations.list()
     },
 
-    journalUndo(journalId: string) {
+    async journalUndo(journalId: string) {
       if (typeof journalId !== 'string' || !journalId.startsWith('journal:')) {
-        return Promise.resolve(badRequest(null, 'journalUndo expects a journal: id.'))
+        return badRequest(null, 'journalUndo expects a journal: id.')
       }
-      return mutations.undo(journalId)
+      const result = await mutations.undo(journalId)
+      if (result.data) dropInventory()
+      return result
     },
 
     trashSize() {

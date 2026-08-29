@@ -24,7 +24,12 @@ export interface SessionRecord {
   file: string
   bytes: number
   mtimeMs: number
-  hasSidecar: boolean
+  /**
+   * The sibling directory's real name on disk, or null when there is none.
+   * The name and not a flag, because the sweep has to displace that exact
+   * directory and the match that found it is case-insensitive.
+   */
+  sidecar: string | null
 }
 
 export interface ProjectRecord {
@@ -83,13 +88,13 @@ async function scanProject(
   const entries = await safeReaddir(absPath, display, c)
 
   const sessions: SessionRecord[] = []
-  const sidecars = new Set<string>()
+  const sidecars = new Map<string, string>()
   const orphanCandidates: string[] = []
 
   for (const entry of entries) {
     if (entry.isDirectory()) {
       if (UUID_DIR.test(entry.name)) {
-        sidecars.add(entry.name.toLowerCase())
+        sidecars.set(entry.name.toLowerCase(), entry.name)
         orphanCandidates.push(entry.name)
       } else if (!KNOWN_PROJECT_ENTRIES.has(entry.name)) {
         c.unknown.push(`${display}/${entry.name}`)
@@ -109,12 +114,12 @@ async function scanProject(
       file,
       bytes: info.size,
       mtimeMs: info.mtimeMs,
-      hasSidecar: false
+      sidecar: null
     })
   }
 
   const transcriptUuids = new Set(sessions.map((session) => session.uuid))
-  for (const session of sessions) session.hasSidecar = sidecars.has(session.uuid)
+  for (const session of sessions) session.sidecar = sidecars.get(session.uuid) ?? null
   const orphanDirs = orphanCandidates.filter(
     (name) => !transcriptUuids.has(name.toLowerCase())
   )
@@ -168,6 +173,6 @@ export function toSessionSummaries(
     bytes: session.bytes,
     mtimeMs: session.mtimeMs,
     stale: isStale(session.mtimeMs, nowMs),
-    hasSidecar: session.hasSidecar
+    hasSidecar: session.sidecar !== null
   }))
 }

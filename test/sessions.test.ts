@@ -47,8 +47,10 @@ describe('scanSessionInventory', () => {
     expect(project.orphanDirs).toEqual([UUID_C])
 
     const byUuid = new Map(project.sessions.map((session) => [session.uuid, session]))
-    expect(byUuid.get(UUID_A)?.hasSidecar).toBe(false)
-    expect(byUuid.get(UUID_B)?.hasSidecar).toBe(true)
+    // The sidecar's real directory name, not a flag: the sweep has to
+    // displace that exact directory, and the match that found it ignores case.
+    expect(byUuid.get(UUID_A)?.sidecar).toBeNull()
+    expect(byUuid.get(UUID_B)?.sidecar).toBe(UUID_B)
 
     expect(scan.unknown.some((entry) => entry.endsWith('stray.txt'))).toBe(true)
     expect(scan.unknown.some((entry) => entry.includes('memory'))).toBe(false)

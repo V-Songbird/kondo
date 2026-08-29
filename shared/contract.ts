@@ -52,7 +52,19 @@ export interface Scan<T> {
  * a hard-coded adapter call, and every kind supplies discover / read /
  * capabilities / enable / disable.
  */
-export type EntityKind = 'skill' | 'plugin' | 'hook' | 'settings' | 'session' | 'project'
+export type EntityKind =
+  | 'skill'
+  | 'plugin'
+  | 'hook'
+  | 'settings'
+  | 'session'
+  | 'project'
+  /**
+   * A whole store, rather than one thing inside it. The tidy sweep acts at
+   * this level: it displaces transcripts, sidecars and cache directories in
+   * one operation, so no single entity below is the thing it changed.
+   */
+  | 'store'
 
 /** The two directions of a toggle — the operations that flip existing state. */
 export type ToggleOperation = 'enable' | 'disable'
@@ -295,6 +307,54 @@ export interface TrashReport {
 }
 
 // ---------------------------------------------------------------------------
+// The tidy sweep (ADR-0001)
+
+/**
+ * What a sweep can reclaim, in the order the preview lists it. Each category
+ * is previewed and swept on its own, so a user who wants dead caches gone
+ * but every transcript kept can say exactly that.
+ *
+ * A runtime array, not a bare union, because the renderer builds the preview
+ * from it and the main process validates against it — one source of truth.
+ */
+export const tidyCategories = [
+  /** Transcripts untouched past the stale threshold, sidecar state included. */
+  'stale-sessions',
+  /** Zero-byte transcripts — a session that recorded nothing at all. */
+  'empty-transcripts',
+  /** `<uuid>/` sidecar directories whose transcript is already gone. */
+  'orphan-sidecars',
+  /** Support directories domain.md marks reclaimable; Claude rebuilds them. */
+  'reclaimable-caches'
+] as const
+
+export type TidyCategory = (typeof tidyCategories)[number]
+
+export interface TidyCategoryPreview {
+  category: TidyCategory
+  /** Items this category would move; a session and its sidecar count once. */
+  count: number
+  /**
+   * What the store gets back. Transcript and directory bytes as the
+   * inventory measured them — a session's sidecar directory rides along
+   * uncounted, the same tier-1 limit the sessions view means by "transcript
+   * bytes" (ADR-0007).
+   */
+  bytes: number
+  /** Display paths of the first few, so the count is inspectable. */
+  examples: string[]
+}
+
+export interface TidyPreview {
+  /** Every category, always — a category with nothing to sweep reports zero. */
+  categories: TidyCategoryPreview[]
+  totalCount: number
+  totalBytes: number
+  /** The staleness threshold in days, so the UI names it rather than guesses. */
+  staleAfterDays: number
+}
+
+// ---------------------------------------------------------------------------
 // The API surface
 
 export interface KondoApi {
@@ -348,6 +408,25 @@ export interface KondoApi {
   ): Promise<Scan<JournalEntryInfo | null>>
   hooksList(): Promise<Scan<HookInfo[]>>
   settingsLayers(): Promise<Scan<SettingsLayerInfo[]>>
+  /**
+   * What a sweep would move, computed without moving anything: counts and
+   * bytes per category, off the cached tier-1 inventory rather than a walk
+   * of every transcript (ADR-0007). This is the dry run the user confirms.
+   */
+  tidyPreview(): Promise<Scan<TidyPreview>>
+  /**
+   * Displace everything in the chosen categories into kondo's trash as ONE
+   * journal entry, so a single undo restores the whole sweep together
+   * (ADR-0001). Nothing is ever unlinked.
+   *
+   * The set moved is the set `tidyPreview` named: both read the same cached
+   * scan, and an item that disappeared in between refuses the sweep whole
+   * rather than quietly moving a different set. Nothing to sweep is the
+   * ordinary answer on a tidy store, not an error — it returns null and
+   * writes no journal entry. A sweep changes the tree the inventory was
+   * built from, so callers re-read rather than patching.
+   */
+  tidySweep(categories: TidyCategory[]): Promise<Scan<JournalEntryInfo | null>>
   /** Journal entries, newest first. */
   journalList(): Promise<Scan<JournalEntryInfo[]>>
   /** Reverse one entry; the undo is itself journaled and returned. */
@@ -369,6 +448,8 @@ export const channels = {
   pluginToggle: 'kondo:plugin-toggle',
   hooksList: 'kondo:hooks-list',
   settingsLayers: 'kondo:settings-layers',
+  tidyPreview: 'kondo:tidy-preview',
+  tidySweep: 'kondo:tidy-sweep',
   journalList: 'kondo:journal-list',
   journalUndo: 'kondo:journal-undo',
   trashSize: 'kondo:trash-size'
