@@ -1,4 +1,4 @@
-# jig plan 56fc3ff5978c
+# jig plan a18d42594bf4
 
 Every cell below is computed from each detector's own metadata and from the changes
 this plan writes. Nothing here is hand-written prose about coverage.
@@ -11,10 +11,12 @@ this plan writes. Nothing here is hand-written prose about coverage.
 
 | class | provenance | human-editor | human-ci | claude-session | codex-session |
 | --- | --- | --- | --- | --- | --- |
-| `outbound-network-call` | elicited | DET .jig/checks/outbound-network-call.check.mjs | GAP — no detector on this class names human-ci | DET outbound-network-call-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
-| `raw-path-across-the-seam` | elicited | DET .jig/checks/raw-path-across-the-seam.check.mjs | GAP — no detector on this class names human-ci | DET raw-path-across-the-seam-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
-| `renderer-reaches-past-the-bridge` | elicited | DET .jig/checks/renderer-reaches-past-the-bridge.check.mjs | GAP — no detector on this class names human-ci | DET renderer-reaches-past-the-bridge-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
-| `test-touches-a-real-store` | elicited | DET .jig/checks/test-touches-a-real-store.check.mjs | GAP — no detector on this class names human-ci | DET test-touches-a-real-store-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
+| `outbound-network-call` | elicited | GAP — this plan writes no check-driver artifact for outbound-network-call | GAP — no detector on this class names human-ci | DET outbound-network-call-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
+| `raw-path-across-the-seam` | elicited | GAP — this plan writes no check-driver artifact for raw-path-across-the-seam | GAP — no detector on this class names human-ci | DET raw-path-across-the-seam-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
+| `renderer-reaches-past-the-bridge` | elicited | GAP — this plan writes no check-driver artifact for renderer-reaches-past-the-bridge | GAP — no detector on this class names human-ci | DET renderer-reaches-past-the-bridge-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
+| `seam-contract-outruns-its-adr` | elicited | DET .jig/checks/seam-contract-outruns-its-adr.check.mjs | GAP — no detector on this class names human-ci | GAP — no detector on this class names claude-session | GAP — no detector on this class names codex-session |
+| `test-touches-a-real-store` | elicited | GAP — this plan writes no check-driver artifact for test-touches-a-real-store | GAP — no detector on this class names human-ci | DET test-touches-a-real-store-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
+| `workspace-adapter-outruns-domain-doc` | elicited | DET .jig/checks/workspace-adapter-outruns-domain-doc.check.mjs | GAP — no detector on this class names human-ci | GAP — no detector on this class names claude-session | GAP — no detector on this class names codex-session |
 
 These artifacts are written but cannot be read back by jig, so their correctness is
 nobody's guarantee:
@@ -27,16 +29,22 @@ nobody's guarantee:
 Approve in one go — these only ever report:
 
 - `activation-7f3cad96` → `.jig/activation.md` — reports only, and refuses nothing
-- `check-driver-75f25362` → `.jig/checks/run.mjs` — reports only, and refuses nothing
 - `hook-shim-a2b08288` → `.jig/hooks/pre-commit` — reports only, and refuses nothing
 
 Approve one at a time — each of these can refuse something:
 
-- `check-outbound-network-call-2f0d94a1` → `.jig/checks/outbound-network-call.check.mjs` — installs a check the driver and CI both run, so it can fail a build
-- `check-raw-path-across-the-seam-1ea43f03` → `.jig/checks/raw-path-across-the-seam.check.mjs` — installs a check the driver and CI both run, so it can fail a build
-- `check-renderer-reaches-past-the-bridge-3453234c` → `.jig/checks/renderer-reaches-past-the-bridge.check.mjs` — installs a check the driver and CI both run, so it can fail a build
-- `check-test-touches-a-real-store-fc323178` → `.jig/checks/test-touches-a-real-store.check.mjs` — installs a check the driver and CI both run, so it can fail a build
+- `check-seam-contract-outruns-its-adr-37594611` → `.jig/checks/seam-contract-outruns-its-adr.check.mjs` — installs a check the driver and CI both run, so it can fail a build
+- `check-workspace-adapter-outruns-domain-doc-6541cb51` → `.jig/checks/workspace-adapter-outruns-domain-doc.check.mjs` — installs a check the driver and CI both run, so it can fail a build
 - `config-61328b28` → `.jig/config.json` — wires 4 guards into a hook that can refuse a tool call
+- `wire-commit-e7ac6b1e` → `git:core.hooksPath` — changes core.hooksPath in this clone, which decides whether your commits are checked at all
+
+## Refused
+
+- .jig/checks/run.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating
+- .jig/checks/renderer-reaches-past-the-bridge.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating
+- .jig/checks/outbound-network-call.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating
+- .jig/checks/raw-path-across-the-seam.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating
+- .jig/checks/test-touches-a-real-store.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating
 
 ## Backlog
 

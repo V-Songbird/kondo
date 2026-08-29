@@ -15,6 +15,13 @@
 //
 // Exit code is 1 when anything was found and 0 when nothing was. A selftest
 // exits 1 when a check failed to catch its own seeded violation.
+//
+// A check declares one of two detector kinds. A pattern detector is a regular
+// expression over the files a glob names. A paired-change detector names two
+// path sets and reports a staged change that touched the first and nothing in
+// the second — the doc left behind by the module, the migration left behind by
+// the schema. It reads the git index, so it has something to say at commit time
+// and reports itself skipped anywhere nothing is staged.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -342,6 +349,20 @@ function makeContext(root, only) {
       if (run.error || run.status !== 0) return { ok: false, stdout: "" };
       return { ok: true, stdout: run.stdout };
     },
+    // The staged change set, and what a paired-change detector reads.
+    //
+    // Staged and nothing else. A base ref would have to be guessed, and a
+    // guessed base makes the same check say different things on a branch, on a
+    // merge, and on a shallow CI clone — three answers is worse than one honest
+    // limit. Nothing staged returns null, which the caller reports as a skip
+    // rather than a pass: a class nobody could evaluate is not a class that
+    // came back clean.
+    changed() {
+      const run = this.git(["diff", "--cached", "--name-only"]);
+      if (!run.ok) return null;
+      const list = run.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+      return list.length ? list : null;
+    },
   };
 }
 
@@ -381,6 +402,30 @@ function driverDetectors(mod) {
 function scanWith(ctx, mod, det) {
   const p = det.params;
   return ctx.scan(mod.id, p.paths || [], p.patterns, p);
+}
+
+// The second detector kind, and the only one that is not a regular expression
+// over source. A pattern detector asks what is inside one file. A paired-change
+// detector asks what moved together, which is a question no pattern can reach:
+// the doc that has to follow the module, the migration that has to follow the
+// schema, the fixture that has to follow the format. `paths` names the files
+// whose change obliges something matching `pairedWith` to change with them.
+function pairedDetectors(mod) {
+  return mod.detectors.filter((det) => det && det.runner === "checks" && det.params &&
+    Array.isArray(det.params.pairedWith) && det.params.pairedWith.length &&
+    Array.isArray(det.params.paths) && det.params.paths.length);
+}
+
+// The finding names the file that moved without its pair, at line 1. The
+// mistake is the absence of another file, so there is no line in this one to
+// point at, and pretending otherwise would send somebody to an innocent line.
+function pairedFindings(ctx, mod, det, changed) {
+  const p = det.params;
+  const touched = changed.filter((rel) => matchesAny(rel, p.paths));
+  if (!touched.length) return [];
+  if (changed.some((rel) => matchesAny(rel, p.pairedWith))) return [];
+  const note = "changed with nothing matching " + p.pairedWith.join(" or ");
+  return touched.map((rel) => ctx.finding(mod.id, rel, 1, "paired:" + p.pairedWith.join(","), note));
 }
 
 // The fixture pair is stored inline, so the driver has to invent the path it
@@ -432,15 +477,31 @@ async function runChecks(root, only) {
   const findings = [];
   const skipped = [];
   const broken = [];
+  // Read once, for every paired detector in the run. Asking git per check would
+  // spawn a process per module to learn the same fact.
+  let changed;
   for (const mod of await loadChecks()) {
     if (mod.broken) { broken.push({ id: mod.id, why: mod.broken }); continue; }
     const mine = driverDetectors(mod);
-    if (!mine.length) {
+    const paired = pairedDetectors(mod);
+    if (!mine.length && !paired.length) {
       skipped.push({ id: mod.id, why: "no detector this driver runs — it is watched elsewhere", command: null });
       continue;
     }
     try {
       for (const det of mine) findings.push(...scanWith(ctx, mod, det));
+      if (paired.length) {
+        if (changed === undefined) changed = ctx.changed();
+        if (changed === null) {
+          skipped.push({
+            id: mod.id,
+            why: "nothing is staged, so there is no change set to read — this class is watched at commit time",
+            command: null,
+          });
+        } else {
+          for (const det of paired) findings.push(...pairedFindings(ctx, mod, det, changed));
+        }
+      }
     } catch (err) {
       broken.push({ id: mod.id, why: err.message });
     }
@@ -461,8 +522,10 @@ async function runSelftest() {
     for (const mod of await loadChecks()) {
       if (mod.broken) { results.push({ id: mod.id, caught: false, why: mod.broken }); continue; }
       const mine = driverDetectors(mod);
+      const paired = pairedDetectors(mod);
       const pair = mod.fixtures;
-      if (!mine.length || !pair || typeof pair.violation !== "string" || typeof pair.nearMiss !== "string") {
+      if ((!mine.length && !paired.length) || !pair ||
+          typeof pair.violation !== "string" || typeof pair.nearMiss !== "string") {
         results.push({ id: mod.id, caught: null, why: "carries no fixture pair this driver can run", command: null });
         continue;
       }
@@ -486,6 +549,18 @@ async function runSelftest() {
           fs.rmSync(full, { force: true });
         }
         if (failed) break;
+      }
+      // A paired-change fixture is a change set rather than source text: one
+      // path per line. Nothing is written to disk for it, because the thing
+      // under test is which paths appear together, and a list is already that.
+      if (!failed && paired.length) {
+        const asSet = (text) => text.split("\n").map((s) => s.trim()).filter(Boolean);
+        const bare = makeContext(dir, []);
+        for (const det of paired) {
+          if (!seeded) seeded = (det.params.paths || []).join(", ") || null;
+          hits += pairedFindings(bare, mod, det, asSet(pair.violation)).length;
+          nearMissHits += pairedFindings(bare, mod, det, asSet(pair.nearMiss)).length;
+        }
       }
       if (failed) { results.push({ id: mod.id, caught: false, why: failed }); continue; }
       const why = hits === 0 ? "the seeded violation did not fire the check"

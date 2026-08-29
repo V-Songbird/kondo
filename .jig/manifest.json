@@ -186,6 +186,47 @@
       "txId": "25702e7f1b33"
     },
     {
+      "id": "check-driver-4ed09965",
+      "classIds": [
+        "seam-contract-outruns-its-adr",
+        "workspace-adapter-outruns-domain-doc"
+      ],
+      "kind": "write-side-file",
+      "path": ".jig/checks/run.mjs",
+      "ownership": "file",
+      "hash": "4ed09965b0858406e07fff9fce7f2f31ff3cd08fc596c5a9cb6011c15f0e32bc",
+      "provenance": "elicited",
+      "proof": null,
+      "install": null,
+      "template": {
+        "name": "check-driver",
+        "version": "1.1.0"
+      },
+      "state": "active",
+      "installedAt": "2026-08-29T19:30:50.888Z",
+      "txId": "247cc9d148cc"
+    },
+    {
+      "id": "check-seam-contract-outruns-its-adr-37594611",
+      "classIds": [
+        "seam-contract-outruns-its-adr"
+      ],
+      "kind": "write-side-file",
+      "path": ".jig/checks/seam-contract-outruns-its-adr.check.mjs",
+      "ownership": "file",
+      "hash": "37594611626a3a6daa4b6acb36c21f44ba08a9ca04090b56957a85b7a13a9480",
+      "provenance": "elicited",
+      "proof": "0264b318edee0b9d30211ac7a6fbea00da10e6c50d2346c4dc3a8237b3159532",
+      "install": null,
+      "template": {
+        "name": "check-seam-contract-outruns-its-adr",
+        "version": "authored"
+      },
+      "state": "active",
+      "installedAt": "2026-08-29T19:32:12.848Z",
+      "txId": "d642b022b916"
+    },
+    {
       "id": "check-test-touches-a-real-store-412b1380",
       "classIds": [
         "test-touches-a-real-store"
@@ -244,6 +285,26 @@
       "state": "active",
       "installedAt": "2026-08-29T01:48:40.406Z",
       "txId": "8569cfe7df7d"
+    },
+    {
+      "id": "check-workspace-adapter-outruns-domain-doc-6541cb51",
+      "classIds": [
+        "workspace-adapter-outruns-domain-doc"
+      ],
+      "kind": "write-side-file",
+      "path": ".jig/checks/workspace-adapter-outruns-domain-doc.check.mjs",
+      "ownership": "file",
+      "hash": "6541cb5154772be274f1fb71168c138832fc125f5f3dc5731cc161688b78ee9a",
+      "provenance": "elicited",
+      "proof": "9af95417446625d2f7788b255b59b018359f87e68dea9907edc9813da8685dad",
+      "install": null,
+      "template": {
+        "name": "check-workspace-adapter-outruns-domain-doc",
+        "version": "authored"
+      },
+      "state": "active",
+      "installedAt": "2026-08-29T19:32:12.698Z",
+      "txId": "76e3b5ba1847"
     },
     {
       "id": "config-913dbd27",
@@ -313,6 +374,31 @@
       "state": "active",
       "installedAt": "2026-08-29T01:44:14.341Z",
       "txId": "17a277f965a4"
+    },
+    {
+      "id": "wire-commit-e7ac6b1e",
+      "classIds": [
+        "outbound-network-call",
+        "raw-path-across-the-seam",
+        "renderer-reaches-past-the-bridge",
+        "seam-contract-outruns-its-adr",
+        "test-touches-a-real-store",
+        "workspace-adapter-outruns-domain-doc"
+      ],
+      "kind": "set-git-config",
+      "path": "git:core.hooksPath",
+      "ownership": "schema",
+      "hash": null,
+      "provenance": "elicited",
+      "proof": null,
+      "install": null,
+      "template": {
+        "name": "activation",
+        "version": "1.0.1"
+      },
+      "state": "active",
+      "installedAt": "2026-08-29T19:33:16.463Z",
+      "txId": "73b4ec14cbe6"
     }
   ]
 }

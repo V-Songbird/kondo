@@ -264,6 +264,76 @@
         "nearMiss": "import { makeWorld, writeFileTree } from './helpers'\n\n// Fixtures only: a temp home, never the real one (docs/testing.md).\nexport async function seedStore(): Promise<string> {\n  const world = await makeWorld()\n  await writeFileTree(world.userRoot, { 'settings.json': '{}' })\n  return world.userRoot\n}\n"
       },
       "module": "// jig:owned — authored for kondo.\n//\n// docs/testing.md: tests never touch real stores. The locator takes injected roots\n// for exactly this reason. Today the suite only reads, so a violation is merely\n// wrong; from v0.2 the same line runs mutation code against the real ~/.claude and\n// the damage is somebody's whole session history.\n//\n// The three doors to a real store are homedir(), the home-ish env vars, and a\n// hard-coded store path handed to an fs or path call. The third pattern wants that\n// call: a test TITLE mentioning ~/.claude, or an expected-value string in a\n// pure-function assertion, is prose or data and reaches no store, so neither fires.\n// path.join(home, '.claude') on a fixture home does not fire either — no separator\n// precedes .claude in that literal.\n\nexport const id = \"test-touches-a-real-store\"\nexport const title = \"A test resolving a real Claude store\"\nexport const severity = \"safety\"\nexport const confidence = \"deterministic\"\n\nexport const deny = {\n  \"reason\": \"Tests must never resolve a real store (docs/testing.md). Read-only today, destructive the moment v0.2 mutations land.\",\n  \"alternative\": \"Build a fixture world with makeWorld() from test/helpers.ts; it creates a temp home and hands you a locator already pointed at it.\",\n  \"override\": \"Set .jig/off for one pass, or retire the guard via /jig:review.\"\n}\n\nconst params = {\n  paths: [\"test/**/*.ts\"],\n  patterns: [\"\\\\b(?:os\\\\.)?homedir\\\\s*\\\\(\",\"\\\\bprocess\\\\.env(?:\\\\.(?:APPDATA|USERPROFILE|HOME)\\\\b|\\\\[[\\\"'](?:APPDATA|USERPROFILE|HOME))\",\"(?:readFile|readdir|writeFile|mkdir|rm|stat|join|resolve)\\\\w*\\\\s*\\\\([^)]*[\\\"'][^\\\"']*[\\\\\\\\/]\\\\.claude\"],\n  stripComments: true,\n  stripStrings: false,\n  perLine: true\n}\n\nexport const detectors = [\n  { runner: \"checks\", lever: \"check-driver\", actor: \"human-editor\", confidence: \"deterministic\", params },\n  { runner: \"PostToolUse\", lever: \"edit-observe-guard\", actor: \"claude-session\", confidence: \"deterministic\", params }\n]\n\nexport const fixtures = {\n  violation: \"import fs from 'node:fs/promises'\\nimport os from 'node:os'\\nimport path from 'node:path'\\n\\nconst store = path.join(os.homedir(), '.claude')\\nconst desktop = process.env.APPDATA\\n\\nexport async function readReal(): Promise<string> {\\n  const raw = await fs.readFile('C:/Users/me/.claude/settings.json', 'utf8')\\n  return raw + store + String(desktop)\\n}\\n\",\n  nearMiss: \"import { makeWorld, writeFileTree } from './helpers'\\n\\n// Fixtures only: a temp home, never the real one (docs/testing.md).\\nexport async function seedStore(): Promise<string> {\\n  const world = await makeWorld()\\n  await writeFileTree(world.userRoot, { 'settings.json': '{}' })\\n  return world.userRoot\\n}\\n\"\n}\n"
+    },
+    {
+      "id": "workspace-adapter-outruns-domain-doc",
+      "title": "A store adapter changed without docs/domain.md",
+      "severity": "safety",
+      "axes": [
+        "human",
+        "agent"
+      ],
+      "deny": {
+        "reason": "A store adapter under electron/main/workspace/ changed and docs/domain.md did not. CLAUDE.md makes that doc the starting point for adapter work, so a stale one misleads every session that obeys it.",
+        "alternative": "Stage the matching edit to docs/domain.md in this commit, or split the adapter change into its own commit once the doc is right.",
+        "override": "Set .jig/off for one pass, or retire the guard via /jig:review."
+      },
+      "detectors": [
+        {
+          "lever": "check-driver",
+          "runner": "checks",
+          "actor": "human-editor",
+          "confidence": "deterministic",
+          "params": {
+            "paths": [
+              "electron/main/workspace/**"
+            ],
+            "pairedWith": [
+              "docs/domain.md"
+            ]
+          }
+        }
+      ],
+      "fixtures": {
+        "violation": "electron/main/workspace/kinds.ts\nelectron/main/workspace/scan.ts\n",
+        "nearMiss": "electron/main/workspace/kinds.ts\ndocs/domain.md\n"
+      },
+      "module": "// jig:owned — authored for kondo.\n//\n// CLAUDE.md sends every store-adapter change through docs/domain.md, and\n// electron/main/workspace/ is where those adapters live: kinds, scan, display and\n// the store readers themselves. The doc describes the shape they return. When one\n// moves and the doc does not, the next session starts from a map of a place that\n// no longer exists — and it is the one file CLAUDE.md tells it to trust.\n//\n// This reads the git index, so it speaks only at commit time and reports itself\n// skipped anywhere nothing is staged, CI included. Any touch of docs/domain.md in\n// the same commit satisfies it.\n\nexport const id = \"workspace-adapter-outruns-domain-doc\"\nexport const title = \"A store adapter changed without docs/domain.md\"\nexport const severity = \"safety\"\nexport const confidence = \"deterministic\"\n\nexport const deny = {\n  \"reason\": \"A store adapter under electron/main/workspace/ changed and docs/domain.md did not. CLAUDE.md makes that doc the starting point for adapter work, so a stale one misleads every session that obeys it.\",\n  \"alternative\": \"Stage the matching edit to docs/domain.md in this commit, or split the adapter change into its own commit once the doc is right.\",\n  \"override\": \"Set .jig/off for one pass, or retire the guard via /jig:review.\"\n}\n\nconst params = {\n  paths: [\"electron/main/workspace/**\"],\n  pairedWith: [\"docs/domain.md\"]\n}\n\nexport const detectors = [\n  { runner: \"checks\", lever: \"check-driver\", actor: \"human-editor\", confidence: \"deterministic\", params }\n]\n\nexport const fixtures = {\n  \"violation\": \"electron/main/workspace/kinds.ts\\nelectron/main/workspace/scan.ts\\n\",\n  \"nearMiss\": \"electron/main/workspace/kinds.ts\\ndocs/domain.md\\n\"\n}\n"
+    },
+    {
+      "id": "seam-contract-outruns-its-adr",
+      "title": "The IPC contract changed without an ADR",
+      "severity": "safety",
+      "axes": [
+        "human",
+        "agent"
+      ],
+      "deny": {
+        "reason": "shared/contract.ts changed and no ADR under docs/adr/ moved with it. ADR 0004 and ADR 0008 govern this seam, and jig-governance.md makes every session read them as current.",
+        "alternative": "Stage the ADR edit in this commit, or add a new ADR superseding the one this change contradicts.",
+        "override": "Set .jig/off for one pass, or retire the guard via /jig:review."
+      },
+      "detectors": [
+        {
+          "lever": "check-driver",
+          "runner": "checks",
+          "actor": "human-editor",
+          "confidence": "deterministic",
+          "params": {
+            "paths": [
+              "shared/contract.ts"
+            ],
+            "pairedWith": [
+              "docs/adr/**/*.md"
+            ]
+          }
+        }
+      ],
+      "fixtures": {
+        "violation": "shared/contract.ts\nelectron/main/workspace/workspace.ts\n",
+        "nearMiss": "shared/contract.ts\ndocs/adr/0008-composite-identity-ids-across-the-seam.md\n"
+      },
+      "module": "// jig:owned — authored for kondo.\n//\n// shared/contract.ts is the whole seam between the renderer and the main process.\n// Two ADRs govern it: 0004 fixes the context-isolated bridge as the only crossing,\n// and 0008 fixes composite identity ids as what may cross. Change the contract and\n// leave both untouched and the ADRs now describe a seam the code abandoned, while\n// .claude/rules/jig-governance.md still orders every session to read them first.\n//\n// This reads the git index, so it speaks only at commit time and reports itself\n// skipped anywhere nothing is staged, CI included. Any touch under docs/adr/\n// satisfies it, including a new ADR superseding an old one.\n\nexport const id = \"seam-contract-outruns-its-adr\"\nexport const title = \"The IPC contract changed without an ADR\"\nexport const severity = \"safety\"\nexport const confidence = \"deterministic\"\n\nexport const deny = {\n  \"reason\": \"shared/contract.ts changed and no ADR under docs/adr/ moved with it. ADR 0004 and ADR 0008 govern this seam, and jig-governance.md makes every session read them as current.\",\n  \"alternative\": \"Stage the ADR edit in this commit, or add a new ADR superseding the one this change contradicts.\",\n  \"override\": \"Set .jig/off for one pass, or retire the guard via /jig:review.\"\n}\n\nconst params = {\n  paths: [\"shared/contract.ts\"],\n  pairedWith: [\"docs/adr/**/*.md\"]\n}\n\nexport const detectors = [\n  { runner: \"checks\", lever: \"check-driver\", actor: \"human-editor\", confidence: \"deterministic\", params }\n]\n\nexport const fixtures = {\n  \"violation\": \"shared/contract.ts\\nelectron/main/workspace/workspace.ts\\n\",\n  \"nearMiss\": \"shared/contract.ts\\ndocs/adr/0008-composite-identity-ids-across-the-seam.md\\n\"\n}\n"
     }
   ]
 }
