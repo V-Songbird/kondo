@@ -23,6 +23,11 @@ export type ScanErrorCode =
   | 'out-of-store'
   /** The capability matrix refuses the operation on this entity (ADR-0006). */
   | 'not-permitted'
+  /**
+   * The mutation would bring a file into existence. Nothing was written; the
+   * UI names the file and asks, then repeats the call with the go-ahead.
+   */
+  | 'needs-confirmation'
 
 export interface ScanError {
   code: ScanErrorCode
@@ -173,6 +178,31 @@ export interface SkillInfo extends EntityIdentity {
   enabled: boolean
 }
 
+/**
+ * What one settings layer says about one plugin, and whether kondo may write
+ * it there. A plugin's enabled state is a key in a settings file rather than
+ * a property of the plugin (ADR-0006), so the toggle is per layer.
+ */
+export interface PluginScopeState {
+  /** `settings:<layer>:<key>` — the layer a toggle would write. */
+  layerId: string
+  layer: 'user' | 'project' | 'local'
+  /**
+   * The project this layer belongs to, by its directory name, or null for
+   * the user layer. Several projects each contribute a `project` and a
+   * `local` layer, so this is what tells two identically-labelled scopes
+   * apart.
+   */
+  project: string | null
+  /** Display path of the settings file (tildified). */
+  path: string
+  exists: boolean
+  /** true, false, or null when this layer says nothing about the plugin. */
+  enabled: boolean | null
+  /** The matrix row for writing a plugin in this layer. */
+  capabilities: Capabilities
+}
+
 export interface PluginInfo extends EntityIdentity {
   /** `plugin:<name>@<marketplace>` */
   id: string
@@ -185,6 +215,17 @@ export interface PluginInfo extends EntityIdentity {
   installPath: string
   /** Display names of settings layers whose enabledPlugins list it. */
   enabledIn: string[]
+  /**
+   * Every settings layer, highest precedence first — local, then project,
+   * then user (domain.md). Layers of different projects share a rank, so
+   * within one rank the order is the scan's.
+   */
+  scopes: PluginScopeState[]
+  /**
+   * The layer whose value Claude honours: the first in `scopes` that states
+   * one. Null when no layer mentions the plugin at all.
+   */
+  winningLayerId: string | null
 }
 
 export interface HookInfo extends EntityIdentity {
@@ -268,6 +309,23 @@ export interface KondoApi {
     operation: CapabilityOperation
   ): Promise<Scan<JournalEntryInfo | null>>
   pluginsList(): Promise<Scan<PluginInfo[]>>
+  /**
+   * Enable or disable one plugin in one settings layer by editing that
+   * file's `enabledPlugins` key in place (ADR-0006), journaled and therefore
+   * reversible (ADR-0001). Only that key's bytes change; every other key and
+   * the file's formatting survive untouched.
+   *
+   * A layer whose file does not exist yet is refused with
+   * `needs-confirmation` and nothing is written. The caller shows the path,
+   * asks, and repeats the call with `createLayer` — the file is never
+   * conjured as a side effect of toggling.
+   */
+  pluginToggle(
+    pluginId: string,
+    layerId: string,
+    operation: CapabilityOperation,
+    createLayer?: boolean
+  ): Promise<Scan<JournalEntryInfo | null>>
   hooksList(): Promise<Scan<HookInfo[]>>
   settingsLayers(): Promise<Scan<SettingsLayerInfo[]>>
   /** Journal entries, newest first. */
@@ -287,6 +345,7 @@ export const channels = {
   skillsList: 'kondo:skills-list',
   skillToggle: 'kondo:skill-toggle',
   pluginsList: 'kondo:plugins-list',
+  pluginToggle: 'kondo:plugin-toggle',
   hooksList: 'kondo:hooks-list',
   settingsLayers: 'kondo:settings-layers',
   journalList: 'kondo:journal-list',

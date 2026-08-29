@@ -11,7 +11,7 @@ import type {
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
 import { collector, describe, finish, mapPool, type Collector } from './scan'
-import { createKindContext, kinds, type KindContext } from './kinds'
+import { createKindContext, kinds, pluginTogglePlan, type KindContext } from './kinds'
 import {
   scanSessionInventory,
   type ProjectRecord,
@@ -241,6 +241,39 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     async pluginsList() {
       const c = collector()
       return finish((await kinds.plugin.discover(context(c))) ?? [], c)
+    },
+
+    async pluginToggle(
+      pluginId: string,
+      layerId: string,
+      operation: CapabilityOperation,
+      createLayer?: boolean
+    ): Promise<Scan<JournalEntryInfo | null>> {
+      if (typeof pluginId !== 'string' || !pluginId.startsWith('plugin:')) {
+        return badRequest(null, 'pluginToggle expects a plugin: id.')
+      }
+      if (typeof layerId !== 'string' || !layerId.startsWith('settings:')) {
+        return badRequest(null, 'pluginToggle expects a settings: layer id.')
+      }
+      if (operation !== 'enable' && operation !== 'disable') {
+        return badRequest(null, 'pluginToggle expects enable or disable.')
+      }
+      const c = collector()
+      // One context, so the plugin manifest and the settings layers are read
+      // once and the plan sees exactly the bytes the entity was built from.
+      const shared = context(c)
+      const entity = await kinds.plugin.read(pluginId, shared)
+      if (!entity) return unknownId(null, pluginId)
+
+      const planned = await pluginTogglePlan(
+        { entity, layerId, operation, createLayer: createLayer === true },
+        shared
+      )
+      if (!planned.ok) {
+        c.errors.push({ code: planned.code, path: layerId, message: planned.message })
+        return finish(null, c)
+      }
+      return mutations.mutate(planned.plan)
     },
 
     async hooksList() {

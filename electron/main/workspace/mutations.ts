@@ -149,8 +149,12 @@ export function createMutations(
     return target
   }
 
+  // A project store is named `project:<dirName>` and no Windows path segment
+  // may hold a colon, so the trash spells it with a dash. The journal keeps
+  // the real store name; both the write and its undo come through here, so
+  // the two always agree on where the displaced bytes went.
   const trashPath = (journalId: string, displaced: string): string =>
-    path.join(trashRoot, journalId, ...displaced.split('/'))
+    path.join(trashRoot, journalId, ...displaced.replaceAll(':', '-').split('/'))
 
   const exists = async (target: string): Promise<boolean> => {
     try {

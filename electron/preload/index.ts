@@ -13,6 +13,13 @@ const api: KondoApi = {
   skillToggle: (skillId: string, operation: CapabilityOperation) =>
     ipcRenderer.invoke(channels.skillToggle, skillId, operation),
   pluginsList: () => ipcRenderer.invoke(channels.pluginsList),
+  pluginToggle: (
+    pluginId: string,
+    layerId: string,
+    operation: CapabilityOperation,
+    createLayer?: boolean
+  ) =>
+    ipcRenderer.invoke(channels.pluginToggle, pluginId, layerId, operation, createLayer === true),
   hooksList: () => ipcRenderer.invoke(channels.hooksList),
   settingsLayers: () => ipcRenderer.invoke(channels.settingsLayers),
   journalList: () => ipcRenderer.invoke(channels.journalList),

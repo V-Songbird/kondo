@@ -10,7 +10,8 @@ import type {
   SessionProject,
   SessionSummary,
   SettingsLayerInfo,
-  SkillInfo
+  SkillInfo,
+  ScanErrorCode
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
 import type { Collector } from './scan'
@@ -20,7 +21,10 @@ import { desktopSessions } from './desktop-store'
 import { summarizeTranscript } from './jsonl'
 import { toSessionProjects, toSessionSummaries, type SessionInventory } from './sessions'
 import {
+  editEnabledPlugins,
   hooksFromLayers,
+  newSettingsSource,
+  pluginStateIn,
   readSettingsLayers,
   scanPlugins,
   scanSkills,
@@ -206,6 +210,8 @@ const skill: EntityKindDefinition<SkillInfo> = {
   disable: (entity) => skillPlan(entity, 'disable')
 }
 
+const PLUGIN_PREFIX = 'plugin:'
+
 const plugin: EntityKindDefinition<PluginInfo> = {
   kind: 'plugin',
   scopes: scopesFor('plugin'),
@@ -216,6 +222,9 @@ const plugin: EntityKindDefinition<PluginInfo> = {
     return findById(id, plugin.discover(context))
   },
   capabilities: (scope) => capabilitiesFor('plugin', scope),
+  // A plugin is enabled or disabled *in a settings layer* (ADR-0006), so the
+  // entity-level seat has no target to act on and stays empty. The per-layer
+  // plan is `pluginTogglePlan` at the foot of this module.
   ...noPlanYet
 }
 
@@ -306,6 +315,102 @@ const desktopSession: EntityKindDefinition<DesktopSession> = {
   },
   capabilities: (scope) => capabilitiesFor('session', scope),
   ...noPlanYet
+}
+
+
+// ---------------------------------------------------------------------------
+// Toggling a plugin in one settings layer
+
+/** Why a plugin toggle produced no plan, in the seam's own vocabulary. */
+export type PluginTogglePlan =
+  | { ok: true; plan: MutationPlan }
+  | { ok: false; code: ScanErrorCode; message: string }
+
+export interface PluginToggleRequest {
+  entity: PluginInfo
+  /** `settings:<layer>:<key>` — the layer the user picked. */
+  layerId: string
+  operation: CapabilityOperation
+  /** The user has confirmed creating a settings file that is not there yet. */
+  createLayer: boolean
+}
+
+function refused(code: ScanErrorCode, message: string): PluginTogglePlan {
+  return { ok: false, code, message }
+}
+
+/**
+ * The store change that would enable or disable one plugin in one settings
+ * layer. A plugin's enabled state is a key in a settings file rather than a
+ * property of the plugin, so the entity-level `enable` / `disable` seats
+ * cannot name a target — this takes the layer alongside the entity.
+ *
+ * The matrix is still the gate (ADR-0006): permission is a lookup on the
+ * layer the write would land in, never on the UI that offered the button.
+ */
+export async function pluginTogglePlan(
+  request: PluginToggleRequest,
+  context: KindContext
+): Promise<PluginTogglePlan> {
+  const { entity, layerId, operation, createLayer } = request
+  const layer = (await context.layers()).find((candidate) => candidate.info.id === layerId)
+  if (!layer) {
+    return refused('unknown-id', `No settings layer with id "${layerId}" in the current scan.`)
+  }
+
+  const decision = capabilitiesFor('plugin', layer.info.layer)[operation]
+  if (!decision.allowed) {
+    return refused(
+      'not-permitted',
+      decision.reason ?? `kondo cannot ${operation} a plugin in this layer.`
+    )
+  }
+
+  const key = entity.id.slice(PLUGIN_PREFIX.length)
+  const enabled = operation === 'enable'
+  if (pluginStateIn(layer, key) === enabled) {
+    return refused(
+      'not-permitted',
+      `${layer.info.path} already ${enabled ? 'enables' : 'disables'} ${entity.name}.`
+    )
+  }
+
+  const write = (content: string): PluginTogglePlan => ({
+    ok: true,
+    plan: {
+      op: 'settings-edit',
+      kind: 'plugin',
+      entityId: entity.id,
+      summary: `${enabled ? 'Enable' : 'Disable'} plugin ${entity.name} in ${layer.info.path}`,
+      steps: [{ type: 'write', store: layer.store, at: layer.relative, content }]
+    }
+  })
+
+  if (!layer.info.exists) {
+    // Nothing licenses conjuring a settings file out of a toggle: this stops
+    // and asks, and writes not one byte until it is told to.
+    if (!createLayer) {
+      return refused(
+        'needs-confirmation',
+        `${layer.info.path} does not exist yet. Confirm to create it holding just this key.`
+      )
+    }
+    return write(newSettingsSource(key, enabled))
+  }
+  if (layer.source === null || layer.parsed === null) {
+    return refused(
+      'parse-failed',
+      `${layer.info.path} did not read back as a JSON object; kondo will not rewrite it.`
+    )
+  }
+  const next = editEnabledPlugins(layer.source, key, enabled)
+  if (next === null) {
+    return refused(
+      'bad-request',
+      `kondo cannot edit enabledPlugins in ${layer.info.path} without reformatting it.`
+    )
+  }
+  return write(next)
 }
 
 /**

@@ -37,3 +37,20 @@ All notable changes to kondo are documented here. The format follows
   toggle inside their own project's `.claude`; plugin-shipped skills are refused
   by the capability matrix with the reason shown on the button. The list is
   re-read from the store after every toggle rather than patched.
+- Enable and disable a plugin per settings layer from the plugins view. The
+  toggle edits the `enabledPlugins` key of the chosen layer in place
+  (ADR-0006) by splicing the raw bytes, so every other key and the file's own
+  formatting survive byte-for-byte, and it goes through the journal like any
+  other mutation. Each plugin row groups the layers by the project that owns
+  them, showing what each says and which one wins (local > project > user). A layer whose file does not exist yet is
+  refused with the new `needs-confirmation` scan code and created only after
+  the user says so.
+
+### Fixed
+
+- A trash directory could not be created for a project store on Windows: the
+  store name `project:<dirName>` was used verbatim as a path segment, and no
+  Windows segment may hold a colon. Displaced bytes for a project-scope write
+  now land under a dash-spelled segment. Only the skill toggle's `move` steps
+  existed before, so nothing had displaced bytes into the trash from a project
+  store until now.

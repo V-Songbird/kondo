@@ -35,6 +35,7 @@ usage):
 |---|---|
 | `projects/` | Session transcripts, one subdirectory per working directory. The heart of kondo's session features. |
 | `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. |
+| `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo writes to disable; a key that is simply absent is silence, not a false. A legacy array form is read (a listed key is enabled) but never written. |
 | `skills/` | User-scope skills, one directory per skill with a `SKILL.md`. |
 | `skills.disabled/` | Claude's own disable convention: a skill moved here stops loading ✅. Kondo adopts this for enable/disable (ADR-0006). |
 | `plugins/` | Plugin machinery: `installed_plugins.json`, `known_marketplaces.json`, `plugin-catalog-cache.json`, `cache/<marketplace>/<plugin>/<version>/` (the installed code), `marketplaces/`, `data/` ✅. |
@@ -84,7 +85,10 @@ usage):
   chose the scoped equivalent over inventing state, and reads it back as the
   `project-disabled` skill scope.
 - Settings precedence: local > project > user ◇. The settings viewer renders
-  these as layers.
+  these as layers, and the plugins view resolves a plugin's state through
+  them: the highest layer that states a value is the one that wins. Layers
+  belonging to different projects share a rank — Claude resolves settings per
+  session, so across projects there is no ordering to have.
 
 ## Desktop store
 
