@@ -9,7 +9,7 @@ reaching for `Read` or `Grep` first only costs a round-trip. Full tool map with 
 `jetbrains-router/skills/router/references/tool-map.md` in the `slag` repo.
 <!-- assay-ignore-end -->
 
-- Before the first file operation, call `mcp__webstorm__get_project_modules` with `projectPath=D:/Projects/Personal/SoftwareDevelopment/nawa` — if it reports no open project, use native tools for the rest of the session.
+- Before the first file operation, call `mcp__webstorm__get_project_modules` with `projectPath=D:/Projects/Personal/SoftwareDevelopment/kondo` — if it reports no open project, use native tools for the rest of the session.
 - When reading, searching, or editing a `.ts` or `.tsx` file here, use `mcp__webstorm__read_file`, `search_regex`, `search_file`, or `replace_text_in_file` instead of native `Read`, `Grep`, `Glob`, or `Edit`.
 - When the path is markdown, JSON, JSONL, a dotfile, or under `docs/`, use native `Read` and `Grep` instead of `mcp__webstorm__*` — that covers every knot file in `src/content/knots/`.
 - Always pass `replaceAll=false` to `mcp__webstorm__replace_text_in_file` — it defaults to `true` and rewrites every match in the file.
