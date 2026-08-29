@@ -58,6 +58,9 @@ void app.whenReady().then(() => {
   const locator = createLocator({
     home: os.homedir(),
     appData: process.env['APPDATA'] ?? null,
+    // Kondo's own footprint (ADR-0001): the journal and the trash live here,
+    // and Electron guarantees it is outside any Claude store.
+    userData: app.getPath('userData'),
     platform: process.platform,
     env: process.env
   })

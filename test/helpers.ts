@@ -14,6 +14,8 @@ export interface FixtureWorld {
   home: string
   userRoot: string
   desktopRoot: string
+  /** `<kondo-data>` for the fixture — outside both stores, as ADR-0001 requires. */
+  kondoDataRoot: string
   locator: StoreLocator
   cleanup: () => Promise<void>
 }
@@ -25,11 +27,13 @@ export async function makeWorld(): Promise<FixtureWorld> {
   const home = path.join(base, 'home')
   const userRoot = path.join(home, '.claude')
   const desktopRoot = path.join(base, 'desktop')
+  const kondoDataRoot = path.join(base, 'kondo-data')
   await fs.mkdir(userRoot, { recursive: true })
   await fs.mkdir(desktopRoot, { recursive: true })
   const locator = createLocator({
     home,
     appData: null,
+    userData: kondoDataRoot,
     platform: process.platform,
     env: { KONDO_STORE_ROOT: userRoot, KONDO_DESKTOP_STORE_ROOT: desktopRoot }
   })
@@ -38,6 +42,7 @@ export async function makeWorld(): Promise<FixtureWorld> {
     home,
     userRoot,
     desktopRoot,
+    kondoDataRoot,
     locator,
     cleanup: () => fs.rm(base, { recursive: true, force: true })
   }

@@ -10,6 +10,8 @@ export interface LocatorEnvironment {
   home: string
   /** Windows %APPDATA%; unused on other platforms. */
   appData: string | null
+  /** Electron's `userData` path for kondo itself; kondo's own footprint. */
+  userData: string
   platform: NodeJS.Platform
   env: Record<string, string | undefined>
 }
@@ -19,11 +21,16 @@ export interface StoreLocator {
   userRoot: string
   /** The Claude desktop app's data directory, or null when unresolvable. */
   desktopRoot: string | null
+  /**
+   * `<kondo-data>` — the journal and the trash live here (ADR-0001). Never
+   * inside a Claude store, and no Claude truth is kept in it (ADR-0006).
+   */
+  kondoDataRoot: string
   home: string
 }
 
 export function createLocator(environment: LocatorEnvironment): StoreLocator {
-  const { home, appData, platform, env } = environment
+  const { home, appData, userData, platform, env } = environment
 
   const userRoot = env['KONDO_STORE_ROOT'] ?? path.join(home, '.claude')
 
@@ -39,5 +46,7 @@ export function createLocator(environment: LocatorEnvironment): StoreLocator {
     desktopRoot = path.join(home, '.config', 'Claude')
   }
 
-  return { userRoot, desktopRoot, home }
+  const kondoDataRoot = env['KONDO_DATA_ROOT'] ?? userData
+
+  return { userRoot, desktopRoot, kondoDataRoot, home }
 }

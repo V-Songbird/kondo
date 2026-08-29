@@ -27,6 +27,7 @@ import {
 import { desktopSessions, desktopStoreReport } from './desktop-store'
 import { summarizeTranscript } from './jsonl'
 import { isStale } from './analysis'
+import { createMutations } from './mutations'
 
 /**
  * The workspace: the server side of KondoApi. Owns the cached session
@@ -52,6 +53,10 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
   const now = options.now ?? Date.now
 
   let inventoryState: Promise<InventoryState> | null = null
+
+  // The write path (ADR-0001). No mutation channel ships yet; the journal
+  // and the trash are readable and reversible from the moment they exist.
+  const mutations = createMutations(locator, now)
 
   const inventory = (refresh = false): Promise<InventoryState> => {
     if (!inventoryState || refresh) {
@@ -220,6 +225,21 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         layers.map((layer) => layer.info),
         c
       )
+    },
+
+    journalList() {
+      return mutations.list()
+    },
+
+    journalUndo(journalId: string) {
+      if (typeof journalId !== 'string' || !journalId.startsWith('journal:')) {
+        return Promise.resolve(badRequest(null, 'journalUndo expects a journal: id.'))
+      }
+      return mutations.undo(journalId)
+    },
+
+    trashSize() {
+      return mutations.trashSize()
     }
   }
 }

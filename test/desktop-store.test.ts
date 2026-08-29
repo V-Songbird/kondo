@@ -60,6 +60,7 @@ describe('desktop store adapter', () => {
     const missing = createLocator({
       home: world.home,
       appData: null,
+      userData: world.kondoDataRoot,
       platform: 'linux',
       env: { KONDO_DESKTOP_STORE_ROOT: `${world.base}/nope` }
     })

@@ -22,4 +22,9 @@ export function registerIpc(api: KondoApi): void {
   ipcMain.handle(channels.pluginsList, () => api.pluginsList())
   ipcMain.handle(channels.hooksList, () => api.hooksList())
   ipcMain.handle(channels.settingsLayers, () => api.settingsLayers())
+  ipcMain.handle(channels.journalList, () => api.journalList())
+  ipcMain.handle(channels.journalUndo, (_event, journalId: unknown) =>
+    api.journalUndo(String(journalId))
+  )
+  ipcMain.handle(channels.trashSize, () => api.trashSize())
 }

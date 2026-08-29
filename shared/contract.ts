@@ -166,6 +166,43 @@ export interface SettingsLayerInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Mutation journal and kondo trash (ADR-0001)
+
+/** What a journal entry did, in the user's terms. */
+export type JournalOp = 'move' | 'settings-edit' | 'trash'
+
+/**
+ * One reversible operation, as the renderer sees it. The steps that carry
+ * the paths stay in the main process — only ids and display strings cross.
+ */
+export interface JournalEntryInfo {
+  /** `journal:<journal-id>` — the id undo takes (ADR-0008). */
+  id: string
+  /** ISO-8601. */
+  at: string
+  op: JournalOp
+  /** Entity kind the operation acted on, e.g. `skill`. */
+  kind: string
+  /** The ADR-0008 id of the entity, never a path. */
+  entityId: string
+  /** One line describing the operation, built in the main process. */
+  summary: string
+  stepCount: number
+  /** Journal id of the entry that reversed this one, or null. */
+  undoneBy: string | null
+  /** True when this entry is itself the undo of another. */
+  isUndo: boolean
+}
+
+export interface TrashReport {
+  /** Display path of the trash root (tildified). */
+  root: string
+  bytes: number
+  /** Journal ids currently holding displaced bytes. */
+  entryCount: number
+}
+
+// ---------------------------------------------------------------------------
 // The API surface
 
 export interface KondoApi {
@@ -178,6 +215,11 @@ export interface KondoApi {
   pluginsList(): Promise<Scan<PluginInfo[]>>
   hooksList(): Promise<Scan<HookInfo[]>>
   settingsLayers(): Promise<Scan<SettingsLayerInfo[]>>
+  /** Journal entries, newest first. */
+  journalList(): Promise<Scan<JournalEntryInfo[]>>
+  /** Reverse one entry; the undo is itself journaled and returned. */
+  journalUndo(journalId: string): Promise<Scan<JournalEntryInfo | null>>
+  trashSize(): Promise<Scan<TrashReport>>
 }
 
 /** Channel names, keyed by KondoApi method — written once, imported twice. */
@@ -190,5 +232,8 @@ export const channels = {
   skillsList: 'kondo:skills-list',
   pluginsList: 'kondo:plugins-list',
   hooksList: 'kondo:hooks-list',
-  settingsLayers: 'kondo:settings-layers'
+  settingsLayers: 'kondo:settings-layers',
+  journalList: 'kondo:journal-list',
+  journalUndo: 'kondo:journal-undo',
+  trashSize: 'kondo:trash-size'
 } as const satisfies Record<keyof KondoApi, string>
