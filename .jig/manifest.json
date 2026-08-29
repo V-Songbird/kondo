@@ -20,31 +20,6 @@
       "txId": "ee09335c0e88"
     },
     {
-      "id": "ci-workflow-6f9f4325",
-      "classIds": [
-        "outbound-network-call",
-        "raw-path-across-the-seam",
-        "renderer-reaches-past-the-bridge",
-        "seam-contract-outruns-its-adr",
-        "test-touches-a-real-store",
-        "workspace-adapter-outruns-domain-doc"
-      ],
-      "kind": "write-side-file",
-      "path": ".github/workflows/jig.yml",
-      "ownership": "file",
-      "hash": "6f9f432595baa91e42cafcc13e4647592c4d773bea91fa1862e7fb41229e4cdc",
-      "provenance": "elicited",
-      "proof": null,
-      "install": null,
-      "template": {
-        "name": "ci-workflow",
-        "version": "1.1.0"
-      },
-      "state": "active",
-      "installedAt": "2026-08-29T19:51:30.050Z",
-      "txId": "bae83283777d"
-    },
-    {
       "id": "activation-7f3cad96",
       "classIds": [
         "outbound-network-call",

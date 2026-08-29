@@ -28,3 +28,7 @@ jobs:
       # The jig guards. Standard-library node only — no install needed, and it
       # runs identically here and on a developer machine.
       - run: node .jig/checks/run.mjs
+      # Both paired-change guards report themselves skipped above: they read the
+      # git index and a CI checkout stages nothing. The selftest proves them
+      # anyway, because a change-set fixture needs no index.
+      - run: node .jig/checks/run.mjs --selftest
