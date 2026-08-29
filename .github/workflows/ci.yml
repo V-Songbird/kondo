@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # npm install, not npm ci: @tailwindcss/oxide ships per-OS native
+      # binaries a single-platform lockfile can't satisfy under ci's strict
+      # sync check (lesson inherited from skilldex's release workflow).
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run lint
+      # The jig guards. Standard-library node only — no install needed, and it
+      # runs identically here and on a developer machine.
+      - run: node .jig/checks/run.mjs

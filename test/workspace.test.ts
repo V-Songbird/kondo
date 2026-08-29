@@ -1,0 +1,108 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import os from 'node:os'
+import path from 'node:path'
+import type { KondoApi } from '../shared/contract'
+import { createWorkspace } from '../electron/main/workspace/workspace'
+import {
+  healthyTranscript,
+  flattenPath,
+  makeWorld,
+  skillManifest,
+  UUID_A,
+  writeFileTree,
+  writeJson,
+  type FixtureWorld
+} from './helpers'
+
+/**
+ * Integration through the public KondoApi surface — the same calls the IPC
+ * layer delegates to, run against a fixture world.
+ */
+
+// Flatten/unflatten cannot round-trip hyphens; verified-project cases need a
+// hyphen-free tmpdir (true on Windows/Linux CI, not guaranteed on macOS).
+const TMP_OK = !os.tmpdir().includes('-')
+
+describe('workspace (KondoApi)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+  let workdir: string
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    workdir = path.join(world.base, 'work', 'proj')
+    const flattened = flattenPath(workdir)
+
+    await writeFileTree(world.userRoot, {
+      [`projects/${flattened}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
+      'settings.json': writeJson({ enabledPlugins: {} }),
+      'skills/alpha-skill/SKILL.md': skillManifest('alpha-skill', 'First skill')
+    })
+    await writeFileTree(workdir, {
+      '.claude/settings.json': writeJson({ outputStyle: 'quiet' }),
+      '.claude/skills/delta-skill/SKILL.md': skillManifest('delta-skill', 'Project-scoped')
+    })
+
+    api = createWorkspace({
+      locator: world.locator,
+      platform: process.platform,
+      // The flatten/unflatten round trip depends on hyphen-free real paths,
+      // which a temp dir cannot promise on every OS — so the existence probe
+      // is injected (foundations: injectable workspace).
+      guessExists: async (target) => target === workdir
+    })
+  })
+  afterEach(async () => {
+    await world.cleanup()
+  })
+
+  it.runIf(TMP_OK)('lists projects and sessions by id, and streams a session detail', async () => {
+    const projects = await api.sessionProjects()
+    expect(projects.data).toHaveLength(1)
+    const project = projects.data[0]!
+    expect(project.guessedPath).toBe(workdir)
+
+    const sessions = await api.sessionList(project.id)
+    expect(sessions.errors).toEqual([])
+    expect(sessions.data).toHaveLength(1)
+
+    const detail = await api.sessionDetail(sessions.data[0]!.id)
+    expect(detail.errors).toEqual([])
+    expect(detail.data?.messageCount).toBe(3)
+    expect(detail.data?.firstUserPrompt).toBe('hello kondo')
+  })
+
+  it('rejects malformed and unknown ids with typed errors, never throwing', async () => {
+    const bad = await api.sessionList('not-an-id')
+    expect(bad.errors[0]?.code).toBe('bad-request')
+
+    const probe = await api.sessionDetail('session:code:../../../etc/passwd')
+    expect(probe.data).toBeNull()
+    expect(probe.errors[0]?.code).toBe('unknown-id')
+
+    const gone = await api.sessionList('project:code:D--Not-There')
+    expect(gone.errors[0]?.code).toBe('unknown-id')
+  })
+
+  it.runIf(TMP_OK)('surfaces skills and settings from the verified project', async () => {
+    const skills = await api.skillsList()
+    const ids = skills.data.map((skill) => skill.id)
+    expect(ids).toContain('skill:user:alpha-skill')
+    expect(ids.some((id) => id.endsWith(':delta-skill'))).toBe(true)
+
+    const layers = await api.settingsLayers()
+    const project = layers.data.find((layer) => layer.layer === 'project')
+    expect(project?.exists).toBe(true)
+    expect(project?.keys).toContain('outputStyle')
+  })
+
+  it('summarizes both stores in the overview', async () => {
+    const overview = await api.storesOverview()
+    expect(overview.data.sessions.projectCount).toBe(1)
+    expect(overview.data.sessions.sessionCount).toBe(1)
+    expect(overview.data.sessions.transcriptBytes).toBeGreaterThan(0)
+    expect(overview.data.user.exists).toBe(true)
+    expect(overview.data.user.entries.some((entry) => entry.name === 'skills')).toBe(true)
+    expect(overview.data.desktop.exists).toBe(true)
+  })
+})

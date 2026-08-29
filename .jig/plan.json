@@ -1,0 +1,362 @@
+{
+  "schemaVersion": 1,
+  "kind": "review",
+  "planId": "56fc3ff5978c",
+  "provenance": "elicited",
+  "mode": "armed",
+  "actors": [
+    "human-editor",
+    "human-ci",
+    "claude-session",
+    "codex-session"
+  ],
+  "editions": [
+    "javascript-typescript"
+  ],
+  "selection": [
+    "outbound-network-call",
+    "raw-path-across-the-seam",
+    "renderer-reaches-past-the-bridge",
+    "test-touches-a-real-store"
+  ],
+  "rows": [
+    {
+      "classId": "outbound-network-call",
+      "edition": null,
+      "authored": true,
+      "title": "Code that would make an outbound request",
+      "severity": "safety",
+      "axes": [
+        "human",
+        "agent"
+      ],
+      "provenance": "elicited",
+      "enforcementGap": false,
+      "floorCleared": true,
+      "floorNote": null,
+      "gapNotes": null,
+      "expectedNearMissHits": 0,
+      "proof": "759d789ca415cc9d746e81a37d83a9eedc6ae35e5efee34abc1870eaf9b9093b",
+      "cells": {
+        "human-editor": {
+          "grade": "DET",
+          "lever": "check-driver",
+          "artifact": ".jig/checks/outbound-network-call.check.mjs",
+          "ceiling": null,
+          "armable": null,
+          "why": null
+        },
+        "human-ci": {
+          "grade": "GAP",
+          "lever": null,
+          "artifact": null,
+          "ceiling": null,
+          "armable": null,
+          "why": "no detector on this class names human-ci"
+        },
+        "claude-session": {
+          "grade": "DET",
+          "lever": "edit-observe-guard",
+          "artifact": "outbound-network-call-edit-observe-guard-1",
+          "ceiling": null,
+          "armable": true,
+          "why": null
+        },
+        "codex-session": {
+          "grade": "GAP",
+          "lever": null,
+          "artifact": null,
+          "ceiling": null,
+          "armable": null,
+          "why": "no detector on this class names codex-session"
+        }
+      }
+    },
+    {
+      "classId": "raw-path-across-the-seam",
+      "edition": null,
+      "authored": true,
+      "title": "A filesystem path crossing the IPC seam",
+      "severity": "safety",
+      "axes": [
+        "human",
+        "agent"
+      ],
+      "provenance": "elicited",
+      "enforcementGap": false,
+      "floorCleared": true,
+      "floorNote": null,
+      "gapNotes": null,
+      "expectedNearMissHits": 0,
+      "proof": "fbe555bccf2d91eafbea08ac09be13b9e4ef897226ac727cb0f2a0610435b996",
+      "cells": {
+        "human-editor": {
+          "grade": "DET",
+          "lever": "check-driver",
+          "artifact": ".jig/checks/raw-path-across-the-seam.check.mjs",
+          "ceiling": null,
+          "armable": null,
+          "why": null
+        },
+        "human-ci": {
+          "grade": "GAP",
+          "lever": null,
+          "artifact": null,
+          "ceiling": null,
+          "armable": null,
+          "why": "no detector on this class names human-ci"
+        },
+        "claude-session": {
+          "grade": "DET",
+          "lever": "edit-observe-guard",
+          "artifact": "raw-path-across-the-seam-edit-observe-guard-1",
+          "ceiling": null,
+          "armable": true,
+          "why": null
+        },
+        "codex-session": {
+          "grade": "GAP",
+          "lever": null,
+          "artifact": null,
+          "ceiling": null,
+          "armable": null,
+          "why": "no detector on this class names codex-session"
+        }
+      }
+    },
+    {
+      "classId": "renderer-reaches-past-the-bridge",
+      "edition": null,
+      "authored": true,
+      "title": "Renderer code imports node or electron directly",
+      "severity": "safety",
+      "axes": [
+        "human",
+        "agent"
+      ],
+      "provenance": "elicited",
+      "enforcementGap": false,
+      "floorCleared": true,
+      "floorNote": null,
+      "gapNotes": null,
+      "expectedNearMissHits": 0,
+      "proof": "c756b28497f7ca0968df7a463fb34483902362bac51e24e84ab46524ecac9e6e",
+      "cells": {
+        "human-editor": {
+          "grade": "DET",
+          "lever": "check-driver",
+          "artifact": ".jig/checks/renderer-reaches-past-the-bridge.check.mjs",
+          "ceiling": null,
+          "armable": null,
+          "why": null
+        },
+        "human-ci": {
+          "grade": "GAP",
+          "lever": null,
+          "artifact": null,
+          "ceiling": null,
+          "armable": null,
+          "why": "no detector on this class names human-ci"
+        },
+        "claude-session": {
+          "grade": "DET",
+          "lever": "edit-observe-guard",
+          "artifact": "renderer-reaches-past-the-bridge-edit-observe-guard-1",
+          "ceiling": null,
+          "armable": true,
+          "why": null
+        },
+        "codex-session": {
+          "grade": "GAP",
+          "lever": null,
+          "artifact": null,
+          "ceiling": null,
+          "armable": null,
+          "why": "no detector on this class names codex-session"
+        }
+      }
+    },
+    {
+      "classId": "test-touches-a-real-store",
+      "edition": null,
+      "authored": true,
+      "title": "A test resolving a real Claude store",
+      "severity": "safety",
+      "axes": [
+        "human",
+        "agent"
+      ],
+      "provenance": "elicited",
+      "enforcementGap": false,
+      "floorCleared": true,
+      "floorNote": null,
+      "gapNotes": null,
+      "expectedNearMissHits": 0,
+      "proof": "3efdde255d84e983083b557ccb91c4a2e1d791653618e20d6ef2c077246d371d",
+      "cells": {
+        "human-editor": {
+          "grade": "DET",
+          "lever": "check-driver",
+          "artifact": ".jig/checks/test-touches-a-real-store.check.mjs",
+          "ceiling": null,
+          "armable": null,
+          "why": null
+        },
+        "human-ci": {
+          "grade": "GAP",
+          "lever": null,
+          "artifact": null,
+          "ceiling": null,
+          "armable": null,
+          "why": "no detector on this class names human-ci"
+        },
+        "claude-session": {
+          "grade": "DET",
+          "lever": "edit-observe-guard",
+          "artifact": "test-touches-a-real-store-edit-observe-guard-1",
+          "ceiling": null,
+          "armable": true,
+          "why": null
+        },
+        "codex-session": {
+          "grade": "GAP",
+          "lever": null,
+          "artifact": null,
+          "ceiling": null,
+          "armable": null,
+          "why": "no detector on this class names codex-session"
+        }
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "activation-7f3cad96",
+      "path": ".jig/activation.md",
+      "kind": "write-side-file",
+      "classIds": [
+        "outbound-network-call",
+        "raw-path-across-the-seam",
+        "renderer-reaches-past-the-bridge",
+        "test-touches-a-real-store"
+      ],
+      "enforcementGap": true,
+      "tier": "batch",
+      "why": "reports only, and refuses nothing"
+    },
+    {
+      "id": "check-driver-75f25362",
+      "path": ".jig/checks/run.mjs",
+      "kind": "write-side-file",
+      "classIds": [
+        "outbound-network-call",
+        "raw-path-across-the-seam",
+        "renderer-reaches-past-the-bridge",
+        "test-touches-a-real-store"
+      ],
+      "enforcementGap": false,
+      "tier": "batch",
+      "why": "reports only, and refuses nothing"
+    },
+    {
+      "id": "check-outbound-network-call-2f0d94a1",
+      "path": ".jig/checks/outbound-network-call.check.mjs",
+      "kind": "write-side-file",
+      "classIds": [
+        "outbound-network-call"
+      ],
+      "enforcementGap": false,
+      "tier": "item",
+      "why": "installs a check the driver and CI both run, so it can fail a build"
+    },
+    {
+      "id": "check-raw-path-across-the-seam-1ea43f03",
+      "path": ".jig/checks/raw-path-across-the-seam.check.mjs",
+      "kind": "write-side-file",
+      "classIds": [
+        "raw-path-across-the-seam"
+      ],
+      "enforcementGap": false,
+      "tier": "item",
+      "why": "installs a check the driver and CI both run, so it can fail a build"
+    },
+    {
+      "id": "check-renderer-reaches-past-the-bridge-3453234c",
+      "path": ".jig/checks/renderer-reaches-past-the-bridge.check.mjs",
+      "kind": "write-side-file",
+      "classIds": [
+        "renderer-reaches-past-the-bridge"
+      ],
+      "enforcementGap": false,
+      "tier": "item",
+      "why": "installs a check the driver and CI both run, so it can fail a build"
+    },
+    {
+      "id": "check-test-touches-a-real-store-fc323178",
+      "path": ".jig/checks/test-touches-a-real-store.check.mjs",
+      "kind": "write-side-file",
+      "classIds": [
+        "test-touches-a-real-store"
+      ],
+      "enforcementGap": false,
+      "tier": "item",
+      "why": "installs a check the driver and CI both run, so it can fail a build"
+    },
+    {
+      "id": "config-61328b28",
+      "path": ".jig/config.json",
+      "kind": "write-config",
+      "classIds": [
+        "outbound-network-call",
+        "raw-path-across-the-seam",
+        "renderer-reaches-past-the-bridge",
+        "test-touches-a-real-store"
+      ],
+      "enforcementGap": false,
+      "tier": "item",
+      "why": "wires 4 guards into a hook that can refuse a tool call"
+    },
+    {
+      "id": "hook-shim-a2b08288",
+      "path": ".jig/hooks/pre-commit",
+      "kind": "write-side-file",
+      "classIds": [
+        "outbound-network-call",
+        "raw-path-across-the-seam",
+        "renderer-reaches-past-the-bridge",
+        "test-touches-a-real-store"
+      ],
+      "enforcementGap": true,
+      "tier": "batch",
+      "why": "reports only, and refuses nothing"
+    }
+  ],
+  "consent": {
+    "batch": [
+      "activation-7f3cad96",
+      "check-driver-75f25362",
+      "hook-shim-a2b08288"
+    ],
+    "item": [
+      "check-outbound-network-call-2f0d94a1",
+      "check-raw-path-across-the-seam-1ea43f03",
+      "check-renderer-reaches-past-the-bridge-3453234c",
+      "check-test-touches-a-real-store-fc323178",
+      "config-61328b28"
+    ]
+  },
+  "enforcementGaps": [
+    ".jig/activation.md",
+    ".jig/hooks/pre-commit"
+  ],
+  "floorGaps": [],
+  "toolchain": {
+    "packageManager": null,
+    "items": []
+  },
+  "discarded": [],
+  "discardedFile": ".jig/discarded.json",
+  "refused": [],
+  "backlogFile": ".jig/backlog.json",
+  "backlogCount": 25
+}

@@ -1,0 +1,269 @@
+{
+  "schemaVersion": 1,
+  "checks": [
+    {
+      "id": "renderer-reaches-past-the-bridge",
+      "title": "Renderer code imports node or electron directly",
+      "severity": "safety",
+      "axes": [
+        "human",
+        "agent"
+      ],
+      "deny": {
+        "reason": "src/ is the renderer. It has no Node and no Electron access by design (ADR-0004); importing them removes the sandbox that keeps transcript rendering safe.",
+        "alternative": "Add the capability to electron/main/workspace/, expose it as a typed method on shared/contract.ts, and call it through window.kondo.",
+        "override": "If this file is genuinely main-process code, move it under electron/. To bypass once, set .jig/off; to retire the guard, run /jig:review."
+      },
+      "detectors": [
+        {
+          "lever": "check-driver",
+          "runner": "checks",
+          "actor": "human-editor",
+          "confidence": "deterministic",
+          "params": {
+            "paths": [
+              "src/**/*.ts",
+              "src/**/*.tsx"
+            ],
+            "patterns": [
+              "\\bfrom\\s+[\"']node:",
+              "\\bfrom\\s+[\"']electron[\"']",
+              "\\brequire\\s*\\("
+            ],
+            "stripComments": true,
+            "stripStrings": false,
+            "perLine": true
+          }
+        },
+        {
+          "lever": "edit-observe-guard",
+          "runner": "PostToolUse",
+          "actor": "claude-session",
+          "confidence": "deterministic",
+          "deny": {
+            "reason": "src/ is the renderer. It has no Node and no Electron access by design (ADR-0004); importing them removes the sandbox that keeps transcript rendering safe.",
+            "alternative": "Add the capability to electron/main/workspace/, expose it as a typed method on shared/contract.ts, and call it through window.kondo.",
+            "override": "If this file is genuinely main-process code, move it under electron/. To bypass once, set .jig/off; to retire the guard, run /jig:review."
+          },
+          "params": {
+            "paths": [
+              "src/**/*.ts",
+              "src/**/*.tsx"
+            ],
+            "patterns": [
+              "\\bfrom\\s+[\"']node:",
+              "\\bfrom\\s+[\"']electron[\"']",
+              "\\brequire\\s*\\("
+            ],
+            "stripComments": true,
+            "stripStrings": false,
+            "perLine": true
+          }
+        }
+      ],
+      "fixtures": {
+        "violation": "import fs from 'node:fs'\nimport { ipcRenderer } from 'electron'\n\nconst nodePath = require('node:path')\n\nexport function readSetting(file: string): string {\n  return fs.readFileSync(nodePath.join('/tmp', file), 'utf8') + String(ipcRenderer)\n}\n",
+        "nearMiss": "import type { KondoApi } from '../../shared/contract'\n\n// Disk access lives in electron/main; the renderer only ever holds ids.\nexport function requireBridge(): KondoApi {\n  const api = window.kondo\n  if (!api) throw new Error('the kondo bridge is unavailable')\n  return api\n}\n"
+      },
+      "module": "// jig:owned — authored for kondo.\n//\n// The renderer has no filesystem and no Electron access: it reaches disk only\n// through the context-isolated preload bridge (ADR-0004). An `fs` or `electron`\n// import under src/ silently removes that boundary — the process that renders\n// attacker-influenced transcript text would gain the power to read any file.\n//\n// Strings are left intact on purpose: the module specifier IS the evidence, and\n// the blanker would erase it. Comments are stripped, so prose about node: imports\n// never fires.\n\nexport const id = \"renderer-reaches-past-the-bridge\"\nexport const title = \"Renderer code imports node or electron directly\"\nexport const severity = \"safety\"\nexport const confidence = \"deterministic\"\n\nexport const deny = {\n  \"reason\": \"src/ is the renderer. It has no Node and no Electron access by design (ADR-0004); importing them removes the sandbox that keeps transcript rendering safe.\",\n  \"alternative\": \"Add the capability to electron/main/workspace/, expose it as a typed method on shared/contract.ts, and call it through window.kondo.\",\n  \"override\": \"If this file is genuinely main-process code, move it under electron/. To bypass once, set .jig/off; to retire the guard, run /jig:review.\"\n}\n\nconst params = {\n  paths: [\"src/**/*.ts\",\"src/**/*.tsx\"],\n  patterns: [\"\\\\bfrom\\\\s+[\\\"']node:\",\"\\\\bfrom\\\\s+[\\\"']electron[\\\"']\",\"\\\\brequire\\\\s*\\\\(\"],\n  stripComments: true,\n  stripStrings: false,\n  perLine: true\n}\n\nexport const detectors = [\n  { runner: \"checks\", lever: \"check-driver\", actor: \"human-editor\", confidence: \"deterministic\", params },\n  { runner: \"PostToolUse\", lever: \"edit-observe-guard\", actor: \"claude-session\", confidence: \"deterministic\", params }\n]\n\nexport const fixtures = {\n  violation: \"import fs from 'node:fs'\\nimport { ipcRenderer } from 'electron'\\n\\nconst nodePath = require('node:path')\\n\\nexport function readSetting(file: string): string {\\n  return fs.readFileSync(nodePath.join('/tmp', file), 'utf8') + String(ipcRenderer)\\n}\\n\",\n  nearMiss: \"import type { KondoApi } from '../../shared/contract'\\n\\n// Disk access lives in electron/main; the renderer only ever holds ids.\\nexport function requireBridge(): KondoApi {\\n  const api = window.kondo\\n  if (!api) throw new Error('the kondo bridge is unavailable')\\n  return api\\n}\\n\"\n}\n"
+    },
+    {
+      "id": "outbound-network-call",
+      "title": "Code that would make an outbound request",
+      "severity": "safety",
+      "axes": [
+        "human",
+        "agent"
+      ],
+      "deny": {
+        "reason": "kondo is offline by design (SECURITY.md). No telemetry, no update check, no crash reporting — a request here breaks the promise the whole product rests on.",
+        "alternative": "If the data is already on disk, read it through a workspace adapter. If it genuinely needs the network, that is an ADR and a visible user opt-in, not a line of code.",
+        "override": "Set .jig/off for one pass, or retire the guard via /jig:review once the ADR exists."
+      },
+      "detectors": [
+        {
+          "lever": "check-driver",
+          "runner": "checks",
+          "actor": "human-editor",
+          "confidence": "deterministic",
+          "params": {
+            "paths": [
+              "src/**/*.ts",
+              "src/**/*.tsx",
+              "electron/**/*.ts",
+              "shared/**/*.ts"
+            ],
+            "patterns": [
+              "\\bfetch\\s*\\(",
+              "\\bnew\\s+(?:WebSocket|XMLHttpRequest)\\s*\\(",
+              "\\bfrom\\s+[\"']node:(?:http|https|net|dgram|tls)[\"']"
+            ],
+            "stripComments": true,
+            "stripStrings": false,
+            "perLine": true
+          }
+        },
+        {
+          "lever": "edit-observe-guard",
+          "runner": "PostToolUse",
+          "actor": "claude-session",
+          "confidence": "deterministic",
+          "deny": {
+            "reason": "kondo is offline by design (SECURITY.md). No telemetry, no update check, no crash reporting — a request here breaks the promise the whole product rests on.",
+            "alternative": "If the data is already on disk, read it through a workspace adapter. If it genuinely needs the network, that is an ADR and a visible user opt-in, not a line of code.",
+            "override": "Set .jig/off for one pass, or retire the guard via /jig:review once the ADR exists."
+          },
+          "params": {
+            "paths": [
+              "src/**/*.ts",
+              "src/**/*.tsx",
+              "electron/**/*.ts",
+              "shared/**/*.ts"
+            ],
+            "patterns": [
+              "\\bfetch\\s*\\(",
+              "\\bnew\\s+(?:WebSocket|XMLHttpRequest)\\s*\\(",
+              "\\bfrom\\s+[\"']node:(?:http|https|net|dgram|tls)[\"']"
+            ],
+            "stripComments": true,
+            "stripStrings": false,
+            "perLine": true
+          }
+        }
+      ],
+      "fixtures": {
+        "violation": "import https from 'node:https'\n\nexport async function ship(payload: string): Promise<void> {\n  await fetch('https://telemetry.example/ingest', { method: 'POST', body: payload })\n  const live = new WebSocket('wss://telemetry.example/stream')\n  https.get('https://telemetry.example/ping')\n  live.close()\n}\n",
+        "nearMiss": "import type { Scan, StoresOverview } from '../../shared/contract'\n\n// kondo makes no outbound request; the bridge is the only door it has.\nexport async function loadOverview(): Promise<Scan<StoresOverview> | null> {\n  const api = window.kondo\n  const prefetched = api ? await api.storesOverview() : null\n  return prefetched\n}\n"
+      },
+      "module": "// jig:owned — authored for kondo.\n//\n// SECURITY.md promises kondo makes no outbound request: no telemetry, no update\n// ping, no crash reporting. A packaged build that phones home is a broken promise\n// about the most sensitive directories a Claude user has.\n//\n// The CSP header (connect-src none) blocks the renderer at runtime; nothing blocks\n// the main process, and nothing at all catches the call before it ships.\n\nexport const id = \"outbound-network-call\"\nexport const title = \"Code that would make an outbound request\"\nexport const severity = \"safety\"\nexport const confidence = \"deterministic\"\n\nexport const deny = {\n  \"reason\": \"kondo is offline by design (SECURITY.md). No telemetry, no update check, no crash reporting — a request here breaks the promise the whole product rests on.\",\n  \"alternative\": \"If the data is already on disk, read it through a workspace adapter. If it genuinely needs the network, that is an ADR and a visible user opt-in, not a line of code.\",\n  \"override\": \"Set .jig/off for one pass, or retire the guard via /jig:review once the ADR exists.\"\n}\n\nconst params = {\n  paths: [\"src/**/*.ts\",\"src/**/*.tsx\",\"electron/**/*.ts\",\"shared/**/*.ts\"],\n  patterns: [\"\\\\bfetch\\\\s*\\\\(\",\"\\\\bnew\\\\s+(?:WebSocket|XMLHttpRequest)\\\\s*\\\\(\",\"\\\\bfrom\\\\s+[\\\"']node:(?:http|https|net|dgram|tls)[\\\"']\"],\n  stripComments: true,\n  stripStrings: false,\n  perLine: true\n}\n\nexport const detectors = [\n  { runner: \"checks\", lever: \"check-driver\", actor: \"human-editor\", confidence: \"deterministic\", params },\n  { runner: \"PostToolUse\", lever: \"edit-observe-guard\", actor: \"claude-session\", confidence: \"deterministic\", params }\n]\n\nexport const fixtures = {\n  violation: \"import https from 'node:https'\\n\\nexport async function ship(payload: string): Promise<void> {\\n  await fetch('https://telemetry.example/ingest', { method: 'POST', body: payload })\\n  const live = new WebSocket('wss://telemetry.example/stream')\\n  https.get('https://telemetry.example/ping')\\n  live.close()\\n}\\n\",\n  nearMiss: \"import type { Scan, StoresOverview } from '../../shared/contract'\\n\\n// kondo makes no outbound request; the bridge is the only door it has.\\nexport async function loadOverview(): Promise<Scan<StoresOverview> | null> {\\n  const api = window.kondo\\n  const prefetched = api ? await api.storesOverview() : null\\n  return prefetched\\n}\\n\"\n}\n"
+    },
+    {
+      "id": "raw-path-across-the-seam",
+      "title": "A filesystem path crossing the IPC seam",
+      "severity": "safety",
+      "axes": [
+        "human",
+        "agent"
+      ],
+      "deny": {
+        "reason": "The seam accepts ids, never filesystem paths (ADR-0008). A path parameter here hands the renderer the power to name any file on disk.",
+        "alternative": "Give the entity a composite id (kind:scope:key), send that, and resolve it in the workspace against the current scan — the pattern every existing channel already follows.",
+        "override": "Set .jig/off for one pass, or retire the guard via /jig:review if ADR-0008 is superseded."
+      },
+      "detectors": [
+        {
+          "lever": "check-driver",
+          "runner": "checks",
+          "actor": "human-editor",
+          "confidence": "deterministic",
+          "params": {
+            "paths": [
+              "electron/preload/**/*.ts",
+              "electron/main/ipc.ts"
+            ],
+            "patterns": [
+              "[A-Za-z_$]*(?:Path|Dir|Filename)\\s*:\\s*(?:string|unknown)",
+              "\\bfrom\\s+[\"']node:fs[\"']"
+            ],
+            "stripComments": true,
+            "stripStrings": false,
+            "perLine": true
+          }
+        },
+        {
+          "lever": "edit-observe-guard",
+          "runner": "PostToolUse",
+          "actor": "claude-session",
+          "confidence": "deterministic",
+          "deny": {
+            "reason": "The seam accepts ids, never filesystem paths (ADR-0008). A path parameter here hands the renderer the power to name any file on disk.",
+            "alternative": "Give the entity a composite id (kind:scope:key), send that, and resolve it in the workspace against the current scan — the pattern every existing channel already follows.",
+            "override": "Set .jig/off for one pass, or retire the guard via /jig:review if ADR-0008 is superseded."
+          },
+          "params": {
+            "paths": [
+              "electron/preload/**/*.ts",
+              "electron/main/ipc.ts"
+            ],
+            "patterns": [
+              "[A-Za-z_$]*(?:Path|Dir|Filename)\\s*:\\s*(?:string|unknown)",
+              "\\bfrom\\s+[\"']node:fs[\"']"
+            ],
+            "stripComments": true,
+            "stripStrings": false,
+            "perLine": true
+          }
+        }
+      ],
+      "fixtures": {
+        "violation": "import fs from 'node:fs'\nimport { contextBridge, ipcRenderer } from 'electron'\n\nconst api = {\n  readTranscript: (filePath: string) => ipcRenderer.invoke('kondo:read', filePath),\n  listStore: (dirPath: unknown) => ipcRenderer.invoke('kondo:list', dirPath)\n}\n\ncontextBridge.exposeInMainWorld('kondo', { ...api, local: fs })\n",
+        "nearMiss": "import { channels, type KondoApi } from '../../shared/contract'\n\n// Ids cross the seam; a path never does (ADR-0008).\nexport function register(\n  handle: (channel: string, fn: (id: string) => unknown) => void,\n  api: KondoApi\n): void {\n  handle(channels.sessionDetail, (sessionId: string) => api.sessionDetail(sessionId))\n  handle(channels.sessionList, (projectId: string) => api.sessionList(projectId))\n}\n"
+      },
+      "module": "// jig:owned — authored for kondo.\n//\n// ADR-0008: ids cross the seam, never paths. A channel that accepts a path lets a\n// renderer bug — or a compromised renderer — name any file on the machine, which\n// is exactly the power the sandbox exists to withhold.\n//\n// Scoped to the two seam files. Display paths in shared/contract.ts are fine: they\n// travel outward, already tildified, and no handler reads them back.\n\nexport const id = \"raw-path-across-the-seam\"\nexport const title = \"A filesystem path crossing the IPC seam\"\nexport const severity = \"safety\"\nexport const confidence = \"deterministic\"\n\nexport const deny = {\n  \"reason\": \"The seam accepts ids, never filesystem paths (ADR-0008). A path parameter here hands the renderer the power to name any file on disk.\",\n  \"alternative\": \"Give the entity a composite id (kind:scope:key), send that, and resolve it in the workspace against the current scan — the pattern every existing channel already follows.\",\n  \"override\": \"Set .jig/off for one pass, or retire the guard via /jig:review if ADR-0008 is superseded.\"\n}\n\nconst params = {\n  paths: [\"electron/preload/**/*.ts\",\"electron/main/ipc.ts\"],\n  patterns: [\"[A-Za-z_$]*(?:Path|Dir|Filename)\\\\s*:\\\\s*(?:string|unknown)\",\"\\\\bfrom\\\\s+[\\\"']node:fs[\\\"']\"],\n  stripComments: true,\n  stripStrings: false,\n  perLine: true\n}\n\nexport const detectors = [\n  { runner: \"checks\", lever: \"check-driver\", actor: \"human-editor\", confidence: \"deterministic\", params },\n  { runner: \"PostToolUse\", lever: \"edit-observe-guard\", actor: \"claude-session\", confidence: \"deterministic\", params }\n]\n\nexport const fixtures = {\n  violation: \"import fs from 'node:fs'\\nimport { contextBridge, ipcRenderer } from 'electron'\\n\\nconst api = {\\n  readTranscript: (filePath: string) => ipcRenderer.invoke('kondo:read', filePath),\\n  listStore: (dirPath: unknown) => ipcRenderer.invoke('kondo:list', dirPath)\\n}\\n\\ncontextBridge.exposeInMainWorld('kondo', { ...api, local: fs })\\n\",\n  nearMiss: \"import { channels, type KondoApi } from '../../shared/contract'\\n\\n// Ids cross the seam; a path never does (ADR-0008).\\nexport function register(\\n  handle: (channel: string, fn: (id: string) => unknown) => void,\\n  api: KondoApi\\n): void {\\n  handle(channels.sessionDetail, (sessionId: string) => api.sessionDetail(sessionId))\\n  handle(channels.sessionList, (projectId: string) => api.sessionList(projectId))\\n}\\n\"\n}\n"
+    },
+    {
+      "id": "test-touches-a-real-store",
+      "title": "A test resolving a real Claude store",
+      "severity": "safety",
+      "axes": [
+        "human",
+        "agent"
+      ],
+      "deny": {
+        "reason": "Tests must never resolve a real store (docs/testing.md). Read-only today, destructive the moment v0.2 mutations land.",
+        "alternative": "Build a fixture world with makeWorld() from test/helpers.ts; it creates a temp home and hands you a locator already pointed at it.",
+        "override": "Set .jig/off for one pass, or retire the guard via /jig:review."
+      },
+      "detectors": [
+        {
+          "lever": "check-driver",
+          "runner": "checks",
+          "actor": "human-editor",
+          "confidence": "deterministic",
+          "params": {
+            "paths": [
+              "test/**/*.ts"
+            ],
+            "patterns": [
+              "\\b(?:os\\.)?homedir\\s*\\(",
+              "\\bprocess\\.env(?:\\.(?:APPDATA|USERPROFILE|HOME)\\b|\\[[\"'](?:APPDATA|USERPROFILE|HOME))",
+              "(?:readFile|readdir|writeFile|mkdir|rm|stat|join|resolve)\\w*\\s*\\([^)]*[\"'][^\"']*[\\\\/]\\.claude"
+            ],
+            "stripComments": true,
+            "stripStrings": false,
+            "perLine": true
+          }
+        },
+        {
+          "lever": "edit-observe-guard",
+          "runner": "PostToolUse",
+          "actor": "claude-session",
+          "confidence": "deterministic",
+          "deny": {
+            "reason": "Tests must never resolve a real store (docs/testing.md). Read-only today, destructive the moment v0.2 mutations land.",
+            "alternative": "Build a fixture world with makeWorld() from test/helpers.ts; it creates a temp home and hands you a locator already pointed at it.",
+            "override": "Set .jig/off for one pass, or retire the guard via /jig:review."
+          },
+          "params": {
+            "paths": [
+              "test/**/*.ts"
+            ],
+            "patterns": [
+              "\\b(?:os\\.)?homedir\\s*\\(",
+              "\\bprocess\\.env(?:\\.(?:APPDATA|USERPROFILE|HOME)\\b|\\[[\"'](?:APPDATA|USERPROFILE|HOME))",
+              "(?:readFile|readdir|writeFile|mkdir|rm|stat|join|resolve)\\w*\\s*\\([^)]*[\"'][^\"']*[\\\\/]\\.claude"
+            ],
+            "stripComments": true,
+            "stripStrings": false,
+            "perLine": true
+          }
+        }
+      ],
+      "fixtures": {
+        "violation": "import fs from 'node:fs/promises'\nimport os from 'node:os'\nimport path from 'node:path'\n\nconst store = path.join(os.homedir(), '.claude')\nconst desktop = process.env.APPDATA\n\nexport async function readReal(): Promise<string> {\n  const raw = await fs.readFile('C:/Users/me/.claude/settings.json', 'utf8')\n  return raw + store + String(desktop)\n}\n",
+        "nearMiss": "import { makeWorld, writeFileTree } from './helpers'\n\n// Fixtures only: a temp home, never the real one (docs/testing.md).\nexport async function seedStore(): Promise<string> {\n  const world = await makeWorld()\n  await writeFileTree(world.userRoot, { 'settings.json': '{}' })\n  return world.userRoot\n}\n"
+      },
+      "module": "// jig:owned — authored for kondo.\n//\n// docs/testing.md: tests never touch real stores. The locator takes injected roots\n// for exactly this reason. Today the suite only reads, so a violation is merely\n// wrong; from v0.2 the same line runs mutation code against the real ~/.claude and\n// the damage is somebody's whole session history.\n//\n// The three doors to a real store are homedir(), the home-ish env vars, and a\n// hard-coded store path handed to an fs or path call. The third pattern wants that\n// call: a test TITLE mentioning ~/.claude, or an expected-value string in a\n// pure-function assertion, is prose or data and reaches no store, so neither fires.\n// path.join(home, '.claude') on a fixture home does not fire either — no separator\n// precedes .claude in that literal.\n\nexport const id = \"test-touches-a-real-store\"\nexport const title = \"A test resolving a real Claude store\"\nexport const severity = \"safety\"\nexport const confidence = \"deterministic\"\n\nexport const deny = {\n  \"reason\": \"Tests must never resolve a real store (docs/testing.md). Read-only today, destructive the moment v0.2 mutations land.\",\n  \"alternative\": \"Build a fixture world with makeWorld() from test/helpers.ts; it creates a temp home and hands you a locator already pointed at it.\",\n  \"override\": \"Set .jig/off for one pass, or retire the guard via /jig:review.\"\n}\n\nconst params = {\n  paths: [\"test/**/*.ts\"],\n  patterns: [\"\\\\b(?:os\\\\.)?homedir\\\\s*\\\\(\",\"\\\\bprocess\\\\.env(?:\\\\.(?:APPDATA|USERPROFILE|HOME)\\\\b|\\\\[[\\\"'](?:APPDATA|USERPROFILE|HOME))\",\"(?:readFile|readdir|writeFile|mkdir|rm|stat|join|resolve)\\\\w*\\\\s*\\\\([^)]*[\\\"'][^\\\"']*[\\\\\\\\/]\\\\.claude\"],\n  stripComments: true,\n  stripStrings: false,\n  perLine: true\n}\n\nexport const detectors = [\n  { runner: \"checks\", lever: \"check-driver\", actor: \"human-editor\", confidence: \"deterministic\", params },\n  { runner: \"PostToolUse\", lever: \"edit-observe-guard\", actor: \"claude-session\", confidence: \"deterministic\", params }\n]\n\nexport const fixtures = {\n  violation: \"import fs from 'node:fs/promises'\\nimport os from 'node:os'\\nimport path from 'node:path'\\n\\nconst store = path.join(os.homedir(), '.claude')\\nconst desktop = process.env.APPDATA\\n\\nexport async function readReal(): Promise<string> {\\n  const raw = await fs.readFile('C:/Users/me/.claude/settings.json', 'utf8')\\n  return raw + store + String(desktop)\\n}\\n\",\n  nearMiss: \"import { makeWorld, writeFileTree } from './helpers'\\n\\n// Fixtures only: a temp home, never the real one (docs/testing.md).\\nexport async function seedStore(): Promise<string> {\\n  const world = await makeWorld()\\n  await writeFileTree(world.userRoot, { 'settings.json': '{}' })\\n  return world.userRoot\\n}\\n\"\n}\n"
+    }
+  ]
+}

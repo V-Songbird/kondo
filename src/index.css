@@ -1,0 +1,68 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-bg: #0f1115;
+  --color-panel: #171a21;
+  --color-inset: #1d222c;
+  --color-edge: #262b36;
+  --color-ink: #e6e4df;
+  --color-mut: #8b93a3;
+  --color-accent: #e8a13c;
+  --color-ok: #4cc38a;
+  --color-warn: #e5b455;
+  --color-bad: #e5646e;
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Consolas', ui-monospace, monospace;
+}
+
+@layer base {
+  body {
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+}
+
+@layer components {
+  .card {
+    background: var(--color-panel);
+    border: 1px solid var(--color-edge);
+    border-radius: 10px;
+    padding: 1rem;
+  }
+  .tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .tbl th {
+    text-align: left;
+    color: var(--color-mut);
+    font-weight: 500;
+    padding: 0.4rem 0.75rem;
+    border-bottom: 1px solid var(--color-edge);
+    white-space: nowrap;
+  }
+  .tbl td {
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-edge) 55%, transparent);
+    vertical-align: top;
+  }
+  .tbl tbody tr:hover {
+    background: color-mix(in srgb, var(--color-inset) 70%, transparent);
+  }
+  .pill {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 0.1rem 0.55rem;
+    font-size: 11px;
+    line-height: 1.5;
+    border: 1px solid var(--color-edge);
+    color: var(--color-mut);
+    white-space: nowrap;
+  }
+}
