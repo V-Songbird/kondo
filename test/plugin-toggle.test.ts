@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import type { CapabilityOperation, KondoApi, PluginInfo } from '../shared/contract'
+import type { KondoApi, PluginInfo, ToggleOperation } from '../shared/contract'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   exists,
@@ -75,6 +75,8 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     workdir = path.join(world.base, 'work', 'proj')
     claudeDir = path.join(workdir, '.claude')
     dirName = flattenPath(workdir)
+    const installOf = (name: string): string =>
+      path.join(world.userRoot, 'plugins', 'cache', 'acme', name, '1.0.0')
 
     await writeFileTree(world.userRoot, {
       [`projects/${dirName}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
@@ -82,9 +84,11 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
       'plugins/installed_plugins.json': writeJson({
         version: 2,
         plugins: {
-          'alpha@acme': [{ scope: 'user', installPath: 'x', version: '1.0.0' }],
-          'beta@acme': [{ scope: 'user', installPath: 'x', version: '2.0.0' }],
-          'gamma@acme': [{ scope: 'user', installPath: 'x', version: '3.0.0' }]
+          // Real install paths: `scanPlugins` refuses one that escapes the
+          // user store, so a placeholder would read as a rogue plugin.
+          'alpha@acme': [{ scope: 'user', installPath: installOf('alpha'), version: '1.0.0' }],
+          'beta@acme': [{ scope: 'user', installPath: installOf('beta'), version: '2.0.0' }],
+          'gamma@acme': [{ scope: 'user', installPath: installOf('gamma'), version: '3.0.0' }]
         }
       })
     })
@@ -309,7 +313,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     const sideways = await api.pluginToggle(
       ALPHA,
       USER_LAYER,
-      'sideways' as CapabilityOperation
+      'sideways' as ToggleOperation
     )
     expect(sideways.errors.map((error) => error.code)).toContain('bad-request')
 

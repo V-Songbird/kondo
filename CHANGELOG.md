@@ -45,6 +45,34 @@ All notable changes to kondo are documented here. The format follows
   them, showing what each says and which one wins (local > project > user). A layer whose file does not exist yet is
   refused with the new `needs-confirmation` scan code and created only after
   the user says so.
+- Moving a skill between scopes — user to project, project to user, and
+  project to project — as one journaled, reversible operation. The order is
+  the guarantee: the destination copy is written and proven against the
+  source by a recursive digest *before* the source is displaced into kondo's
+  trash, so a copy that does not verify leaves the original untouched and
+  nothing at the destination. A destination scope already holding that skill
+  name is refused rather than merged (either of its directories counts), and
+  a plugin-shipped skill is refused by the capability matrix, which gained a
+  third operation, `move`, alongside `enable` and `disable`. Undoing the move
+  puts the skill back and takes the copy away in one step. The Skills tab
+  gets a "Move to" picker per row that re-reads the store afterwards.
+
+### Changed
+
+- Skills that ship inside a plugin are no longer listed in the skills
+  catalogue. They are not the user's to bench or relocate — doing either
+  leaves the plugin pointing at a directory that has moved — so they now
+  belong to the plugins view rather than sitting in the skills list as
+  permanently greyed-out rows. `scanSkills` no longer walks plugin trees and
+  no longer reads the plugin manifest at all. The `plugin` skill scope and
+  its capability-matrix row stay, so whoever surfaces these skills in the
+  plugins view still inherits the refusal.
+- The confinement check on a plugin's `installPath` moved from `scanSkills`,
+  which happened to be its only consumer, into `scanPlugins`, where the
+  untrusted path is resolved. A path escaping the user store is now nulled at
+  the source, so no later reader can follow it by forgetting to check, and
+  the refusal is reported wherever plugins are read rather than only where
+  skills were.
 
 ### Fixed
 

@@ -1,6 +1,6 @@
+import path from 'node:path'
 import type {
   Capabilities,
-  CapabilityOperation,
   DesktopSession,
   EntityIdentity,
   EntityKind,
@@ -11,12 +11,14 @@ import type {
   SessionSummary,
   SettingsLayerInfo,
   SkillInfo,
-  ScanErrorCode
+  ScanErrorCode,
+  ToggleOperation
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
 import type { Collector } from './scan'
 import type { MutationPlan } from './mutations'
 import { capabilitiesFor, scopesFor } from './capabilities'
+import { tildify } from './display'
 import { desktopSessions } from './desktop-store'
 import { summarizeTranscript } from './jsonl'
 import { toSessionProjects, toSessionSummaries, type SessionInventory } from './sessions'
@@ -179,7 +181,7 @@ function skillPlacement(entity: SkillInfo): { store: string; from: string; to: s
   }
 }
 
-function skillPlan(entity: SkillInfo, operation: CapabilityOperation): MutationPlan | null {
+function skillPlan(entity: SkillInfo, operation: ToggleOperation): MutationPlan | null {
   if (!entity.capabilities[operation].allowed) return null
   const placement = skillPlacement(entity)
   if (!placement) return null
@@ -196,11 +198,10 @@ const skill: EntityKindDefinition<SkillInfo> = {
   kind: 'skill',
   scopes: scopesFor('skill'),
   async discover(context) {
-    // Order matters only for the collector: projects, then layers, then the
-    // plugin manifest, then the skill trees under each of them.
-    const projects = await context.projects()
-    const plugins = await context.plugins()
-    return scanSkills(context.locator, projects, plugins, context.c)
+    // Only the user store and the verified projects: a skill shipped inside a
+    // plugin is the plugin's, not the user's, so the plugin manifest is not
+    // read here at all any more.
+    return scanSkills(context.locator, await context.projects(), context.c)
   },
   read(id, context) {
     return findById(id, skill.discover(context))
@@ -319,6 +320,126 @@ const desktopSession: EntityKindDefinition<DesktopSession> = {
 
 
 // ---------------------------------------------------------------------------
+// Moving a skill into another scope
+
+/** Why a skill move produced no plan, in the seam's own vocabulary. */
+export type SkillMovePlan =
+  | { ok: true; plan: MutationPlan }
+  | { ok: false; code: ScanErrorCode; message: string }
+
+export interface SkillMoveRequest {
+  entity: SkillInfo
+  /** `'user'`, or a `project:code:<dirName>` id from a previous scan. */
+  destinationId: string
+  /**
+   * Every skill the same scan listed. The collision check reads this rather
+   * than the disk, so the plan is answered from exactly the bytes the entity
+   * was built from — and one scan covers both of a scope's directories.
+   */
+  all: SkillInfo[]
+}
+
+/** The user scope has no key, so it names itself (ADR-0008 has no id for it). */
+const USER_DESTINATION = 'user'
+const PROJECT_ID_PREFIX = 'project:code:'
+
+/** Where a move would land: the store to write into, and how to say it. */
+interface MoveTarget {
+  store: string
+  label: string
+}
+
+async function moveTarget(
+  destinationId: string,
+  context: KindContext
+): Promise<MoveTarget | null> {
+  if (destinationId === USER_DESTINATION) {
+    return { store: 'user', label: tildify(context.locator.userRoot, context.locator.home) }
+  }
+  if (!destinationId.startsWith(PROJECT_ID_PREFIX)) return null
+  const dirName = destinationId.slice(PROJECT_ID_PREFIX.length)
+  // Only a *verified* project is a store: `mutations` resolves the same list,
+  // so a destination that plans here always resolves when it runs (ADR-0002 —
+  // the store is the project's `.claude`, never the project itself).
+  const project = (await context.projects()).find((candidate) => candidate.dirName === dirName)
+  if (!project) return null
+  return {
+    store: `project:${dirName}`,
+    label: tildify(path.join(project.absPath, '.claude'), context.locator.home)
+  }
+}
+
+function moveRefused(code: ScanErrorCode, message: string): SkillMovePlan {
+  return { ok: false, code, message }
+}
+
+/**
+ * The store change that moves one skill into another scope: copy it, prove
+ * the copy, then trash the original — one plan, so `undo` reverses the whole
+ * thing or none of it (ADR-0001). The order is the invariant, and it lives in
+ * the step list rather than in a caller's sequencing.
+ *
+ * The matrix is the gate (ADR-0006): a plugin-shipped skill is refused here,
+ * not in the UI. A destination scope that already holds the name is refused
+ * too — merging two skill directories would silently mix their files.
+ */
+export async function skillMovePlan(
+  request: SkillMoveRequest,
+  context: KindContext
+): Promise<SkillMovePlan> {
+  const { entity, destinationId, all } = request
+
+  const decision = entity.capabilities.move
+  if (!decision.allowed) {
+    return moveRefused('not-permitted', decision.reason ?? 'kondo cannot move this skill.')
+  }
+  const placement = skillPlacement(entity)
+  if (!placement) {
+    return moveRefused('not-permitted', `kondo cannot tell what store ${entity.name} lives in.`)
+  }
+  const target = await moveTarget(destinationId, context)
+  if (target === null) {
+    return moveRefused(
+      'unknown-id',
+      `No scope with id "${destinationId}" in the current scan — rescan and retry.`
+    )
+  }
+  if (target.store === placement.store) {
+    return moveRefused('bad-request', `${entity.name} is already in that scope.`)
+  }
+
+  // Both of the destination's directories count: a skill of this name sitting
+  // in its `skills.disabled` is the same name arriving twice.
+  const clash = all.find(
+    (candidate) =>
+      candidate.name === entity.name && skillPlacement(candidate)?.store === target.store
+  )
+  if (clash) {
+    return moveRefused(
+      'bad-request',
+      `${clash.origin} already holds a skill named ${entity.name}; kondo will not merge the two.`
+    )
+  }
+
+  // ADR-0006: the skill's state travels with it, so a benched skill lands in
+  // the destination's `skills.disabled` and stays benched.
+  const to = `${entity.enabled ? SKILLS : SKILLS_DISABLED}/${entity.name}`
+  return {
+    ok: true,
+    plan: {
+      op: 'move',
+      kind: 'skill',
+      entityId: entity.id,
+      summary: `Move skill ${entity.name} from ${entity.origin} to ${target.label}`,
+      steps: [
+        { type: 'copy', store: placement.store, from: placement.from, toStore: target.store, to },
+        { type: 'trash', store: placement.store, from: placement.from }
+      ]
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Toggling a plugin in one settings layer
 
 /** Why a plugin toggle produced no plan, in the seam's own vocabulary. */
@@ -330,7 +451,7 @@ export interface PluginToggleRequest {
   entity: PluginInfo
   /** `settings:<layer>:<key>` — the layer the user picked. */
   layerId: string
-  operation: CapabilityOperation
+  operation: ToggleOperation
   /** The user has confirmed creating a settings file that is not there yet. */
   createLayer: boolean
 }

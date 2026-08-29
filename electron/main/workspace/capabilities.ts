@@ -18,9 +18,19 @@ function deny(reason: string): CapabilityDecision {
   return { allowed: false, reason }
 }
 
-/** Neither direction is permitted, for the same reason. */
+// Only a skill is a self-contained directory the user placed by hand. A
+// plugin lives where Claude installed it, a hook is a fragment of a settings
+// file, and a session belongs to the project it was recorded in.
+const ONLY_SKILLS_MOVE = 'Only skills move between scopes; kondo relocates nothing else.'
+
+/** No operation at all is permitted, all three for the same reason. */
+function none(reason: string): Capabilities {
+  return { enable: deny(reason), disable: deny(reason), move: deny(reason) }
+}
+
+/** Neither toggle direction is permitted, and this kind does not relocate. */
 function neither(reason: string): Capabilities {
-  return { enable: deny(reason), disable: deny(reason) }
+  return { ...none(reason), move: deny(ONLY_SKILLS_MOVE) }
 }
 
 const ALREADY_ENABLED = 'Already enabled.'
@@ -42,19 +52,21 @@ const SESSIONS_ARE_SWEPT =
  */
 const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
   // ~/.claude/skills ⇄ ~/.claude/skills.disabled, and the project-scoped
-  // equivalent (domain.md).
+  // equivalent (domain.md). Every scope a user placed a skill in by hand can
+  // also hand it on, so `move` is allowed wherever the skill is the user's —
+  // it is the one operation that reads the *source* row and writes elsewhere.
   skill: {
-    user: { enable: deny(ALREADY_ENABLED), disable: ALLOW },
-    'user-disabled': { enable: ALLOW, disable: deny(ALREADY_DISABLED) },
-    plugin: neither(PLUGIN_OWNED),
-    project: { enable: deny(ALREADY_ENABLED), disable: ALLOW },
-    'project-disabled': { enable: ALLOW, disable: deny(ALREADY_DISABLED) }
+    user: { enable: deny(ALREADY_ENABLED), disable: ALLOW, move: ALLOW },
+    'user-disabled': { enable: ALLOW, disable: deny(ALREADY_DISABLED), move: ALLOW },
+    plugin: none(PLUGIN_OWNED),
+    project: { enable: deny(ALREADY_ENABLED), disable: ALLOW, move: ALLOW },
+    'project-disabled': { enable: ALLOW, disable: deny(ALREADY_DISABLED), move: ALLOW }
   },
   // `enabledPlugins` in the settings layer for the scope (domain.md).
   plugin: {
-    user: { enable: ALLOW, disable: ALLOW },
-    project: { enable: ALLOW, disable: ALLOW },
-    local: { enable: ALLOW, disable: ALLOW }
+    user: { enable: ALLOW, disable: ALLOW, move: deny(ONLY_SKILLS_MOVE) },
+    project: { enable: ALLOW, disable: ALLOW, move: deny(ONLY_SKILLS_MOVE) },
+    local: { enable: ALLOW, disable: ALLOW, move: deny(ONLY_SKILLS_MOVE) }
   },
   hook: {
     user: neither(HOOK_HAS_NO_CONVENTION),
@@ -77,13 +89,13 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
 
 /**
  * The matrix row for one kind in one scope. An unrecognized scope refuses
- * both operations rather than throwing (ADR-0005) — a store that grew a
+ * every operation rather than throwing (ADR-0005) — a store that grew a
  * scope kondo has not learned yet is read-only until domain.md catches up.
  */
 export function capabilitiesFor(kind: EntityKind, scope: string): Capabilities {
   return (
     MATRIX[kind][scope] ??
-    neither(`kondo does not recognize the ${kind} scope "${scope}"; refusing to write.`)
+    none(`kondo does not recognize the ${kind} scope "${scope}"; refusing to write.`)
   )
 }
 

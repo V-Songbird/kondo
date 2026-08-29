@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import os from 'node:os'
 import path from 'node:path'
-import type { CapabilityOperation, KondoApi } from '../shared/contract'
+import type { KondoApi, ToggleOperation } from '../shared/contract'
+import { capabilitiesFor } from '../electron/main/workspace/capabilities'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   exists,
@@ -165,17 +166,22 @@ describe('skill enable/disable (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // The matrix refuses, not the UI
 
-  it('refuses a plugin-shipped skill at the capability matrix', async () => {
+  it('never offers a plugin-shipped skill, and refuses one named directly', async () => {
+    // A plugin's skills are the plugin's: they are not catalogued, so there
+    // is no row to press. Naming one anyway resolves against nothing.
+    expect(await idsFrom()).not.toContain(PLUGIN_SKILL)
+
     const before = await hashTree(world.userRoot)
     for (const operation of ['enable', 'disable'] as const) {
       const result = await api.skillToggle(PLUGIN_SKILL, operation)
       expect(result.data).toBeNull()
-      expect(result.errors.map((error) => error.code)).toContain('not-permitted')
-      expect(result.errors[0]?.message).toContain('Plugin-shipped')
+      expect(result.errors.map((error) => error.code)).toContain('unknown-id')
     }
     expect(await hashTree(world.userRoot)).toBe(before)
     // Refused before anything was planned, so no journal entry exists.
     expect((await api.journalList()).data).toEqual([])
+    // And the matrix still answers, for whoever surfaces one elsewhere.
+    expect(capabilitiesFor('skill', 'plugin').disable.reason).toContain('Plugin-shipped')
   })
 
   it('refuses the direction the matrix already calls done', async () => {
@@ -217,7 +223,7 @@ describe('skill enable/disable (ADR-0006)', () => {
 
     const sideways = await api.skillToggle(
       'skill:user:alpha-skill',
-      'sideways' as CapabilityOperation
+      'sideways' as ToggleOperation
     )
     expect(sideways.errors.map((error) => error.code)).toContain('bad-request')
 

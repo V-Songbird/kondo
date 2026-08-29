@@ -262,8 +262,21 @@ export async function scanPlugins(
       Array.isArray(installs) && typeof installs[0] === 'object' && installs[0] !== null
         ? (installs[0] as Record<string, unknown>)
         : {}
-    const installAbs =
+    const declared =
       typeof install['installPath'] === 'string' ? install['installPath'] : null
+    // Confinement (SECURITY.md): installPath comes from a store manifest and
+    // is untrusted. It is checked here, where it is resolved, rather than at
+    // whichever consumer happens to follow it — an escaping path is nulled,
+    // so no later reader can dereference it by forgetting to ask.
+    let installAbs = declared
+    if (declared !== null && !pathWithin(declared, locator.userRoot)) {
+      c.errors.push({
+        code: 'out-of-store',
+        path: tildify(declared, locator.home),
+        message: `installPath of plugin:${key} escapes the user store; it was not followed.`
+      })
+      installAbs = null
+    }
     const installScope = typeof install['scope'] === 'string' ? install['scope'] : 'user'
     // A plugin's enabled state belongs to a settings layer, not to the
     // plugin (ADR-0006), so every layer gets a row and its own matrix
@@ -290,7 +303,9 @@ export async function scanPlugins(
           typeof install['installedAt'] === 'string' ? install['installedAt'] : null,
         lastUpdated:
           typeof install['lastUpdated'] === 'string' ? install['lastUpdated'] : null,
-        installPath: installAbs ? tildify(installAbs, locator.home) : '(unknown)',
+        // The declared path, even when it escaped: the display tells the
+        // truth about the manifest, `installAbs` is what may be followed.
+        installPath: declared ? tildify(declared, locator.home) : '(unknown)',
         enabledIn: scopes.filter((scope) => scope.enabled === true).map((scope) => scope.path),
         scopes,
         winningLayerId: scopes.find((scope) => scope.enabled !== null)?.layerId ?? null
@@ -498,10 +513,17 @@ function insertMember(source: string, object: JsonObject, text: string): string 
 const SKILL_MANIFEST = 'SKILL.md'
 const MAX_MANIFEST_BYTES = 262_144
 
+/**
+ * Every skill the user placed by hand, in the user store and in each verified
+ * project. Skills that ship *inside* a plugin are deliberately not listed:
+ * they are not the user's to move or bench, and a plugin whose skill directory
+ * went missing is a broken plugin. They belong to the plugins view, which owns
+ * the plugin's own tree — the matrix keeps refusing the `plugin` scope so that
+ * whoever surfaces them there still cannot mutate one.
+ */
 export async function scanSkills(
   locator: StoreLocator,
   projects: VerifiedProject[],
-  plugins: PluginRecord[],
   c: Collector
 ): Promise<SkillInfo[]> {
   const skills: SkillInfo[] = []
@@ -547,25 +569,6 @@ export async function scanSkills(
     'user-disabled',
     false
   )
-  for (const plugin of plugins) {
-    if (!plugin.installAbs) continue
-    // Confinement (SECURITY.md): installPath comes from a store manifest and
-    // is followed only while it stays inside the user store.
-    if (!pathWithin(plugin.installAbs, locator.userRoot)) {
-      c.errors.push({
-        code: 'out-of-store',
-        path: plugin.info.installPath,
-        message: `installPath of ${plugin.info.id} escapes the user store; its skills were not scanned.`
-      })
-      continue
-    }
-    await addFrom(
-      path.join(plugin.installAbs, 'skills'),
-      'plugin',
-      `plugin/${plugin.info.name}@${plugin.info.marketplace}`,
-      plugin.info.enabledIn.length > 0
-    )
-  }
   for (const project of projects) {
     // ADR-0002: the project store is its .claude directory and nothing above
     // it. ADR-0006: skills.disabled is Claude's own convention, scoped.

@@ -33,10 +33,14 @@ in temp directories by the builders in `test/helpers.ts`.
      `test/mutation.test.ts` (ADR-0001). A mutation PR that does not extend
      these is incomplete — the skill toggle extends them in
      `test/skill-toggle.test.ts` (journal before the move, both scopes, and
-     the matrix refusal), and the plugin toggle in
+     the matrix refusal), the plugin toggle in
      `test/plugin-toggle.test.ts` (the splice leaves every other byte of the
      settings file alone, layer precedence, and the confirmation gate on
-     creating a layer that is not there).
+     creating a layer that is not there), and the cross-scope move in
+     `test/skill-move.test.ts` (all three directions, the name-collision and
+     plugin-owned refusals, undo removing the copy as well as restoring the
+     source, and — the one that matters most — a copy that does not verify
+     leaving the source untouched).
 5. **End-to-end** (later): the built app driven against a fixture store via a
    `KONDO_STORE_ROOT` override.
 

@@ -103,7 +103,9 @@ describe('user store adapter', () => {
     const c = collector()
     const layers = await readSettingsLayers(world.locator, verified, c)
     const plugins = await scanPlugins(world.locator, layers, c)
-    expect(c.errors).toEqual([])
+    // The fixture plants one plugin whose installPath escapes the store; it
+    // is still listed, with its pointer refused. Everything else is clean.
+    expect(c.errors.map((error) => error.code)).toEqual(['out-of-store'])
     expect(plugins).toHaveLength(3)
 
     const alpha = plugins.find((plugin) => plugin.info.id === 'plugin:alpha@acme')!.info
@@ -124,34 +126,40 @@ describe('user store adapter', () => {
     expect(c.errors.some((error) => error.code === 'parse-failed')).toBe(true)
   })
 
-  it('catalogs skills across user, disabled, plugin, and project scopes', async () => {
+  it('catalogs the skills the user placed, in the user store and each project', async () => {
     const c = collector()
-    const layers = await readSettingsLayers(world.locator, verified, c)
-    const plugins = await scanPlugins(world.locator, layers, c)
-    const skills = await scanSkills(world.locator, verified, plugins, c)
+    const skills = await scanSkills(world.locator, verified, c)
 
     const ids = skills.map((skill) => skill.id)
     expect(ids).toContain('skill:user:alpha-skill')
     expect(ids).toContain('skill:user-disabled:beta-skill')
-    expect(ids).toContain('skill:plugin/alpha@acme:gamma-skill')
     expect(ids).toContain('skill:project/X--work-proj:delta-skill')
     expect(ids.some((id) => id.includes('not-a-skill'))).toBe(false)
 
     const beta = skills.find((skill) => skill.id === 'skill:user-disabled:beta-skill')!
     expect(beta.enabled).toBe(false)
     expect(beta.description).toBe('Benched skill')
+  })
 
-    const epsilon = skills.find((skill) => skill.id === 'skill:plugin/beta@acme:epsilon-skill')!
-    expect(epsilon.enabled).toBe(false)
+  it('never lists a skill that ships inside a plugin', async () => {
+    const c = collector()
+    // The fixture's plugins do ship skills; none of them is the user's to
+    // move or bench, so none of them crosses into the skills catalogue.
+    const skills = await scanSkills(world.locator, verified, c)
+    expect(skills.some((skill) => skill.scope === 'plugin')).toBe(false)
+    expect(skills.some((skill) => skill.name === 'gamma-skill')).toBe(false)
+    expect(skills.some((skill) => skill.name === 'epsilon-skill')).toBe(false)
   })
 
   it('refuses to follow a plugin installPath outside the user store', async () => {
     const c = collector()
     const layers = await readSettingsLayers(world.locator, [], c)
     const plugins = await scanPlugins(world.locator, layers, c)
-    const skills = await scanSkills(world.locator, [], plugins, c)
 
-    expect(skills.some((skill) => skill.id.includes('rogue-skill'))).toBe(false)
+    // The check lives where the untrusted path is resolved, so the escaping
+    // path is nulled for every consumer rather than at one call site.
+    const rogue = plugins.find((plugin) => plugin.info.id === 'plugin:omega@acme')!
+    expect(rogue.installAbs).toBeNull()
     const refusal = c.errors.find((error) => error.code === 'out-of-store')
     expect(refusal?.message).toContain('plugin:omega@acme')
   })

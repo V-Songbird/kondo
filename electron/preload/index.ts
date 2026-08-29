@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { channels, type CapabilityOperation, type KondoApi } from '../../shared/contract'
+import { channels, type KondoApi, type ToggleOperation } from '../../shared/contract'
 
 /** The bridge stays dumb: one invoke per method, no logic, no state. */
 const api: KondoApi = {
@@ -10,13 +10,15 @@ const api: KondoApi = {
   sessionDetail: (sessionId: string) => ipcRenderer.invoke(channels.sessionDetail, sessionId),
   desktopSessions: () => ipcRenderer.invoke(channels.desktopSessions),
   skillsList: () => ipcRenderer.invoke(channels.skillsList),
-  skillToggle: (skillId: string, operation: CapabilityOperation) =>
+  skillToggle: (skillId: string, operation: ToggleOperation) =>
     ipcRenderer.invoke(channels.skillToggle, skillId, operation),
+  skillMove: (skillId: string, destinationId: string) =>
+    ipcRenderer.invoke(channels.skillMove, skillId, destinationId),
   pluginsList: () => ipcRenderer.invoke(channels.pluginsList),
   pluginToggle: (
     pluginId: string,
     layerId: string,
-    operation: CapabilityOperation,
+    operation: ToggleOperation,
     createLayer?: boolean
   ) =>
     ipcRenderer.invoke(channels.pluginToggle, pluginId, layerId, operation, createLayer === true),

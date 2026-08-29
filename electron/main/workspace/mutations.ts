@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
@@ -35,6 +35,14 @@ export type ExtraRoot = (store: string) => Promise<string | null>
 export type PlannedStep =
   /** Rename inside one store. Refused when the destination already exists. */
   | { type: 'move'; store: string; from: string; to: string }
+  /**
+   * Copy into another store, leaving the source alone. The copy is verified
+   * against the source before the step is allowed to succeed, so a later
+   * `trash` of the same source can never be the thing that loses it
+   * (ADR-0001's copy → verify → trash recipe). Refused when the destination
+   * already exists.
+   */
+  | { type: 'copy'; store: string; from: string; toStore: string; to: string }
   /** Displace into `<kondo-data>/trash/<journal-id>/`; never an unlink. */
   | { type: 'trash'; store: string; from: string }
   /** Write a file, keeping any bytes it displaces. */
@@ -54,18 +62,23 @@ export interface MutationPlan {
 // What the journal records
 
 interface JournalStep {
-  type: 'move' | 'trash' | 'write'
-  /** Named store root; the journal never holds an absolute path. */
+  type: 'move' | 'copy' | 'trash' | 'write'
+  /** Named store root of the source; the journal holds no absolute path. */
   store: string
-  /** Source (`move`, `trash`) or target (`write`), relative to `store`. */
+  /** Source (`move`, `copy`, `trash`) or target (`write`), under `store`. */
   from: string
-  /** Destination of a `move`, relative to `store`. */
+  /** Destination of a `move` or `copy`, relative to `toStore`. */
   to?: string
+  /** Store the destination of a `copy` lands in; absent means `store`. */
+  toStore?: string
   /** Path under `<kondo-data>/trash/<id>/` holding the displaced bytes. */
   displaced?: string
-  /** Store-relative directories this step created, deepest first. */
+  /** Directories this step created under `createdIn`, deepest first. */
   created?: string[]
 }
+
+/** The store `created` is relative to — the destination for a `copy`. */
+const createdIn = (step: JournalStep): string => step.toStore ?? step.store
 
 interface JournalRecord {
   id: string
@@ -177,6 +190,48 @@ export function createMutations(
     return made
   }
 
+  /**
+   * A tree reduced to one hash: every relative name in sorted order, and the
+   * bytes of every file. Two trees with the same digest hold the same skill.
+   */
+  const digestTree = async (root: string): Promise<string> => {
+    const hash = createHash('sha256')
+    if (!(await fs.stat(root)).isDirectory()) {
+      hash.update(await fs.readFile(root))
+      return hash.digest('hex')
+    }
+    const names = (await fs.readdir(root, { withFileTypes: true, recursive: true }))
+      .map((entry) => {
+        const relative = path
+          .relative(root, path.join(entry.parentPath, entry.name))
+          .split(path.sep)
+          .join('/')
+        return entry.isDirectory() ? `${relative}/` : relative
+      })
+      .sort()
+    for (const relative of names) {
+      hash.update(relative)
+      if (relative.endsWith('/')) continue
+      hash.update(await fs.readFile(path.join(root, ...relative.split('/'))))
+    }
+    return hash.digest('hex')
+  }
+
+  /**
+   * ADR-0001's `verify`: the destination is proven to hold the source's bytes
+   * before anything releases the source. A read that throws is a failure too
+   * — the answer to "is this copy good?" is only ever yes on proof.
+   */
+  const verifyCopy = async (from: string, to: string): Promise<string | null> => {
+    try {
+      const [source, destination] = await Promise.all([digestTree(from), digestTree(to)])
+      if (source === destination) return null
+      return `The copy at ${path.basename(to)} does not match its source; nothing was removed.`
+    } catch (cause) {
+      return `The copy could not be verified (${describe(cause)}); nothing was removed.`
+    }
+  }
+
   /** Move that survives a store and `<kondo-data>` on different volumes. */
   const relocate = async (from: string, to: string): Promise<void> => {
     await fs.mkdir(path.dirname(to), { recursive: true })
@@ -184,9 +239,12 @@ export function createMutations(
       await fs.rename(from, to)
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'EXDEV') throw cause
-      // Copy, verify, then release the source — ADR-0001's move recipe.
+      // Copy, verify, then release the source — ADR-0001's move recipe. A
+      // project on one volume and `<kondo-data>` on another is ordinary, so
+      // this path carries the same proof the `copy` step does.
       await fs.cp(from, to, { recursive: true })
-      if (!(await exists(to))) throw cause
+      const unverified = await verifyCopy(from, to)
+      if (unverified !== null) throw new Refused('read-failed', to, unverified)
       await fs.rm(from, { recursive: true })
     }
   }
@@ -287,6 +345,20 @@ export function createMutations(
         const destination = await resolveIn(step.store, step.to as string)
         await fs.mkdir(path.dirname(destination), { recursive: true })
         await relocate(await resolveIn(step.store, step.from), destination)
+      } else if (step.type === 'copy') {
+        const toStore = step.toStore as string
+        const source = await resolveIn(step.store, step.from)
+        const destination = await resolveIn(toStore, step.to as string)
+        await fs.mkdir(path.dirname(destination), { recursive: true })
+        await fs.cp(source, destination, { recursive: true })
+        const unverified = await verifyCopy(source, destination)
+        if (unverified !== null) {
+          // The half-copy is kondo's own doing and the source has not been
+          // touched, so it goes to this entry's trash rather than an unlink,
+          // and the step fails before anything can release the original.
+          await relocate(destination, trashPath(journalId, `${toStore}/${step.to}`))
+          throw new Refused('read-failed', step.to as string, unverified)
+        }
       } else if (step.type === 'trash') {
         await relocate(
           await resolveIn(step.store, step.from),
@@ -326,6 +398,22 @@ export function createMutations(
           from: relative,
           to: step.to,
           created: await missingAncestors(destination, root)
+        })
+      } else if (step.type === 'copy') {
+        const destination = await resolveIn(step.toStore, step.to)
+        if (!(await exists(target))) {
+          throw new Refused('read-failed', relative, 'Nothing to copy at that path.')
+        }
+        if (await exists(destination)) {
+          throw new Refused('bad-request', step.to, 'The destination already exists.')
+        }
+        steps.push({
+          type: 'copy',
+          store: step.store,
+          from: relative,
+          to: step.to,
+          toStore: step.toStore,
+          created: await missingAncestors(destination, await rootOf(step.toStore))
         })
       } else if (step.type === 'trash') {
         if (!(await exists(target))) {
@@ -380,7 +468,9 @@ export function createMutations(
         await write(record, () => runSteps(id, plan.steps, steps))
       } catch (cause) {
         // The entry may already be on disk; that is the point — whatever ran
-        // before the failure is reversible through `undo`.
+        // before the failure is reversible through `undo`. A step that
+        // refused (an unverified copy) carries its own reason and code.
+        if (cause instanceof Refused) return refuse(cause.code, cause.at, cause.message)
         return refuse('read-failed', plan.entityId, describe(cause))
       }
       return { data: toInfo(record, null), errors: [], unknown: [] }
@@ -416,16 +506,28 @@ export function createMutations(
       }
 
       const id = newId()
-      // Reversing a `write` displaces the bytes kondo wrote, so the undo has
-      // journal steps of its own and its own trash directory.
-      const steps: JournalStep[] = original.steps
-        .filter((step) => step.type === 'write')
-        .map((step) => ({
-          type: 'trash' as const,
-          store: step.store,
-          from: step.from,
-          displaced: `${step.store}/${step.from}`
-        }))
+      // Reversing a `write` or a `copy` displaces bytes kondo itself put
+      // there, so the undo has journal steps of its own and its own trash
+      // directory. A `move` and a `trash` only put back what was already
+      // recorded, and add nothing here.
+      const steps: JournalStep[] = original.steps.flatMap((step) => {
+        if (step.type === 'write') {
+          return [
+            {
+              type: 'trash' as const,
+              store: step.store,
+              from: step.from,
+              displaced: `${step.store}/${step.from}`
+            }
+          ]
+        }
+        if (step.type === 'copy') {
+          const store = step.toStore as string
+          const from = step.to as string
+          return [{ type: 'trash' as const, store, from, displaced: `${store}/${from}` }]
+        }
+        return []
+      })
       const record: JournalRecord = {
         id,
         at: new Date(now()).toISOString(),
@@ -444,6 +546,15 @@ export function createMutations(
               await resolveIn(step.store, step.to as string),
               await resolveIn(step.store, step.from)
             )
+          } else if (step.type === 'copy') {
+            // The source came back on the reversed `trash` step before this
+            // one, so the copy is now the spare. It is displaced into the
+            // undo's own trash, never unlinked — and it may not be there at
+            // all if the copy is what failed.
+            const destination = await resolveIn(step.toStore as string, step.to as string)
+            if (await exists(destination)) {
+              await relocate(destination, trashPath(id, `${step.toStore}/${step.to}`))
+            }
           } else if (step.type === 'trash') {
             await relocate(
               trashPath(original.id, step.displaced as string),
@@ -461,7 +572,7 @@ export function createMutations(
               await fs.cp(trashPath(original.id, step.displaced), target, { recursive: true })
             }
           }
-          await dropCreated(step.created, step.store)
+          await dropCreated(step.created, createdIn(step))
         }
       }
 

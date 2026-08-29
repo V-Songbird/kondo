@@ -1,17 +1,23 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
-  CapabilityOperation,
   JournalEntryInfo,
   KondoApi,
   Scan,
   ScanError,
   SessionDetail,
-  StoresOverview
+  StoresOverview,
+  ToggleOperation
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
 import { collector, describe, finish, mapPool, type Collector } from './scan'
-import { createKindContext, kinds, pluginTogglePlan, type KindContext } from './kinds'
+import {
+  createKindContext,
+  kinds,
+  pluginTogglePlan,
+  skillMovePlan,
+  type KindContext
+} from './kinds'
 import {
   scanSessionInventory,
   type ProjectRecord,
@@ -211,7 +217,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
     async skillToggle(
       skillId: string,
-      operation: CapabilityOperation
+      operation: ToggleOperation
     ): Promise<Scan<JournalEntryInfo | null>> {
       if (typeof skillId !== 'string' || !skillId.startsWith('skill:')) {
         return badRequest(null, 'skillToggle expects a skill: id.')
@@ -238,6 +244,33 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       return mutations.mutate(plan)
     },
 
+    async skillMove(
+      skillId: string,
+      destinationId: string
+    ): Promise<Scan<JournalEntryInfo | null>> {
+      if (typeof skillId !== 'string' || !skillId.startsWith('skill:')) {
+        return badRequest(null, 'skillMove expects a skill: id.')
+      }
+      if (typeof destinationId !== 'string' || destinationId === '') {
+        return badRequest(null, 'skillMove expects a destination scope id.')
+      }
+      const c = collector()
+      const shared = context(c)
+      // One listing, used twice: the skill being moved and the destination's
+      // own skills the collision check reads come from the same scan.
+      const all = (await kinds.skill.discover(shared)) ?? []
+      const entity = all.find((candidate) => candidate.id === skillId)
+      if (!entity) return unknownId(null, skillId)
+
+      const planned = await skillMovePlan({ entity, destinationId, all }, shared)
+      if (!planned.ok) {
+        // The matrix refused, not the UI — its reason is the whole answer.
+        c.errors.push({ code: planned.code, path: skillId, message: planned.message })
+        return finish(null, c)
+      }
+      return mutations.mutate(planned.plan)
+    },
+
     async pluginsList() {
       const c = collector()
       return finish((await kinds.plugin.discover(context(c))) ?? [], c)
@@ -246,7 +279,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     async pluginToggle(
       pluginId: string,
       layerId: string,
-      operation: CapabilityOperation,
+      operation: ToggleOperation,
       createLayer?: boolean
     ): Promise<Scan<JournalEntryInfo | null>> {
       if (typeof pluginId !== 'string' || !pluginId.startsWith('plugin:')) {

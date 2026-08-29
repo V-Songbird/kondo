@@ -54,8 +54,15 @@ export interface Scan<T> {
  */
 export type EntityKind = 'skill' | 'plugin' | 'hook' | 'settings' | 'session' | 'project'
 
-/** What a mutation would do to an entity. */
-export type CapabilityOperation = 'enable' | 'disable'
+/** The two directions of a toggle — the operations that flip existing state. */
+export type ToggleOperation = 'enable' | 'disable'
+
+/**
+ * What a mutation would do to an entity. `move` relocates the entity into
+ * another scope; unlike the toggles it is not its own inverse, so the matrix
+ * answers it separately.
+ */
+export type CapabilityOperation = ToggleOperation | 'move'
 
 export interface CapabilityDecision {
   allowed: boolean
@@ -306,8 +313,21 @@ export interface KondoApi {
    */
   skillToggle(
     skillId: string,
-    operation: CapabilityOperation
+    operation: ToggleOperation
   ): Promise<Scan<JournalEntryInfo | null>>
+  /**
+   * Move one skill into another scope as a single journaled, reversible
+   * operation (ADR-0001): the destination copy is written and verified
+   * *before* the source is displaced into kondo's trash, so no intermediate
+   * state can lose the skill.
+   *
+   * `destinationId` is `'user'` for the user scope or a `project:code:` id
+   * from a previous scan (ADR-0008) — never a path. A destination scope that
+   * already holds a skill of that name is refused rather than merged, and the
+   * matrix refuses a plugin-shipped source. The skill keeps its enabled state
+   * across the move, which changes its id: callers re-read rather than patch.
+   */
+  skillMove(skillId: string, destinationId: string): Promise<Scan<JournalEntryInfo | null>>
   pluginsList(): Promise<Scan<PluginInfo[]>>
   /**
    * Enable or disable one plugin in one settings layer by editing that
@@ -323,7 +343,7 @@ export interface KondoApi {
   pluginToggle(
     pluginId: string,
     layerId: string,
-    operation: CapabilityOperation,
+    operation: ToggleOperation,
     createLayer?: boolean
   ): Promise<Scan<JournalEntryInfo | null>>
   hooksList(): Promise<Scan<HookInfo[]>>
@@ -344,6 +364,7 @@ export const channels = {
   desktopSessions: 'kondo:desktop-sessions',
   skillsList: 'kondo:skills-list',
   skillToggle: 'kondo:skill-toggle',
+  skillMove: 'kondo:skill-move',
   pluginsList: 'kondo:plugins-list',
   pluginToggle: 'kondo:plugin-toggle',
   hooksList: 'kondo:hooks-list',

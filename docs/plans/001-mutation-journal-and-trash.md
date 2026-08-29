@@ -101,7 +101,7 @@ from the design above:
 |---|---|---|
 | 1 | `undoneBy` is not stored; it is derived at read time from the undo entry's `undoOf` | The file is append-only, so it cannot also rewrite a past line. One field on the undo entry says the same thing and keeps that true. |
 | 2 | Each step records `created` — the directories it had to make | Without it an undone move leaves an empty `skills.disabled/` behind, and "byte-for-byte" is a lie. Undo removes those directories only while they are still empty. |
-| 3 | Store roots are named (`user`, `desktop`), and a step names one plus a relative path | Decision 4 wanted store-relative paths; naming the root is what makes them resolvable, and it is also the confinement check. Project roots arrive with `005`. |
+| 3 | Store roots are named (`user`, `desktop`), and a step names one plus a relative path | Decision 4 wanted store-relative paths; naming the root is what makes them resolvable, and it is also the confinement check. Project roots arrived early, with `003`, because a project skill cannot be toggled without one. |
 | 4 | Undoing a `write` first moves the current bytes into the undo's own trash | "Nothing is unlinked" has to hold for undo too, or a restore silently destroys what kondo wrote. |
 
 The safety invariants live in `test/mutation.test.ts` (12 cases), and

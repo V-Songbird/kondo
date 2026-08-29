@@ -94,7 +94,8 @@ describe('kind registry and capability matrix', () => {
     const ids = skills.map((skill) => skill.id)
     expect(ids).toContain('skill:user:alpha-skill')
     expect(ids).toContain('skill:user-disabled:beta-skill')
-    expect(ids).toContain('skill:plugin/alpha@acme:gamma-skill')
+    // A plugin's own skills are the plugin's, and are not catalogued here.
+    expect(ids).not.toContain('skill:plugin/alpha@acme:gamma-skill')
 
     const found = await kinds.skill.read('skill:user:alpha-skill', await context())
     expect(found?.name).toBe('alpha-skill')
@@ -128,7 +129,10 @@ describe('kind registry and capability matrix', () => {
     // One kind, one operation, opposite answers in two scopes — the pair no
     // single boolean on the entity could have held.
     expect(capabilitiesFor('skill', 'user').disable.allowed).toBe(true)
+    // Nothing lists a plugin-scoped skill today, but the row is the standing
+    // answer for whoever surfaces one in the plugins view.
     expect(capabilitiesFor('skill', 'plugin').disable.allowed).toBe(false)
+    expect(capabilitiesFor('skill', 'plugin').move.allowed).toBe(false)
     // One kind, one scope, opposite answers for the two operations.
     expect(capabilitiesFor('skill', 'user').enable.allowed).toBe(false)
     expect(capabilitiesFor('skill', 'user-disabled').enable.allowed).toBe(true)
