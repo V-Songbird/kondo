@@ -3,9 +3,14 @@
 Direction, not promise. Ordered by intent; dates on purpose absent.
 Each item links to a plan in [docs/plans/](docs/plans/) once it is being built.
 
-## Now — v0.1, the read-only core
+Tracked task by task in `ROADMAP.jsonl`, which `/foreman:roadmap` reads. This
+file is the shape of the thing; that one is the work queue.
 
-- Store discovery on Windows, macOS, Linux ([plan](docs/plans/v1-read-only-core.md)).
+## Shipped — v0.1, the read-only core
+
+Landed in `a5c9505` ([plan](docs/plans/v1-read-only-core.md)).
+
+- Store discovery on Windows, macOS, Linux.
 - Sessions inventory: per-project counts, sizes, last activity, staleness,
   orphaned transcripts, per-session detail on demand.
 - Skills catalog across user scope, `skills.disabled`, plugin-shipped, and
@@ -14,15 +19,19 @@ Each item links to a plan in [docs/plans/](docs/plans/) once it is being built.
 - Hooks inventory resolved from every settings layer.
 - Settings viewer: user / project / local layers side by side.
 
-## Next — v0.2, safe mutations
+## Now — v0.2, safe mutations
 
-- The mutation journal and kondo trash (undo for everything).
+- The mutation journal and kondo trash, undo for everything
+  ([plan](docs/plans/001-mutation-journal-and-trash.md)).
+- The kind registry and capability matrix (docs/foundations.md, growth path).
 - Enable/disable skills via the native `skills.disabled` convention.
 - Enable/disable plugins globally or per project via `enabledPlugins`.
 - Move a skill between scopes and between projects (copy → verify → trash
   source).
 - Tidy: bulk-archive stale sessions, sweep empty transcripts and dead caches,
   with a dry-run preview before anything moves.
+- Undo and trash surfaced in the UI, with trash size visible (SECURITY.md).
+- Register the jig session guards so they fire live, not only in CI.
 
 ## Later
 
@@ -36,6 +45,8 @@ Each item links to a plan in [docs/plans/](docs/plans/) once it is being built.
 - Packaged releases via electron-builder + GitHub Releases; code signing and
   macOS notarization ([docs/release.md](docs/release.md)).
 - End-to-end tests driving the built app.
+- A permission-denied adapter fixture, the one case docs/testing.md names and
+  no test covers — it has no reliable cross-platform recipe yet.
 
 ## Non-goals
 

@@ -1,6 +1,6 @@
 # Plan: v0.1 read-only core
 
-Status: **in progress**
+Status: **done** — shipped in `a5c9505`.
 
 The first runnable kondo: scan every store, show the truth, mutate nothing.
 Ships the architecture every later feature rides on — locator, adapters,
@@ -54,3 +54,18 @@ ADR-0002/0003 safety invariants.
 
 `npm run dev` on a real machine shows true numbers for all six views with no
 thrown scan; suite green on the three OSes.
+
+## What actually shipped
+
+All of the above, plus what the scaffold review and the guard install added:
+
+- Typed `ScanErrorCode` values with documented UI reactions, and store
+  confinement — a plugin `installPath` escaping the user store is refused as
+  `out-of-store` rather than followed (SECURITY.md).
+- `test/boundary.test.ts`, the ADR-0002 invariant: a full API sweep records
+  every `fs` call and fails on any path outside the stores and `.claude`.
+- Four jig guards (`.jig/checks/`) covering renderer purity, outbound network
+  calls, paths crossing the seam, and tests touching a real store.
+
+Deferred out of v0.1 and now on the roadmap: worked time, duplicate and
+empty-transcript detection, and a permission-denied adapter fixture.

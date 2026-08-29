@@ -18,7 +18,7 @@ and its home is not obvious from the table below, fix the table in the same PR.
 | [docs/domain.md](domain.md) | Facts about Claude's on-disk world (stores, files, formats) | You observe a new store fact or Claude changes one |
 | [docs/foundations.md](foundations.md) | Architecture: processes, seams, modules, data flow | Structure changes |
 | [docs/adr/](adr/) | Decisions with reasons, one file each | A decision is made, revisited, or superseded |
-| [docs/plans/](plans/) | Feature plans, one file each, written before building | A feature is planned; marked done when shipped |
+| [docs/plans/](plans/) | Feature plans, one file each, written before building ([index and template](plans/README.md)) | A feature is planned; marked done when shipped |
 | [docs/glossary.md](glossary.md) | Shared vocabulary | A term is coined or found ambiguous |
 | [docs/testing.md](testing.md) | Test strategy and safety invariants | The strategy changes |
 | [docs/release.md](release.md) | Versioning, packaging, shipping | The release process changes |
