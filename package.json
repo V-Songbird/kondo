@@ -34,7 +34,7 @@
     "electron-vite": "^5.0.0",
     "oxlint": "^1.75.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "~5.9.0",
+    "typescript": "~7.0.2",
     "vite": "^7.3.0",
     "vitest": "^3.2.0"
   },
