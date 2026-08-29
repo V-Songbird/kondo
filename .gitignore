@@ -11,13 +11,16 @@ coverage/
 .env
 .env.*
 
-# Claude Code: rules/ is shared and committed, and so is any skill that
+# Claude Code: settings.json is shared and committed — it registers the jig
+# session guards, and those have to run for everyone rather than only for
+# whoever installed the plugin. rules/ is shared too, and so is any skill that
 # carries project knowledge rather than machine setup. Everything else under
-# .claude/ is per-machine — an empty settings stub, IDE-bundled skills that
-# depend on a running IDE, local overrides.
+# .claude/ is per-machine — IDE-bundled skills that depend on a running IDE,
+# local overrides.
 # git will not look inside an excluded directory, so skills/ is re-included
 # before its contents are excluded again.
 .claude/*
+!.claude/settings.json
 !.claude/rules/
 !.claude/skills/
 .claude/skills/*

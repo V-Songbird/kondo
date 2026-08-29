@@ -1,0 +1,17 @@
+{
+  "worktree": { "bgIsolation": "none" },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .jig/hooks/session-guards.cjs PostToolUse",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
