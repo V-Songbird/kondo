@@ -52,4 +52,7 @@ export function registerIpc(api: KondoApi): void {
     api.journalUndo(String(journalId))
   )
   ipcMain.handle(channels.trashSize, () => api.trashSize())
+  // Its own channel, taking no argument: the only way to empty the trash is
+  // to ask for exactly that and nothing else (ADR-0001).
+  ipcMain.handle(channels.trashEmpty, () => api.trashEmpty())
 }

@@ -298,6 +298,11 @@ export interface JournalEntryInfo {
   isUndo: boolean
 }
 
+/**
+ * The trash as it stands, or — from `trashEmpty` — what emptying removed.
+ * Both are the same three facts, so they are the same shape; which one a
+ * report describes is the method that returned it.
+ */
 export interface TrashReport {
   /** Display path of the trash root (tildified). */
   root: string
@@ -432,6 +437,19 @@ export interface KondoApi {
   /** Reverse one entry; the undo is itself journaled and returned. */
   journalUndo(journalId: string): Promise<Scan<JournalEntryInfo | null>>
   trashSize(): Promise<Scan<TrashReport>>
+  /**
+   * Permanently remove everything kondo's trash holds. ADR-0001's one
+   * destructive act: it is its own operation, called on its own, never a
+   * step of another one and never implicit — no other method on this
+   * interface removes a trashed byte. The caller must have confirmed it.
+   *
+   * It is not journaled, because it is the one thing undo cannot reverse.
+   * The journal itself survives untouched, so the history stays readable;
+   * what the released entries can no longer do is restore. The report
+   * returned describes what was *removed*, and a partial failure says so in
+   * `errors` — callers re-read `trashSize` rather than assuming zero.
+   */
+  trashEmpty(): Promise<Scan<TrashReport>>
 }
 
 /** Channel names, keyed by KondoApi method — written once, imported twice. */
@@ -452,5 +470,6 @@ export const channels = {
   tidySweep: 'kondo:tidy-sweep',
   journalList: 'kondo:journal-list',
   journalUndo: 'kondo:journal-undo',
-  trashSize: 'kondo:trash-size'
+  trashSize: 'kondo:trash-size',
+  trashEmpty: 'kondo:trash-empty'
 } as const satisfies Record<keyof KondoApi, string>

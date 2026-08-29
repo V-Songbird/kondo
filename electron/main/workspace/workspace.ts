@@ -382,6 +382,19 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
     trashSize() {
       return mutations.trashSize()
+    },
+
+    /**
+     * The one destructive channel (ADR-0001). It stands alone here for the
+     * same reason it stands alone in `mutations`: nothing else on this
+     * workspace reaches it, so emptying can never ride along with a toggle,
+     * a move or a sweep. The renderer confirms before calling.
+     *
+     * No `dropInventory()` — kondo's trash sits outside every store, so the
+     * session inventory is not built from anything this touches.
+     */
+    trashEmpty() {
+      return mutations.emptyTrash()
     }
   }
 }

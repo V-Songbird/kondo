@@ -118,3 +118,10 @@ bulk size. The Claude-specific parts ✅:
   fallback signal and are what staleness uses first (cheap).
 - All JSON/JSONL reads assume partial corruption is possible (interrupted
   writes). A bad line is skipped and reported, never fatal.
+- Bytes kondo displaces leave their store entirely: they land in
+  `<kondo-data>/trash/<journal-id>/<store-name>/<path relative to that
+  store>`, which sits outside every store above (ADR-0001) and so never
+  turns up in a scan of one. A store name holding a colon — `project:<dir>`
+  — spells it with a dash on the way in, because no Windows path segment may
+  carry one. Emptying that trash is the only removal of store bytes kondo
+  ever performs; every other operation moves them.

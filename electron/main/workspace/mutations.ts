@@ -101,6 +101,12 @@ export interface Mutations {
   undo(journalId: string): Promise<Scan<JournalEntryInfo | null>>
   list(): Promise<Scan<JournalEntryInfo[]>>
   trashSize(): Promise<Scan<TrashReport>>
+  /**
+   * Remove the trash's contents for good — ADR-0001's only destructive act,
+   * and the only method here that ever unlinks a store's bytes. It is its
+   * own operation on purpose: nothing in `mutate` or `undo` calls it.
+   */
+  emptyTrash(): Promise<Scan<TrashReport>>
 }
 
 /** A refusal that happens before anything is written; carries its seam code. */
@@ -325,12 +331,28 @@ export function createMutations(
     unknown: []
   })
 
+  const nestedMessage = (): string =>
+    `Kondo's data directory sits inside the store at ${nested} — refusing to write (ADR-0001).`
+
   const misconfigured = (): Scan<JournalEntryInfo | null> =>
-    refuse(
-      'bad-request',
-      kondoData,
-      `Kondo's data directory sits inside the store at ${nested} — refusing to write (ADR-0001).`
-    )
+    refuse('bad-request', kondoData, nestedMessage())
+
+  const trashDisplay = (): string => tildify(trashRoot, locator.home)
+
+  /** What the trash holds right now: its size and how many entries hold it. */
+  const readTrash = async (): Promise<Scan<TrashReport>> => {
+    const c = collector()
+    const display = trashDisplay()
+    let entryCount = 0
+    try {
+      const entries = await fs.readdir(trashRoot, { withFileTypes: true })
+      entryCount = entries.filter((entry) => entry.isDirectory()).length
+    } catch (cause) {
+      if (!isEnoent(cause)) c.fail('read-failed', display, cause)
+    }
+    const bytes = await directorySize(trashRoot, display, c)
+    return finish({ root: display, bytes, entryCount }, c)
+  }
 
   // -------------------------------------------------------------------------
   // Execution
@@ -593,18 +615,46 @@ export function createMutations(
       return { data: entries, errors: scan.errors, unknown: scan.unknown }
     },
 
-    async trashSize(): Promise<Scan<TrashReport>> {
-      const c = collector()
-      const display = tildify(trashRoot, locator.home)
-      let entryCount = 0
-      try {
-        const entries = await fs.readdir(trashRoot, { withFileTypes: true })
-        entryCount = entries.filter((entry) => entry.isDirectory()).length
-      } catch (cause) {
-        if (!isEnoent(cause)) c.fail('read-failed', display, cause)
+    trashSize(): Promise<Scan<TrashReport>> {
+      return readTrash()
+    },
+
+    /**
+     * ADR-0001's only destructive act. It removes `<kondo-data>/trash/` and
+     * nothing else — no store, and not the `journal.jsonl` sitting beside
+     * it, so the history stays readable after the bytes it could restore
+     * are gone. Every other method above only ever displaces.
+     *
+     * Deliberately not journaled: an entry claiming an undo that cannot
+     * happen is the one lie the journal must not tell.
+     */
+    async emptyTrash(): Promise<Scan<TrashReport>> {
+      if (nested) {
+        return {
+          data: { root: trashDisplay(), bytes: 0, entryCount: 0 },
+          errors: [{ code: 'bad-request', path: kondoData, message: nestedMessage() }],
+          unknown: []
+        }
       }
-      const bytes = await directorySize(trashRoot, display, c)
-      return finish({ root: display, bytes, entryCount }, c)
+      const before = await readTrash()
+      const c = collector()
+      try {
+        await fs.rm(trashRoot, { recursive: true, force: true })
+      } catch (cause) {
+        c.fail('read-failed', before.data.root, cause)
+      }
+      // A recursive remove can stop half way, so what went is the difference
+      // between the two measurements — never what was asked for.
+      const after = await readTrash()
+      return {
+        data: {
+          root: before.data.root,
+          bytes: Math.max(0, before.data.bytes - after.data.bytes),
+          entryCount: Math.max(0, before.data.entryCount - after.data.entryCount)
+        },
+        errors: [...before.errors, ...c.errors, ...after.errors],
+        unknown: [...before.unknown, ...after.unknown]
+      }
     }
   }
 }

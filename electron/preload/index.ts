@@ -34,7 +34,8 @@ const api: KondoApi = {
     ipcRenderer.invoke(channels.tidySweep, categories),
   journalList: () => ipcRenderer.invoke(channels.journalList),
   journalUndo: (journalId: string) => ipcRenderer.invoke(channels.journalUndo, journalId),
-  trashSize: () => ipcRenderer.invoke(channels.trashSize)
+  trashSize: () => ipcRenderer.invoke(channels.trashSize),
+  trashEmpty: () => ipcRenderer.invoke(channels.trashEmpty)
 }
 
 contextBridge.exposeInMainWorld('kondo', api)

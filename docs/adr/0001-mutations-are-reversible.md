@@ -34,8 +34,16 @@ Two pieces:
 
 ## Consequences
 
-- Undo is a first-class feature surface, not best-effort.
+- Undo is a first-class feature surface, not best-effort. It has a screen of
+  its own — the journal newest-first, an undo on every reversible entry, and
+  the trash size beside them.
 - Disk cost: trashed data persists until the user empties it; the UI must
   show trash size.
+- Emptying is the one operation the journal does not cover, and cannot: an
+  entry promising an undo that cannot happen is the one lie the journal must
+  not tell. So `trashEmpty` is its own seam operation on its own channel,
+  taking no argument, reached by nothing else in the app — and the journal
+  itself survives it, so the history stays readable after the bytes it could
+  have restored are gone.
 - Every new mutation feature starts by defining its journal entry and inverse
   — a feature that cannot state its inverse does not ship.

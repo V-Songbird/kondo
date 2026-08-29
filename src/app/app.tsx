@@ -6,6 +6,7 @@ import { Skills } from '../features/skills/skills'
 import { Plugins } from '../features/plugins/plugins'
 import { Hooks } from '../features/hooks/hooks'
 import { Settings } from '../features/settings/settings'
+import { Journal } from '../features/journal/journal'
 
 const views = [
   { key: 'dashboard', label: 'Dashboard', component: Dashboard },
@@ -14,7 +15,8 @@ const views = [
   { key: 'skills', label: 'Skills', component: Skills },
   { key: 'plugins', label: 'Plugins', component: Plugins },
   { key: 'hooks', label: 'Hooks', component: Hooks },
-  { key: 'settings', label: 'Settings', component: Settings }
+  { key: 'settings', label: 'Settings', component: Settings },
+  { key: 'journal', label: 'Journal', component: Journal }
 ] as const
 
 type ViewKey = (typeof views)[number]['key']
