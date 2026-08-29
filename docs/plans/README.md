@@ -16,7 +16,7 @@ between the two is the part a later reader needs.
 - [v0.1 — the read-only core](v1-read-only-core.md) — **done**
 - [001 — the mutation journal and kondo trash](001-mutation-journal-and-trash.md) — **done**
 - [006 — the tidy sweep with a dry-run preview](006-tidy-sweep.md) — **done**
-- [007 — undo and the trash, on screen](007-undo-and-trash-ui.md) — **in progress**
+- [007 — undo and the trash, on screen](007-undo-and-trash-ui.md) — **done**
 
 ## Template
 

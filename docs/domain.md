@@ -124,4 +124,6 @@ bulk size. The Claude-specific parts ✅:
   turns up in a scan of one. A store name holding a colon — `project:<dir>`
   — spells it with a dash on the way in, because no Windows path segment may
   carry one. Emptying that trash is the only removal of store bytes kondo
-  ever performs; every other operation moves them.
+  ever performs; every other operation moves them. The displaced copy is the
+  only copy, so an entry whose bytes were emptied can no longer be reversed —
+  `undo` refuses it and says so, rather than half-restoring.

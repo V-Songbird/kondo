@@ -601,6 +601,17 @@ export function createMutations(
       try {
         await write(record, act)
       } catch (cause) {
+        // The commonest way an undo fails is the one worth a sentence rather
+        // than an errno: its displaced bytes were emptied out of the trash.
+        // Emptying is the single thing undo cannot survive (ADR-0001), so
+        // say that instead of handing the UI a raw rename failure.
+        if (isEnoent(cause)) {
+          return refuse(
+            'read-failed',
+            journalId,
+            "The files this entry would put back are no longer in kondo's trash — it was emptied, and emptying is the one thing undo cannot survive."
+          )
+        }
         return refuse('read-failed', journalId, describe(cause))
       }
       return { data: toInfo(record, null), errors: scan.errors, unknown: scan.unknown }

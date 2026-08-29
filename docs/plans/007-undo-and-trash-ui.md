@@ -1,6 +1,6 @@
 # Plan: 007 — undo and the trash, on screen
 
-Status: **in progress**
+Status: **done**
 
 Roadmap entry `007`. ADR-0001 promises every mutation kondo performs can be
 undone, and `001` built the whole mechanism — journal, trash, `undo`. Four
@@ -78,3 +78,18 @@ The Journal tab lists what kondo has done, newest first, with an Undo on
 every entry that can take one; the trash's size is on screen; and emptying it
 takes a deliberate second click on a confirmation that names what is about to
 be lost. `npm test`, `npm run typecheck` and `npm run lint` all green.
+
+## What actually shipped
+
+All of the above, on a *Journal* tab. Two places the code differs from the
+design:
+
+| # | Divergence | Why |
+|---|---|---|
+| 1 | `trashSize`'s body moved into a shared `readTrash()` that `trashEmpty` calls twice | Decision 3 needs a before and an after measurement, and they must be the same measurement or the difference means nothing. |
+| 2 | A stranded undo's refusal got its own sentence in `mutations.undo` | Decision 6 said main refuses and the view renders the reason. It did — with `ENOENT: no such file or directory, rename '…'`, seen on screen during the fixture run. An `isEnoent` branch now names the cause instead, which is the whole point of routing the refusal through main. |
+
+Verified against a fixture store with the `run-kondo` skill, not asserted:
+newest-first ordering, the trash size and restore-point count, the
+confirmation naming `113 B from 2 restore points` with *Keep the trash*
+holding focus, undo re-reading both sources, and the stranded-undo refusal.

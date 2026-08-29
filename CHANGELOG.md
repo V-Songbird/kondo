@@ -59,6 +59,24 @@ All notable changes to kondo are documented here. The format follows
   third operation, `move`, alongside `enable` and `disable`. Undoing the move
   puts the skill back and takes the copy away in one step. The Skills tab
   gets a "Move to" picker per row that re-reads the store afterwards.
+- A Journal tab, where undo stops being an invisible guarantee. Every
+  mutation kondo has performed is listed newest first, saying what it did,
+  with an Undo beside each one that can still take it — through the same
+  `undo(journalId)` every other feature already relies on, never a second
+  restore path. An entry that has already been reversed carries the undo that
+  did it. Above the list sits kondo's trash: its size on disk, how many
+  restore points hold it, and where it lives (SECURITY.md asks for the size
+  to be visible).
+- Emptying the trash, as its own operation on its own channel
+  (`trashEmpty`), taking no argument and reached by nothing else in the app.
+  It is the only destructive act kondo has, so it reads like one: a
+  confirmation that names the bytes and the restore points about to go, with
+  *Keep the trash* first and holding focus, and the red button second. It is
+  not journaled — an entry promising an undo that cannot happen is the one
+  lie the journal must not tell — and the journal file itself survives, so
+  the history stays readable after the bytes behind it are gone. Undo and
+  empty both re-read the journal and the trash size rather than patching what
+  is on screen.
 
 ### Changed
 
