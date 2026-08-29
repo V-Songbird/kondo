@@ -1,0 +1,33 @@
+# Dependency updates for kondo.
+#
+# Two ecosystems, because both can rot: the npm tree the app is built from, and
+# the actions the workflows pin. Grouped so a quiet week arrives as one PR
+# rather than nine, and split dev from prod so a runtime bump is never hidden
+# inside a batch of tooling churn.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      prod-minor-and-patch:
+        dependency-type: production
+        update-types: ["minor", "patch"]
+      dev-minor-and-patch:
+        dependency-type: development
+        update-types: ["minor", "patch"]
+    labels: ["dependencies"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: ["dependencies", "github-actions"]

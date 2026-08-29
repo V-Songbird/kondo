@@ -1,0 +1,36 @@
+# jig:owned — generated from jig's ci-workflow template. Edit this file and jig
+# reports it as drifted rather than overwriting your edit.
+#
+# This is the floor that needs nothing installed on anybody's machine. The
+# check driver is plain node with no dependencies, so this workflow is the one
+# place the checks are guaranteed to run even where node is behind a version
+# manager, where the agent host is not installed, and where nobody pasted the
+# pre-commit activation line.
+#
+# One honest limit: a check that reads the git index — the staged-deletion
+# class, and every paired-change detector — has nothing to read in a CI
+# checkout, where nothing is staged. Those report themselves skipped here rather
+# than passing, and the pre-commit lane is what sees them. The selftest step
+# still proves them, because a change-set fixture needs no index at all.
+
+name: jig checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: run the jig check driver
+        run: node .jig/checks/run.mjs
+      - name: prove each check still catches its own violation
+        run: node .jig/checks/run.mjs --selftest

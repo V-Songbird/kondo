@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "review",
-  "planId": "a18d42594bf4",
+  "planId": "a4c8810c753b",
   "provenance": "elicited",
   "mode": "armed",
   "actors": [
@@ -375,6 +375,22 @@
       "why": "installs a check the driver and CI both run, so it can fail a build"
     },
     {
+      "id": "ci-workflow-6f9f4325",
+      "path": ".github/workflows/jig.yml",
+      "kind": "write-side-file",
+      "classIds": [
+        "outbound-network-call",
+        "raw-path-across-the-seam",
+        "renderer-reaches-past-the-bridge",
+        "seam-contract-outruns-its-adr",
+        "test-touches-a-real-store",
+        "workspace-adapter-outruns-domain-doc"
+      ],
+      "enforcementGap": true,
+      "tier": "item",
+      "why": "fails the build for everyone who pushes"
+    },
+    {
       "id": "config-61328b28",
       "path": ".jig/config.json",
       "kind": "write-config",
@@ -405,22 +421,6 @@
       "enforcementGap": true,
       "tier": "batch",
       "why": "reports only, and refuses nothing"
-    },
-    {
-      "id": "wire-commit-e7ac6b1e",
-      "path": "git:core.hooksPath",
-      "kind": "set-git-config",
-      "classIds": [
-        "outbound-network-call",
-        "raw-path-across-the-seam",
-        "renderer-reaches-past-the-bridge",
-        "seam-contract-outruns-its-adr",
-        "test-touches-a-real-store",
-        "workspace-adapter-outruns-domain-doc"
-      ],
-      "enforcementGap": false,
-      "tier": "item",
-      "why": "changes core.hooksPath in this clone, which decides whether your commits are checked at all"
     }
   ],
   "consent": {
@@ -431,12 +431,13 @@
     "item": [
       "check-seam-contract-outruns-its-adr-37594611",
       "check-workspace-adapter-outruns-domain-doc-6541cb51",
-      "config-61328b28",
-      "wire-commit-e7ac6b1e"
+      "ci-workflow-6f9f4325",
+      "config-61328b28"
     ]
   },
   "enforcementGaps": [
     ".jig/activation.md",
+    ".github/workflows/jig.yml",
     ".jig/hooks/pre-commit"
   ],
   "floorGaps": [],

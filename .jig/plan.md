@@ -1,4 +1,4 @@
-# jig plan a18d42594bf4
+# jig plan a4c8810c753b
 
 Every cell below is computed from each detector's own metadata and from the changes
 this plan writes. Nothing here is hand-written prose about coverage.
@@ -22,6 +22,7 @@ These artifacts are written but cannot be read back by jig, so their correctness
 nobody's guarantee:
 
 - `.jig/activation.md`
+- `.github/workflows/jig.yml`
 - `.jig/hooks/pre-commit`
 
 ## Consent
@@ -35,8 +36,8 @@ Approve one at a time — each of these can refuse something:
 
 - `check-seam-contract-outruns-its-adr-37594611` → `.jig/checks/seam-contract-outruns-its-adr.check.mjs` — installs a check the driver and CI both run, so it can fail a build
 - `check-workspace-adapter-outruns-domain-doc-6541cb51` → `.jig/checks/workspace-adapter-outruns-domain-doc.check.mjs` — installs a check the driver and CI both run, so it can fail a build
+- `ci-workflow-6f9f4325` → `.github/workflows/jig.yml` — fails the build for everyone who pushes
 - `config-61328b28` → `.jig/config.json` — wires 4 guards into a hook that can refuse a tool call
-- `wire-commit-e7ac6b1e` → `git:core.hooksPath` — changes core.hooksPath in this clone, which decides whether your commits are checked at all
 
 ## Refused
 

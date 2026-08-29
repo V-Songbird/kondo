@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "planId": "a18d42594bf4",
+  "planId": "a4c8810c753b",
   "changes": [
     {
       "id": "activation-7f3cad96",
@@ -76,6 +76,33 @@
       }
     },
     {
+      "id": "ci-workflow-6f9f4325",
+      "kind": "write-side-file",
+      "path": ".github/workflows/jig.yml",
+      "sourceHash": null,
+      "eol": "lf",
+      "bom": false,
+      "format": null,
+      "verifyBy": "none",
+      "enforcementGap": true,
+      "content": "# jig:owned — generated from jig's ci-workflow template. Edit this file and jig\n# reports it as drifted rather than overwriting your edit.\n#\n# This is the floor that needs nothing installed on anybody's machine. The\n# check driver is plain node with no dependencies, so this workflow is the one\n# place the checks are guaranteed to run even where node is behind a version\n# manager, where the agent host is not installed, and where nobody pasted the\n# pre-commit activation line.\n#\n# One honest limit: a check that reads the git index — the staged-deletion\n# class, and every paired-change detector — has nothing to read in a CI\n# checkout, where nothing is staged. Those report themselves skipped here rather\n# than passing, and the pre-commit lane is what sees them. The selftest step\n# still proves them, because a change-set fixture needs no index at all.\n\nname: jig checks\n\non:\n  push:\n  pull_request:\n\npermissions:\n  contents: read\n\njobs:\n  checks:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: lts/*\n      - name: run the jig check driver\n        run: node .jig/checks/run.mjs\n      - name: prove each check still catches its own violation\n        run: node .jig/checks/run.mjs --selftest\n",
+      "rationale": "ci-workflow",
+      "classIds": [
+        "outbound-network-call",
+        "raw-path-across-the-seam",
+        "renderer-reaches-past-the-bridge",
+        "seam-contract-outruns-its-adr",
+        "test-touches-a-real-store",
+        "workspace-adapter-outruns-domain-doc"
+      ],
+      "ownership": "file",
+      "provenance": "elicited",
+      "template": {
+        "name": "ci-workflow",
+        "version": "1.1.0"
+      }
+    },
+    {
       "id": "config-61328b28",
       "kind": "write-config",
       "path": ".jig/config.json",
@@ -126,34 +153,6 @@
       "provenance": "elicited",
       "template": {
         "name": "hook-shim",
-        "version": "1.0.1"
-      }
-    },
-    {
-      "id": "wire-commit-e7ac6b1e",
-      "kind": "set-git-config",
-      "path": "git:core.hooksPath",
-      "sourceHash": null,
-      "eol": "lf",
-      "bom": false,
-      "format": null,
-      "verifyBy": "git-config",
-      "enforcementGap": false,
-      "content": ".jig/hooks",
-      "value": ".jig/hooks",
-      "rationale": "run the committed checks at commit time, from .jig/hooks/pre-commit",
-      "classIds": [
-        "outbound-network-call",
-        "raw-path-across-the-seam",
-        "renderer-reaches-past-the-bridge",
-        "seam-contract-outruns-its-adr",
-        "test-touches-a-real-store",
-        "workspace-adapter-outruns-domain-doc"
-      ],
-      "ownership": "schema",
-      "provenance": "elicited",
-      "template": {
-        "name": "activation",
         "version": "1.0.1"
       }
     }
