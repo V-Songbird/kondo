@@ -15,9 +15,12 @@ All notable changes to kondo are documented here. The format follows
   per-project `.claude` directories, and the Claude desktop app store.
 - Electron shell with a context-isolated, typed preload bridge; the renderer
   has no filesystem access.
-- Four jig guards enforcing renderer purity, the no-network promise, ids
+- Six jig guards. Four enforce renderer purity, the no-network promise, ids
   across the seam, and tests never touching a real store — blocking in CI via
-  `npm run guards`.
+  `npm run guards`. Two more keep docs from rotting: a change under
+  `electron/main/workspace/` must ship a `docs/domain.md` edit, and a change to
+  `shared/contract.ts` must ship an ADR touch. Those two read the git index, so
+  they block at commit time and report themselves skipped in CI.
 - The write path (ADR-0001): an append-only mutation journal at
   `<kondo-data>/journal.jsonl` written durably before any store byte moves, a
   kondo-owned trash at `<kondo-data>/trash/<journal-id>/` that keeps every
