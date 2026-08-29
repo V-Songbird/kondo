@@ -417,7 +417,7 @@ export async function skillMovePlan(
   if (clash) {
     return moveRefused(
       'bad-request',
-      `${clash.origin} already holds a skill named ${entity.name}; kondo will not merge the two.`
+      `${target.label} already holds a skill named ${entity.name} (${clash.origin}); kondo will not merge the two.`
     )
   }
 
