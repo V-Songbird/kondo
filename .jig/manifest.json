@@ -43,26 +43,6 @@
       "txId": "e7f90886184e"
     },
     {
-      "id": "check-outbound-network-call-7c65337c",
-      "classIds": [
-        "outbound-network-call"
-      ],
-      "kind": "write-side-file",
-      "path": ".jig/checks/outbound-network-call.check.mjs",
-      "ownership": "file",
-      "hash": "7c65337ca29f3e36beae69ca6b90a82a1d53a9726a929494db97f6c7136e9d6e",
-      "provenance": "elicited",
-      "proof": "ad8b45a456cfc126278076f43e73bc0108d715a5d215b4467616bc47f0606451",
-      "install": null,
-      "template": {
-        "name": "check-outbound-network-call",
-        "version": "authored"
-      },
-      "state": "active",
-      "installedAt": "2026-08-29T01:44:23.770Z",
-      "txId": "d187f9af7a3a"
-    },
-    {
       "id": "check-outbound-network-call-2f0d94a1",
       "classIds": [
         "outbound-network-call"
@@ -81,26 +61,6 @@
       "state": "active",
       "installedAt": "2026-08-29T01:48:40.066Z",
       "txId": "b47881d5ab96"
-    },
-    {
-      "id": "check-raw-path-across-the-seam-a4e45a3d",
-      "classIds": [
-        "raw-path-across-the-seam"
-      ],
-      "kind": "write-side-file",
-      "path": ".jig/checks/raw-path-across-the-seam.check.mjs",
-      "ownership": "file",
-      "hash": "a4e45a3d6006e4924f1c977995029a6ab2910f46e8272de6581bcbb0d3a2bfd3",
-      "provenance": "elicited",
-      "proof": "a016ca757c74137b7b7603e988fb20a9ed99c535a64389b6b3b47d83e472f7a6",
-      "install": null,
-      "template": {
-        "name": "check-raw-path-across-the-seam",
-        "version": "authored"
-      },
-      "state": "active",
-      "installedAt": "2026-08-29T01:44:23.945Z",
-      "txId": "0756142357d9"
     },
     {
       "id": "check-raw-path-across-the-seam-1ea43f03",
@@ -123,26 +83,6 @@
       "txId": "fe77f5da6ac8"
     },
     {
-      "id": "check-renderer-reaches-past-the-bridge-82741e41",
-      "classIds": [
-        "renderer-reaches-past-the-bridge"
-      ],
-      "kind": "write-side-file",
-      "path": ".jig/checks/renderer-reaches-past-the-bridge.check.mjs",
-      "ownership": "file",
-      "hash": "82741e4144bd7c46ff73bf9e2a1f0ddb7b2c8fc57041123491d7f4aff6a974f7",
-      "provenance": "elicited",
-      "proof": "d2db985a31b8ae00d286ccf082ad057d2f6b3e66183c7200fe5aee10e146b941",
-      "install": null,
-      "template": {
-        "name": "check-renderer-reaches-past-the-bridge",
-        "version": "authored"
-      },
-      "state": "active",
-      "installedAt": "2026-08-29T01:44:23.595Z",
-      "txId": "9c551db62829"
-    },
-    {
       "id": "check-renderer-reaches-past-the-bridge-3453234c",
       "classIds": [
         "renderer-reaches-past-the-bridge"
@@ -161,29 +101,6 @@
       "state": "active",
       "installedAt": "2026-08-29T01:48:39.898Z",
       "txId": "c7fcfcd283c1"
-    },
-    {
-      "id": "check-driver-75f25362",
-      "classIds": [
-        "outbound-network-call",
-        "raw-path-across-the-seam",
-        "renderer-reaches-past-the-bridge",
-        "test-touches-a-real-store"
-      ],
-      "kind": "write-side-file",
-      "path": ".jig/checks/run.mjs",
-      "ownership": "file",
-      "hash": "75f2536255f21d2d7987321a79b01f62c0add0768577dc89412051c37cb9b6db",
-      "provenance": "elicited",
-      "proof": null,
-      "install": null,
-      "template": {
-        "name": "check-driver",
-        "version": "1.0.1"
-      },
-      "state": "active",
-      "installedAt": "2026-08-29T01:44:14.008Z",
-      "txId": "25702e7f1b33"
     },
     {
       "id": "check-driver-4ed09965",
@@ -227,46 +144,6 @@
       "txId": "d642b022b916"
     },
     {
-      "id": "check-test-touches-a-real-store-412b1380",
-      "classIds": [
-        "test-touches-a-real-store"
-      ],
-      "kind": "write-side-file",
-      "path": ".jig/checks/test-touches-a-real-store.check.mjs",
-      "ownership": "file",
-      "hash": "412b13806cab600b43926bcd28c2b57923835c744a922c5a443e5566013ee138",
-      "provenance": "elicited",
-      "proof": "2f7dbb1912472cdfad8515ef5b1a963fbe5c23e032c9db538c85436cd2288c8f",
-      "install": null,
-      "template": {
-        "name": "check-test-touches-a-real-store",
-        "version": "authored"
-      },
-      "state": "active",
-      "installedAt": "2026-08-29T01:44:24.133Z",
-      "txId": "980e017f522b"
-    },
-    {
-      "id": "check-test-touches-a-real-store-69495b4f",
-      "classIds": [
-        "test-touches-a-real-store"
-      ],
-      "kind": "write-side-file",
-      "path": ".jig/checks/test-touches-a-real-store.check.mjs",
-      "ownership": "file",
-      "hash": "69495b4fa85a6607e3f5bd8fd730277631817d32e0556cd491748f032486c023",
-      "provenance": "elicited",
-      "proof": "9a16f5ebc76bd56ab2dad67104e7e8e2ace573cd31b7e7ad785bf64e05c081f2",
-      "install": null,
-      "template": {
-        "name": "check-test-touches-a-real-store",
-        "version": "authored"
-      },
-      "state": "active",
-      "installedAt": "2026-08-29T01:46:25.500Z",
-      "txId": "e64ccb06501a"
-    },
-    {
       "id": "check-test-touches-a-real-store-fc323178",
       "classIds": [
         "test-touches-a-real-store"
@@ -305,29 +182,6 @@
       "state": "active",
       "installedAt": "2026-08-29T19:32:12.698Z",
       "txId": "76e3b5ba1847"
-    },
-    {
-      "id": "config-913dbd27",
-      "classIds": [
-        "outbound-network-call",
-        "raw-path-across-the-seam",
-        "renderer-reaches-past-the-bridge",
-        "test-touches-a-real-store"
-      ],
-      "kind": "write-config",
-      "path": ".jig/config.json",
-      "ownership": "schema",
-      "hash": "913dbd2731f4efd8d58222463fd1832052a5c7eebc542a7ae347946dca63e8b0",
-      "provenance": "elicited",
-      "proof": null,
-      "install": null,
-      "template": {
-        "name": "config",
-        "version": "1.0.0"
-      },
-      "state": "active",
-      "installedAt": "2026-08-29T01:44:14.177Z",
-      "txId": "1d2da03fb591"
     },
     {
       "id": "config-61328b28",
