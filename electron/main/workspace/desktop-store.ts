@@ -2,6 +2,7 @@ import path from 'node:path'
 import type { DesktopSession, StoreEntry, StoreReport } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
 import { directorySize, safeReaddir, safeStat, type Collector } from './scan'
+import { capabilitiesFor } from './capabilities'
 import { tildify } from './display'
 
 /**
@@ -87,6 +88,8 @@ export async function desktopSessions(
         }
         sessions.push({
           id: `session:desktop:${top.name}/${account.name}/${match[1]}`,
+          kind: 'session',
+          capabilities: capabilitiesFor('session', 'desktop'),
           accountId: account.name,
           name: match[1],
           bytes,

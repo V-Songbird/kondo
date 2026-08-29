@@ -11,7 +11,7 @@ Three Electron layers, strictly separated:
 electron/main/      the only code that touches disk
   index.ts          app bootstrap + composition root (thin; no domain logic)
   ipc.ts            channel registration — one line per channel, delegates to workspace
-  workspace/        locator, store adapters, analysis (Electron-free, fully injectable)
+  workspace/        locator, kind registry, store adapters, analysis (Electron-free, injectable)
 electron/preload/   the context-isolated bridge: window.kondo, typed by shared/contract
 src/                renderer: React UI; no Node, no fs, no paths
 shared/contract.ts  THE seam contract: types + channel names, imported by all three
@@ -41,17 +41,38 @@ Rules the structure enforces:
 
 ## The workspace
 
-`createWorkspace(locator)` wires the adapters and owns the in-memory scan
-state. Structure:
+`createWorkspace(locator)` owns the in-memory scan state and reaches every
+entity through the kind registry. Structure:
 
 - **`locator.ts`** (ADR-0003) — the only path authority. Built from injected
   `{ home, appData, platform, env }`; honors `KONDO_STORE_ROOT` /
   `KONDO_DESKTOP_STORE_ROOT` overrides (tests and fixture runs use these).
+- **`kinds.ts`** — the kind registry. Every entity kind kondo manages
+  (`skill`, `plugin`, `hook`, `settings`, `session`, `project` — the first
+  segment of every id, ADR-0008) is one entry supplying `discover`, `read`,
+  `capabilities`, `enable` and `disable`. No workspace method names an
+  adapter: it validates the id shape it accepts, hands the rest to a kind,
+  and wraps the result in the scan envelope. Adding a kind means adding an
+  entry here and a row to the matrix, never a branch in `workspace.ts`.
+  Code and desktop sessions are two entries sharing the `session` kind,
+  because they live in different stores. The two *store reports* on the
+  dashboard stay direct calls — a store is not an entity.
+- **`capabilities.ts`** — the capability matrix. Write permission is a
+  lookup on **kind × scope × operation**, never a single flag: a user skill
+  can be disabled, a plugin-shipped one cannot, and the same kind is
+  writable in one scope and read-only in another. A row records what
+  Claude's own conventions permit (ADR-0006), which is not the same as what
+  kondo implements yet — the registry's `enable` / `disable` seats are where
+  a mutation is wired in, and none is today. An unrecognized scope refuses
+  both operations rather than throwing (ADR-0005).
 - **Adapters** — `user-store.ts`, `sessions.ts`, `projects.ts`,
   `desktop-store.ts`. Every public adapter function returns
   `Scan<T> = { data, errors, unknown }` (ADR-0005): partial data, itemized
   typed errors (`{ code, path, message }` — codes, not prose, so the UI can
-  react), and unknown entries for domain.md drift detection.
+  react), and unknown entries for domain.md drift detection. Each one stamps
+  the entities it builds with their `kind` and their matrix row, so the
+  renderer receives capabilities alongside the data and never has to parse
+  an id to learn what it may do.
 - **`analysis.ts`** — staleness, orphan/duplicate logic: pure functions over
   scanned data, trivially table-testable.
 - **Helpers** — `scan.ts` (safe fs wrappers that convert exceptions into
@@ -89,11 +110,23 @@ history and caches, never the user's actual configuration.
 
 ## Growth path
 
-v0.1 hard-codes the read-only adapters. The next structural step (v0.2, with
-mutations) is a **kind registry**: each entity kind (skill, plugin, hook,
-session, setting) supplies `discover / read / capabilities / enable /
-disable`, with identity per ADR-0008 and write-permission decided by a
-capability matrix (kind × scope × operation), not a boolean. The
-snapshot-cache, error-isolation, and id-allow-list skeleton stays as is —
-that skeleton is the part proven by skilldex; the registry is where kondo
-goes one level up.
+v0.1 hard-coded the read-only adapters into `workspace.ts`. v0.2 replaced
+that with the **kind registry** and the **capability matrix** described
+above: kinds supply `discover / read / capabilities / enable / disable`,
+identity is per ADR-0008, and write permission is a kind × scope ×
+operation lookup rather than a boolean. The snapshot-cache, error-isolation
+and id-allow-list skeleton stayed exactly as it was — that skeleton is the
+part proven by skilldex; the registry is where kondo goes one level up.
+
+What is still open:
+
+- **The mutation seats are empty.** The matrix says what Claude's
+  conventions permit; no kind builds a `MutationPlan` yet, and no channel
+  invokes one. Each feature fills in its own kind's `enable` / `disable`
+  and gets the write path in `mutations.ts` for free (ADR-0001).
+- **`mutations.ts` knows two store roots**, `user` and `desktop`. A
+  project-scoped write (a project skill, a project settings layer) needs
+  the project roots registered there first.
+- **No `kinds` channel.** The renderer learns kinds and capabilities from
+  the entities it already receives; a listing of the registry itself only
+  ships if a view needs one.

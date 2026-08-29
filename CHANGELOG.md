@@ -24,3 +24,10 @@ All notable changes to kondo are documented here. The format follows
   displaced byte, and `undo` restoring a whole multi-step operation. Readable
   across the seam as `journalList`, `journalUndo` and `trashSize`; no
   mutation channel ships yet.
+- The kind registry and the capability matrix: every entity kind (skill,
+  plugin, hook, settings, session, project) is one registry entry supplying
+  `discover`, `read`, `capabilities`, `enable` and `disable`, and write
+  permission is a kind × scope × operation lookup instead of a flag. Every
+  entity now crosses the seam carrying its `kind` and what may be done to
+  it, so the UI can say *why* something is read-only. No mutation is wired
+  into the registry yet.

@@ -4,6 +4,7 @@ import type { Scan, SessionProject, SessionSummary } from '../../../shared/contr
 import type { StoreLocator } from './locator'
 import { collector, finish, mapPool, safeReaddir, safeStat, type Collector } from './scan'
 import { guessOriginalPath, type ExistsFn } from './projects'
+import { capabilitiesFor } from './capabilities'
 import { isStale } from './analysis'
 import { tildify } from './display'
 
@@ -138,8 +139,11 @@ export function toSessionProjects(
   inventory: SessionInventory,
   nowMs: number
 ): SessionProject[] {
+  const capabilities = capabilitiesFor('project', 'code')
   return inventory.projects.map((project) => ({
     id: projectId(project.dirName),
+    kind: 'project' as const,
+    capabilities,
     dirName: project.dirName,
     guessedPath: project.guessedPath,
     sessionCount: project.sessions.length,
@@ -154,8 +158,11 @@ export function toSessionSummaries(
   project: ProjectRecord,
   nowMs: number
 ): SessionSummary[] {
+  const capabilities = capabilitiesFor('session', 'code')
   return project.sessions.map((session) => ({
     id: sessionId(project.dirName, session.uuid),
+    kind: 'session' as const,
+    capabilities,
     uuid: session.uuid,
     projectId: projectId(project.dirName),
     bytes: session.bytes,

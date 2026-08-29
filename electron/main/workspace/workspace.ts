@@ -8,24 +8,15 @@ import type {
   StoresOverview
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
-import { collector, describe, finish, mapPool } from './scan'
+import { collector, describe, finish, mapPool, type Collector } from './scan'
+import { createKindContext, kinds, type KindContext } from './kinds'
 import {
   scanSessionInventory,
-  toSessionProjects,
-  toSessionSummaries,
   type ProjectRecord,
   type SessionInventory
 } from './sessions'
-import {
-  hooksFromLayers,
-  readSettingsLayers,
-  scanPlugins,
-  scanSkills,
-  userStoreReport,
-  type VerifiedProject
-} from './user-store'
-import { desktopSessions, desktopStoreReport } from './desktop-store'
-import { summarizeTranscript } from './jsonl'
+import { userStoreReport, type VerifiedProject } from './user-store'
+import { desktopStoreReport } from './desktop-store'
 import { isStale } from './analysis'
 import { createMutations } from './mutations'
 
@@ -33,6 +24,11 @@ import { createMutations } from './mutations'
  * The workspace: the server side of KondoApi. Owns the cached session
  * inventory (ADR-0007) and resolves every renderer-supplied id against it
  * (ADR-0008) — no channel accepts a path.
+ *
+ * Entities are reached through the kind registry (`kinds.ts`), never by
+ * naming an adapter here: a method validates the id shape it accepts, hands
+ * the rest to a kind, and wraps the result in the scan envelope. The two
+ * store *reports* below are the exception — a store is not an entity.
  */
 
 export interface WorkspaceOptions {
@@ -88,6 +84,20 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     return checked.filter((project): project is VerifiedProject => project !== null)
   }
 
+  /**
+   * One context per call: the kinds share this call's collector and read the
+   * inventory through the same cache the workspace already holds.
+   */
+  const context = (c: Collector, parentId?: string): KindContext =>
+    createKindContext({
+      locator,
+      c,
+      now: now(),
+      inventory: async () => (await inventory()).scan.data,
+      projects: async () => (await inventory()).verified,
+      parentId
+    })
+
   const badRequest = <T>(data: T, message: string): Scan<T> => ({
     data,
     errors: [{ code: 'bad-request', path: '(request)', message }],
@@ -141,7 +151,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     async sessionProjects(refresh?: boolean) {
       const { scan } = await inventory(refresh === true)
       return {
-        data: toSessionProjects(scan.data, now()),
+        data: (await kinds.project.discover(context(collector()))) ?? [],
         errors: scan.errors,
         unknown: scan.unknown
       }
@@ -151,11 +161,10 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       if (typeof projectId !== 'string' || !projectId.startsWith('project:code:')) {
         return badRequest([], 'sessionList expects a project:code: id.')
       }
-      const dirName = projectId.slice('project:code:'.length)
-      const { scan } = await inventory()
-      const project = scan.data.byDirName.get(dirName)
-      if (!project) return unknownId([], projectId)
-      return finish(toSessionSummaries(project, now()), collector())
+      const c = collector()
+      const sessions = await kinds.session.discover(context(c, projectId))
+      if (!sessions) return unknownId([], projectId)
+      return finish(sessions, c)
     },
 
     async sessionDetail(sessionId: string): Promise<Scan<SessionDetail | null>> {
@@ -163,21 +172,13 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         return badRequest(null, 'sessionDetail expects a session:code: id.')
       }
       const key = sessionId.slice('session:code:'.length)
-      const slash = key.lastIndexOf('/')
-      if (slash <= 0) return badRequest(null, 'Malformed session id.')
-      const dirName = key.slice(0, slash)
-      const uuid = key.slice(slash + 1).toLowerCase()
-
-      const { scan } = await inventory()
-      const record = scan.data.byDirName
-        .get(dirName)
-        ?.sessions.find((session) => session.uuid === uuid)
-      if (!record) return unknownId(null, sessionId)
+      if (key.lastIndexOf('/') <= 0) return badRequest(null, 'Malformed session id.')
 
       const c = collector()
       try {
-        const summary = await summarizeTranscript(record.file)
-        return finish({ id: sessionId, ...summary }, c)
+        const detail = await kinds.session.read(sessionId, context(c))
+        if (!detail) return unknownId(null, sessionId)
+        return finish(detail, c)
       } catch (cause) {
         c.errors.push({ code: 'read-failed', path: sessionId, message: describe(cause) })
         return finish(null, c)
@@ -186,45 +187,27 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
     async desktopSessions() {
       const c = collector()
-      const sessions = await desktopSessions(locator, c)
-      return finish(sessions, c)
+      return finish((await kinds.desktopSession.discover(context(c))) ?? [], c)
     },
 
     async skillsList() {
       const c = collector()
-      const { verified } = await inventory()
-      const layers = await readSettingsLayers(locator, verified, c)
-      const plugins = await scanPlugins(locator, layers, c)
-      const skills = await scanSkills(locator, verified, plugins, c)
-      return finish(skills, c)
+      return finish((await kinds.skill.discover(context(c))) ?? [], c)
     },
 
     async pluginsList() {
       const c = collector()
-      const { verified } = await inventory()
-      const layers = await readSettingsLayers(locator, verified, c)
-      const plugins = await scanPlugins(locator, layers, c)
-      return finish(
-        plugins.map((plugin) => plugin.info),
-        c
-      )
+      return finish((await kinds.plugin.discover(context(c))) ?? [], c)
     },
 
     async hooksList() {
       const c = collector()
-      const { verified } = await inventory()
-      const layers = await readSettingsLayers(locator, verified, c)
-      return finish(hooksFromLayers(layers), c)
+      return finish((await kinds.hook.discover(context(c))) ?? [], c)
     },
 
     async settingsLayers() {
       const c = collector()
-      const { verified } = await inventory()
-      const layers = await readSettingsLayers(locator, verified, c)
-      return finish(
-        layers.map((layer) => layer.info),
-        c
-      )
+      return finish((await kinds.settings.discover(context(c))) ?? [], c)
     },
 
     journalList() {

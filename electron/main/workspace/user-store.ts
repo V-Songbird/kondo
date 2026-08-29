@@ -17,6 +17,7 @@ import {
   safeStat,
   type Collector
 } from './scan'
+import { capabilitiesFor } from './capabilities'
 import { readFrontmatter } from './frontmatter'
 import { tildify, truncate } from './display'
 
@@ -83,9 +84,19 @@ export async function readSettingsLayers(
   ): Promise<void> => {
     const display = tildify(file, locator.home)
     const stat = await safeStat(file, display, c)
+    const capabilities = capabilitiesFor('settings', layer)
     if (!stat) {
       layers.push({
-        info: { id, layer, path: display, exists: false, bytes: 0, keys: [] },
+        info: {
+          id,
+          kind: 'settings',
+          capabilities,
+          layer,
+          path: display,
+          exists: false,
+          bytes: 0,
+          keys: []
+        },
         parsed: null
       })
       return
@@ -98,6 +109,8 @@ export async function readSettingsLayers(
     layers.push({
       info: {
         id,
+        kind: 'settings',
+        capabilities,
         layer,
         path: display,
         exists: true,
@@ -146,6 +159,8 @@ export function hooksFromLayers(layers: SettingsLayer[]): HookInfo[] {
           const command = (hook as Record<string, unknown>)['command']
           hooks.push({
             id: `hook:${layer.info.id}:${index++}`,
+            kind: 'hook',
+            capabilities: capabilitiesFor('hook', layer.info.layer),
             event,
             matcher,
             command: typeof command === 'string' ? truncate(command, 200) : '(not a command)',
@@ -189,13 +204,16 @@ export async function scanPlugins(
         : {}
     const installAbs =
       typeof install['installPath'] === 'string' ? install['installPath'] : null
+    const installScope = typeof install['scope'] === 'string' ? install['scope'] : 'user'
     records.push({
       info: {
         id: `plugin:${key}`,
+        kind: 'plugin',
+        capabilities: capabilitiesFor('plugin', installScope),
         name,
         marketplace,
         version: typeof install['version'] === 'string' ? install['version'] : null,
-        installScope: typeof install['scope'] === 'string' ? install['scope'] : 'user',
+        installScope,
         installedAt:
           typeof install['installedAt'] === 'string' ? install['installedAt'] : null,
         lastUpdated:
@@ -258,6 +276,8 @@ export async function scanSkills(
       }
       skills.push({
         id: `skill:${keyPrefix}:${entry.name}`,
+        kind: 'skill',
+        capabilities: capabilitiesFor('skill', scope),
         name: entry.name,
         description,
         scope,

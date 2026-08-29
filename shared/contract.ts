@@ -37,6 +37,43 @@ export interface Scan<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Entity kinds and the capability matrix
+
+/**
+ * The entity kinds kondo manages — the first segment of every id (ADR-0008).
+ * Each one is described by a definition in the main process rather than by
+ * a hard-coded adapter call, and every kind supplies discover / read /
+ * capabilities / enable / disable.
+ */
+export type EntityKind = 'skill' | 'plugin' | 'hook' | 'settings' | 'session' | 'project'
+
+/** What a mutation would do to an entity. */
+export type CapabilityOperation = 'enable' | 'disable'
+
+export interface CapabilityDecision {
+  allowed: boolean
+  /** Why not, in one display line; null when allowed. */
+  reason: string | null
+}
+
+/**
+ * One row of the capability matrix: what a kind permits in one scope. Write
+ * permission is this lookup — kind, then scope, then operation — and never a
+ * single boolean, because the same kind is writable in one scope and
+ * read-only in another.
+ */
+export type Capabilities = Record<CapabilityOperation, CapabilityDecision>
+
+/** What every entity carries across the seam. */
+export interface EntityIdentity {
+  /** `<kind>:<scope-or-store>:<key>` (ADR-0008); opaque to the renderer. */
+  id: string
+  kind: EntityKind
+  /** The matrix row for this entity's kind and scope. */
+  capabilities: Capabilities
+}
+
+// ---------------------------------------------------------------------------
 // Stores overview
 
 export interface StoreEntry {
@@ -68,7 +105,7 @@ export interface StoresOverview {
 // ---------------------------------------------------------------------------
 // Sessions (Claude Code store)
 
-export interface SessionProject {
+export interface SessionProject extends EntityIdentity {
   /** `project:code:<dirName>` */
   id: string
   dirName: string
@@ -81,7 +118,7 @@ export interface SessionProject {
   orphanCount: number
 }
 
-export interface SessionSummary {
+export interface SessionSummary extends EntityIdentity {
   /** `session:code:<dirName>/<uuid>` */
   id: string
   uuid: string
@@ -104,7 +141,7 @@ export interface SessionDetail {
   firstUserPrompt: string | null
 }
 
-export interface DesktopSession {
+export interface DesktopSession extends EntityIdentity {
   /** `session:desktop:<deviceDir>/<accountId>/<name>` — unique on disk. */
   id: string
   accountId: string
@@ -118,7 +155,7 @@ export interface DesktopSession {
 
 export type SkillScope = 'user' | 'user-disabled' | 'plugin' | 'project'
 
-export interface SkillInfo {
+export interface SkillInfo extends EntityIdentity {
   /** `skill:<scope>:<key>` */
   id: string
   name: string
@@ -129,7 +166,7 @@ export interface SkillInfo {
   enabled: boolean
 }
 
-export interface PluginInfo {
+export interface PluginInfo extends EntityIdentity {
   /** `plugin:<name>@<marketplace>` */
   id: string
   name: string
@@ -143,7 +180,7 @@ export interface PluginInfo {
   enabledIn: string[]
 }
 
-export interface HookInfo {
+export interface HookInfo extends EntityIdentity {
   /** `hook:<settings-layer-id>:<n>` — e.g. `hook:settings:user:user:0`. */
   id: string
   event: string
@@ -154,7 +191,7 @@ export interface HookInfo {
   layer: 'user' | 'project' | 'local'
 }
 
-export interface SettingsLayerInfo {
+export interface SettingsLayerInfo extends EntityIdentity {
   /** `settings:<layer>:<key>` */
   id: string
   layer: 'user' | 'project' | 'local'
@@ -181,8 +218,8 @@ export interface JournalEntryInfo {
   /** ISO-8601. */
   at: string
   op: JournalOp
-  /** Entity kind the operation acted on, e.g. `skill`. */
-  kind: string
+  /** The registry kind the operation acted on. */
+  kind: EntityKind
   /** The ADR-0008 id of the entity, never a path. */
   entityId: string
   /** One line describing the operation, built in the main process. */

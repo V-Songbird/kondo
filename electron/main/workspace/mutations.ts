@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
+  EntityKind,
   JournalEntryInfo,
   JournalOp,
   Scan,
@@ -34,7 +35,8 @@ export type PlannedStep =
 
 export interface MutationPlan {
   op: JournalOp
-  kind: string
+  /** The registry kind this plan acts on (`kinds.ts`). */
+  kind: EntityKind
   /** The ADR-0008 id of the entity being changed. */
   entityId: string
   summary: string
@@ -62,7 +64,7 @@ interface JournalRecord {
   id: string
   at: string
   op: JournalOp
-  kind: string
+  kind: EntityKind
   entityId: string
   summary: string
   steps: JournalStep[]
