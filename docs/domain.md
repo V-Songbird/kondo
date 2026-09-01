@@ -127,3 +127,9 @@ bulk size. The Claude-specific parts ✅:
   ever performs; every other operation moves them. The displaced copy is the
   only copy, so an entry whose bytes were emptied can no longer be reversed —
   `undo` refuses it and says so, rather than half-restoring.
+- A journal entry is written before its steps run (ADR-0001), so an entry
+  describes what was intended, not what happened. When a step fails part way,
+  a following marker line names that entry as failed; `journalList` reports it
+  as `failed` and never lists the marker itself. Undo of such an entry skips
+  any step whose effect is absent while its source is still in place, and puts
+  back only what actually ran.

@@ -47,3 +47,12 @@ Two pieces:
   have restored are gone.
 - Every new mutation feature starts by defining its journal entry and inverse
   — a feature that cannot state its inverse does not ship.
+- Journaling first means an entry can outlive the work it describes: a step
+  that fails leaves an entry naming steps the store never got. The file is
+  append-only, so the correction is a following marker line rather than an
+  edit, and `JournalEntryInfo.failed` carries it across the seam so the
+  journal screen stops offering a part-run operation as a finished one. Undo
+  of such an entry is tolerant per step — an effect that is absent while its
+  source is still in place means that step never ran, and reversing it is a
+  no-op rather than a failure. An absent source is the emptied trash, and
+  still refuses.

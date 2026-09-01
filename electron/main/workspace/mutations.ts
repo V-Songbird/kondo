@@ -90,6 +90,13 @@ interface JournalRecord {
   steps: JournalStep[]
   /** Journal id this entry reverses, when it is itself an undo. */
   undoOf: string | null
+  /**
+   * Journal id this entry marks as failed part way through. The entry above
+   * it was written before its steps ran (ADR-0001 decision 5) and describes
+   * work that only partly happened; the file is append-only (the 001
+   * lesson), so the correction is a following line, never an edit.
+   */
+  failedOf?: string
 }
 
 const ID_PREFIX = 'journal:'
@@ -304,7 +311,11 @@ export function createMutations(
     return { records, scan: finish(null, c) }
   }
 
-  const toInfo = (record: JournalRecord, undoneBy: string | null): JournalEntryInfo => ({
+  const toInfo = (
+    record: JournalRecord,
+    undoneBy: string | null,
+    failed = false
+  ): JournalEntryInfo => ({
     id: `${ID_PREFIX}${record.id}`,
     at: record.at,
     op: record.op,
@@ -313,8 +324,13 @@ export function createMutations(
     summary: record.summary,
     stepCount: record.steps.length,
     undoneBy,
-    isUndo: record.undoOf !== null
+    isUndo: record.undoOf !== null,
+    failed
   })
+
+  /** Ids the following marker lines report as partly run; see `failedOf`. */
+  const failedIds = (records: JournalRecord[]): Set<string> =>
+    new Set(records.flatMap((record) => (record.failedOf ? [record.failedOf] : [])))
 
   /** `undoneBy` is derived from the undo entries, so the file stays append-only. */
   const undoLinks = (records: JournalRecord[]): Map<string, string> => {
@@ -461,7 +477,19 @@ export function createMutations(
 
   const write = async (record: JournalRecord, act: () => Promise<void>): Promise<void> => {
     await appendJournal(record)
-    await act()
+    try {
+      await act()
+    } catch (cause) {
+      // The entry above is already on the platter and now overstates what
+      // happened. One more line says so, so `list` stops offering it as a
+      // finished operation and `undo` knows to expect gaps.
+      try {
+        await appendJournal({ ...record, id: newId(), steps: [], failedOf: record.id })
+      } catch {
+        // Best effort: the step's own failure is the one worth reporting.
+      }
+      throw cause
+    }
   }
 
   return {
@@ -564,10 +592,14 @@ export function createMutations(
       const act = async (): Promise<void> => {
         for (const step of [...original.steps].reverse()) {
           if (step.type === 'move') {
-            await relocate(
-              await resolveIn(step.store, step.to as string),
-              await resolveIn(step.store, step.from)
-            )
+            const destination = await resolveIn(step.store, step.to as string)
+            const source = await resolveIn(step.store, step.from)
+            // The step may never have run: nothing arrived at the destination
+            // and the source never left. Reversing that is a no-op, not a
+            // failure. An absent source is the other story, and still throws.
+            if ((await exists(destination)) || !(await exists(source))) {
+              await relocate(destination, source)
+            }
           } else if (step.type === 'copy') {
             // The source came back on the reversed `trash` step before this
             // one, so the copy is now the spare. It is displaced into the
@@ -578,10 +610,14 @@ export function createMutations(
               await relocate(destination, trashPath(id, `${step.toStore}/${step.to}`))
             }
           } else if (step.type === 'trash') {
-            await relocate(
-              trashPath(original.id, step.displaced as string),
-              await resolveIn(step.store, step.from)
-            )
+            const kept = trashPath(original.id, step.displaced as string)
+            const source = await resolveIn(step.store, step.from)
+            // Nothing in the trash and the source still in place means this
+            // step never ran. Nothing in the trash and no source is the
+            // emptied trash, which still throws and is still reported below.
+            if ((await exists(kept)) || !(await exists(source))) {
+              await relocate(kept, source)
+            }
           } else {
             const target = await resolveIn(step.store, step.from)
             // Nothing is destroyed: the current bytes go to the undo's trash
@@ -620,8 +656,12 @@ export function createMutations(
     async list(): Promise<Scan<JournalEntryInfo[]>> {
       const { records, scan } = await readJournal()
       const links = undoLinks(records)
+      const failed = failedIds(records)
       const entries = records
-        .map((record) => toInfo(record, links.get(record.id) ?? null))
+        // A marker is a correction to the line above it, not an operation of
+        // its own, so it is read and never listed.
+        .filter((record) => record.failedOf === undefined)
+        .map((record) => toInfo(record, links.get(record.id) ?? null, failed.has(record.id)))
         .reverse()
       return { data: entries, errors: scan.errors, unknown: scan.unknown }
     },

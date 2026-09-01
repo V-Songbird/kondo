@@ -215,6 +215,17 @@ export function Journal() {
                             <span className="pill text-warn">undone</span>
                           </>
                         )}
+                        {entry.failed && (
+                          <>
+                            {' '}
+                            <span
+                              className="pill text-warn"
+                              title="A step of this operation failed; the store never got all of it. Undo puts back whatever did happen."
+                            >
+                              failed
+                            </span>
+                          </>
+                        )}
                       </td>
                       <td className="text-right text-mut">{entry.stepCount}</td>
                       <td className="text-right">

@@ -296,6 +296,13 @@ export interface JournalEntryInfo {
   undoneBy: string | null
   /** True when this entry is itself the undo of another. */
   isUndo: boolean
+  /**
+   * True when a step of this operation failed part way through. The entry is
+   * written before its steps run (ADR-0001), so it describes what was
+   * intended; this says the store never got all of it. Undo still applies —
+   * it puts back whatever did happen and skips the rest.
+   */
+  failed: boolean
 }
 
 /**

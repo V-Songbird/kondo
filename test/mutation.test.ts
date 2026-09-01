@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fsp from 'node:fs/promises'
+import type { PathLike } from 'node:fs'
 import path from 'node:path'
 import { createLocator } from '../electron/main/workspace/locator'
 import { createMutations, type Mutations } from '../electron/main/workspace/mutations'
@@ -162,6 +163,88 @@ describe('mutation safety invariants (ADR-0001)', () => {
     const twice = await mutations.undo(done.data!.id)
     expect(twice.data).toBeNull()
     expect(twice.errors.map((error) => error.code)).toContain('bad-request')
+  })
+
+  it('undoes a mutation whose later step failed, leaving nothing half-done', async () => {
+    const before = await hashTree(world.userRoot)
+    const rename = fsp.rename.bind(fsp)
+    const failing = vi
+      .spyOn(fsp, 'rename')
+      .mockImplementation(async (from: PathLike, to: PathLike): Promise<void> => {
+        if (String(to).includes('skills.disabled')) throw new Error('the volume went away')
+        return rename(from, to)
+      })
+
+    const done = await mutations.mutate({
+      op: 'move',
+      kind: 'skill',
+      entityId: 'skill:user:alpha-skill',
+      summary: 'Trash beta-skill, then move alpha-skill',
+      steps: [
+        { type: 'trash', store: 'user', from: 'skills/beta-skill' },
+        { type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills.disabled/alpha-skill' }
+      ]
+    })
+    expect(done.data).toBeNull()
+    expect(done.errors).not.toEqual([])
+    failing.mockRestore()
+
+    // The list must not offer this as a finished operation.
+    const listed = await mutations.list()
+    const entry = listed.data.find((row) => !row.isUndo)!
+    expect(entry.failed).toBe(true)
+
+    const undone = await mutations.undo(entry.id)
+    expect(undone.errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('undoes a mutation whose trash step itself failed', async () => {
+    const before = await hashTree(world.userRoot)
+    const rename = fsp.rename.bind(fsp)
+    const failing = vi
+      .spyOn(fsp, 'rename')
+      .mockImplementation(async (from: PathLike, to: PathLike): Promise<void> => {
+        if (String(from).includes('beta-skill')) throw new Error('the volume went away')
+        return rename(from, to)
+      })
+
+    const done = await mutations.mutate({
+      op: 'move',
+      kind: 'skill',
+      entityId: 'skill:user:alpha-skill',
+      summary: 'Move alpha-skill, then trash beta-skill',
+      steps: [
+        { type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills.disabled/alpha-skill' },
+        { type: 'trash', store: 'user', from: 'skills/beta-skill' }
+      ]
+    })
+    expect(done.data).toBeNull()
+    failing.mockRestore()
+
+    const listed = await mutations.list()
+    const entry = listed.data.find((row) => !row.isUndo)!
+    expect(entry.failed).toBe(true)
+
+    const undone = await mutations.undo(entry.id)
+    expect(undone.errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('reports an emptied trash rather than silently skipping a lost restore', async () => {
+    const done = await mutations.mutate({
+      op: 'trash',
+      kind: 'skill',
+      entityId: 'skill:user:beta-skill',
+      summary: 'Trash beta-skill',
+      steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }]
+    })
+    expect(done.errors).toEqual([])
+    await mutations.emptyTrash()
+
+    const result = await mutations.undo(done.data!.id)
+    expect(result.data).toBeNull()
+    expect(result.errors[0]!.message).toContain('emptied')
   })
 
   it('never writes outside a known store root or kondo data', async () => {
