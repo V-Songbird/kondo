@@ -24,7 +24,7 @@
       "check": "renderer-reaches-past-the-bridge",
       "classId": "renderer-reaches-past-the-bridge",
       "runner": "PostToolUse",
-      "mode": "armed",
+      "mode": "observe",
       "provenance": "elicited",
       "proof": "c756b28497f7ca0968df7a463fb34483902362bac51e24e84ab46524ecac9e6e"
     },
@@ -33,7 +33,7 @@
       "check": "test-touches-a-real-store",
       "classId": "test-touches-a-real-store",
       "runner": "PostToolUse",
-      "mode": "armed",
+      "mode": "observe",
       "provenance": "elicited",
       "proof": "3efdde255d84e983083b557ccb91c4a2e1d791653618e20d6ef2c077246d371d"
     }
