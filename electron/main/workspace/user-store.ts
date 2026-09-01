@@ -514,74 +514,123 @@ const SKILL_MANIFEST = 'SKILL.md'
 const MAX_MANIFEST_BYTES = 262_144
 
 /**
+ * Every skill directory sitting directly under `root`, as SkillInfo. Reading
+ * one means reading its `SKILL.md` frontmatter, so this is tier-2 work
+ * (ADR-0007) and the caller decides when to pay for it. A root that is not
+ * there at all is not an error — `safeReaddir` says so, and the answer is
+ * simply empty.
+ */
+async function readSkillDir(
+  locator: StoreLocator,
+  root: string,
+  scope: SkillInfo['scope'],
+  keyPrefix: string,
+  enabled: boolean,
+  c: Collector
+): Promise<SkillInfo[]> {
+  const skills: SkillInfo[] = []
+  const display = tildify(root, locator.home)
+  for (const entry of await safeReaddir(root, display, c)) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
+    const dir = path.join(root, entry.name)
+    const manifest = path.join(dir, SKILL_MANIFEST)
+    const manifestDisplay = `${display}/${entry.name}/${SKILL_MANIFEST}`
+    let description: string | null = null
+    try {
+      const content = await fs.readFile(manifest, 'utf8')
+      description = readFrontmatter(content.slice(0, MAX_MANIFEST_BYTES)).description
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') continue
+      c.fail('read-failed', manifestDisplay, cause)
+      continue
+    }
+    skills.push({
+      id: `skill:${keyPrefix}:${entry.name}`,
+      kind: 'skill',
+      capabilities: capabilitiesFor('skill', scope),
+      name: entry.name,
+      description,
+      scope,
+      origin: tildify(dir, locator.home),
+      enabled
+    })
+  }
+  return skills
+}
+
+/**
  * Every skill the user placed by hand, in the user store and in each verified
  * project. Skills that ship *inside* a plugin are deliberately not listed:
  * they are not the user's to move or bench, and a plugin whose skill directory
  * went missing is a broken plugin. They belong to the plugins view, which owns
- * the plugin's own tree — the matrix keeps refusing the `plugin` scope so that
- * whoever surfaces them there still cannot mutate one.
+ * the plugin's own tree — `scanPluginSkills` below is what reads them there,
+ * and the matrix keeps refusing the `plugin` scope so that surfacing one still
+ * cannot mutate it.
  */
 export async function scanSkills(
   locator: StoreLocator,
   projects: VerifiedProject[],
   c: Collector
 ): Promise<SkillInfo[]> {
-  const skills: SkillInfo[] = []
-
-  const addFrom = async (
-    root: string,
-    scope: SkillInfo['scope'],
-    keyPrefix: string,
-    enabled: boolean
-  ): Promise<void> => {
-    const display = tildify(root, locator.home)
-    for (const entry of await safeReaddir(root, display, c)) {
-      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
-      const dir = path.join(root, entry.name)
-      const manifest = path.join(dir, SKILL_MANIFEST)
-      const manifestDisplay = `${display}/${entry.name}/${SKILL_MANIFEST}`
-      let description: string | null = null
-      try {
-        const content = await fs.readFile(manifest, 'utf8')
-        description = readFrontmatter(content.slice(0, MAX_MANIFEST_BYTES)).description
-      } catch (cause) {
-        if ((cause as NodeJS.ErrnoException).code === 'ENOENT') continue
-        c.fail('read-failed', manifestDisplay, cause)
-        continue
-      }
-      skills.push({
-        id: `skill:${keyPrefix}:${entry.name}`,
-        kind: 'skill',
-        capabilities: capabilitiesFor('skill', scope),
-        name: entry.name,
-        description,
-        scope,
-        origin: tildify(dir, locator.home),
-        enabled
-      })
-    }
-  }
-
-  await addFrom(path.join(locator.userRoot, 'skills'), 'user', 'user', true)
-  await addFrom(
-    path.join(locator.userRoot, 'skills.disabled'),
-    'user-disabled',
-    'user-disabled',
-    false
-  )
+  const roots: Array<[string, SkillInfo['scope'], string, boolean]> = [
+    [path.join(locator.userRoot, 'skills'), 'user', 'user', true],
+    [path.join(locator.userRoot, 'skills.disabled'), 'user-disabled', 'user-disabled', false]
+  ]
   for (const project of projects) {
     // ADR-0002: the project store is its .claude directory and nothing above
     // it. ADR-0006: skills.disabled is Claude's own convention, scoped.
     const claudeDir = path.join(project.absPath, '.claude')
-    await addFrom(path.join(claudeDir, 'skills'), 'project', `project/${project.dirName}`, true)
-    await addFrom(
-      path.join(claudeDir, 'skills.disabled'),
-      'project-disabled',
-      `project-disabled/${project.dirName}`,
-      false
+    roots.push(
+      [path.join(claudeDir, 'skills'), 'project', `project/${project.dirName}`, true],
+      [
+        path.join(claudeDir, 'skills.disabled'),
+        'project-disabled',
+        `project-disabled/${project.dirName}`,
+        false
+      ]
     )
   }
 
+  const skills: SkillInfo[] = []
+  for (const [root, scope, keyPrefix, enabled] of roots) {
+    skills.push(...(await readSkillDir(locator, root, scope, keyPrefix, enabled, c)))
+  }
+  skills.sort((a, b) => a.id.localeCompare(b.id))
+  return skills
+}
+
+/**
+ * The skills one plugin ships, read from that plugin's own install root —
+ * the plugins view's half of the split `scanSkills` describes.
+ *
+ * Its own function rather than a limb of `scanSkills`, because it is tier-2
+ * work for the one plugin a user opened rather than something every skills
+ * listing pays for (ADR-0007). A plugin whose `installPath` escaped the user
+ * store has no root to follow: `scanPlugins` already nulled it and said why,
+ * so nothing is read and the answer is empty rather than a second complaint.
+ *
+ * The result is read-only by construction. Its `plugin` scope resolves to the
+ * matrix row refusing enable, disable and move alike (ADR-0006), so an id from
+ * this listing cannot be mutated by whatever gets hold of one.
+ */
+export async function scanPluginSkills(
+  locator: StoreLocator,
+  record: PluginRecord,
+  c: Collector
+): Promise<SkillInfo[]> {
+  if (record.installAbs === null) return []
+  // `plugin:<key>` by construction in `scanPlugins`, so the key is the rest.
+  const key = record.info.id.slice('plugin:'.length)
+  const skills = await readSkillDir(
+    locator,
+    path.join(record.installAbs, 'skills'),
+    'plugin',
+    `plugin/${key}`,
+    // A plugin-shipped skill has no bench of its own: it is live exactly when
+    // its plugin is, which the plugin's own row already says.
+    true,
+    c
+  )
   skills.sort((a, b) => a.id.localeCompare(b.id))
   return skills
 }

@@ -31,3 +31,6 @@ Decision: scanning happens in two tiers.
 - The scan cache is disposable by design — deleting it only costs re-parsing.
 - Adapters expose both tiers explicitly; nothing silently escalates a whole
   store to tier 2.
+- A plugin's own skills are a tier-2 read of the plugins view:
+  `pluginSkills(pluginId)` opens each `SKILL.md` under the one plugin whose
+  row was opened, never every plugin's at listing time.

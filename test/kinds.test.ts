@@ -129,8 +129,8 @@ describe('kind registry and capability matrix', () => {
     // One kind, one operation, opposite answers in two scopes — the pair no
     // single boolean on the entity could have held.
     expect(capabilitiesFor('skill', 'user').disable.allowed).toBe(true)
-    // Nothing lists a plugin-scoped skill today, but the row is the standing
-    // answer for whoever surfaces one in the plugins view.
+    // The plugins view does list plugin-scoped skills now (`kinds.pluginSkill`),
+    // and this row is what keeps that listing read-only.
     expect(capabilitiesFor('skill', 'plugin').disable.allowed).toBe(false)
     expect(capabilitiesFor('skill', 'plugin').move.allowed).toBe(false)
     // One kind, one scope, opposite answers for the two operations.

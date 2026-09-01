@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import type { PluginInfo, PluginScopeState } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
@@ -41,6 +41,44 @@ function stateLabel(scope: PluginScopeState): string {
   return scope.enabled ? 'on' : 'off'
 }
 
+/**
+ * The skills one plugin ships, under the plugin that owns them. Loaded when
+ * the row is opened and not before, so a plugins view of thirty rows reads
+ * thirty `SKILL.md` files only if the user asks for all thirty (ADR-0007).
+ *
+ * Read-only by construction, which is why there is not a button in it: every
+ * entry carries the `plugin` skill scope, whose capability row refuses enable,
+ * disable and move alike. A plugin that ships none says so.
+ */
+function PluginSkills({ pluginId }: { pluginId: string }) {
+  const state = useScan((api) => api.pluginSkills(pluginId), [pluginId])
+  return (
+    <AsyncView state={state}>
+      {(scan) =>
+        scan.data.length === 0 ? (
+          <span className="text-mut">Ships no skills.</span>
+        ) : (
+          <ul className="space-y-1">
+            {scan.data.map((skill) => (
+              <li key={skill.id} className="flex gap-3">
+                <span
+                  className="w-56 shrink-0 truncate font-mono text-ink"
+                  title={skill.origin}
+                >
+                  {skill.name}
+                </span>
+                <span className="truncate text-mut" title={skill.description ?? undefined}>
+                  {skill.description ?? '—'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </AsyncView>
+  )
+}
+
 /** A layer whose file is not there yet, held until the user says to create it. */
 interface Pending {
   plugin: PluginInfo
@@ -53,6 +91,7 @@ export function Plugins() {
   const [busy, setBusy] = useState<string | null>(null)
   const [refusal, setRefusal] = useState<string | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
+  const [opened, setOpened] = useState<string | null>(null)
   const { reload } = state
 
   const toggle = async (
@@ -151,32 +190,56 @@ export function Plugins() {
             </thead>
             <tbody>
               {scan.data.map((plugin) => (
-                <tr key={plugin.id}>
-                  <td className="font-mono">{plugin.name}</td>
-                  <td className="text-mut">{plugin.marketplace}</td>
-                  <td className="font-mono">{plugin.version ?? '—'}</td>
-                  <td className="text-mut">
-                    {plugin.lastUpdated ? formatAgo(Date.parse(plugin.lastUpdated)) : '—'}
-                  </td>
-                  <td>
-                    <div className="flex flex-col gap-1">
-                      {plugin.winningLayerId === null && (
-                        <span className="pill w-fit text-warn">enabled nowhere</span>
-                      )}
-                      {byOwner(plugin.scopes).map(([owner, scopes]) => (
-                        <div key={owner} className="flex items-center gap-1">
-                          <span
-                            className="w-44 shrink-0 truncate text-right font-mono text-xs text-mut"
-                            title={owner === '' ? 'user settings' : owner}
-                          >
-                            {owner === '' ? 'global' : owner}
-                          </span>
-                          {scopes.map((scope) => chip(plugin, scope))}
-                        </div>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
+                <Fragment key={plugin.id}>
+                  <tr>
+                    <td className="font-mono">
+                      <button
+                        type="button"
+                        aria-expanded={opened === plugin.id}
+                        title={`${plugin.installPath} — show the skills it ships`}
+                        className="cursor-pointer text-left hover:text-accent"
+                        onClick={() =>
+                          setOpened(opened === plugin.id ? null : plugin.id)
+                        }
+                      >
+                        <span className="text-mut">
+                          {opened === plugin.id ? '▾' : '▸'}
+                        </span>{' '}
+                        {plugin.name}
+                      </button>
+                    </td>
+                    <td className="text-mut">{plugin.marketplace}</td>
+                    <td className="font-mono">{plugin.version ?? '—'}</td>
+                    <td className="text-mut">
+                      {plugin.lastUpdated ? formatAgo(Date.parse(plugin.lastUpdated)) : '—'}
+                    </td>
+                    <td>
+                      <div className="flex flex-col gap-1">
+                        {plugin.winningLayerId === null && (
+                          <span className="pill w-fit text-warn">enabled nowhere</span>
+                        )}
+                        {byOwner(plugin.scopes).map(([owner, scopes]) => (
+                          <div key={owner} className="flex items-center gap-1">
+                            <span
+                              className="w-44 shrink-0 truncate text-right font-mono text-xs text-mut"
+                              title={owner === '' ? 'user settings' : owner}
+                            >
+                              {owner === '' ? 'global' : owner}
+                            </span>
+                            {scopes.map((scope) => chip(plugin, scope))}
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                  {opened === plugin.id && (
+                    <tr>
+                      <td colSpan={5} className="bg-inset">
+                        <PluginSkills pluginId={plugin.id} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

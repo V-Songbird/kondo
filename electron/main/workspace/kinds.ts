@@ -28,6 +28,7 @@ import {
   newSettingsSource,
   pluginStateIn,
   readSettingsLayers,
+  scanPluginSkills,
   scanPlugins,
   scanSkills,
   type PluginRecord,
@@ -226,6 +227,40 @@ const plugin: EntityKindDefinition<PluginInfo> = {
   // A plugin is enabled or disabled *in a settings layer* (ADR-0006), so the
   // entity-level seat has no target to act on and stays empty. The per-layer
   // plan is `pluginTogglePlan` at the foot of this module.
+  ...noPlanYet
+}
+
+/**
+ * The skills one plugin ships, listed under the plugin that owns them. A
+ * child listing rather than a field on `PluginInfo`: reading a skill means
+ * reading its `SKILL.md`, so it happens for the one plugin a caller named and
+ * not for every row of the plugins view (ADR-0007).
+ *
+ * Its own registry entry rather than a branch in `skill`, because the two
+ * differ in everything but kind: this one is keyed on a parent id, covers the
+ * one scope the matrix refuses outright, and has no toggle to seat. A plugin
+ * that ships none answers with an empty list, which is not an error.
+ */
+const pluginSkill: EntityKindDefinition<SkillInfo> = {
+  kind: 'skill',
+  // The one scope `skill` above never produces; `scopesFor` holds both.
+  scopes: ['plugin'],
+  /** Requires `context.parentId` — a `plugin:` id from a prior scan. */
+  async discover(context) {
+    const parentId = context.parentId
+    if (parentId === null || !parentId.startsWith(PLUGIN_PREFIX)) return null
+    const record = (await context.plugins()).find(
+      (candidate) => candidate.info.id === parentId
+    )
+    if (!record) return null
+    return scanPluginSkills(context.locator, record, context.c)
+  },
+  read(id, context) {
+    return findById(id, pluginSkill.discover(context))
+  },
+  capabilities: (scope) => capabilitiesFor('skill', scope),
+  // Nothing to seat: the `plugin` scope's matrix row refuses every operation
+  // (ADR-0006), so no plan for one of these could ever be legitimate.
   ...noPlanYet
 }
 
@@ -541,6 +576,7 @@ export async function pluginTogglePlan(
 export const kinds = {
   skill,
   plugin,
+  pluginSkill,
   hook,
   settings,
   project,

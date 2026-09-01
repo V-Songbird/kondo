@@ -402,6 +402,19 @@ export interface KondoApi {
   skillMove(skillId: string, destinationId: string): Promise<Scan<JournalEntryInfo | null>>
   pluginsList(): Promise<Scan<PluginInfo[]>>
   /**
+   * The skills one installed plugin ships, read from its own install root.
+   * Read-only: these are the plugin's, not the user's, so every entry carries
+   * the `plugin` skill scope whose matrix row refuses enable, disable and
+   * move alike (ADR-0006). They are deliberately absent from `skillsList`.
+   *
+   * Its own call rather than a field on `PluginInfo`, because listing a skill
+   * means reading its `SKILL.md` — tier-2 work no plugins listing should pay
+   * for on behalf of rows nobody opened (ADR-0007). A plugin that ships none
+   * answers with an empty array and no error; so does one whose `installPath`
+   * escaped the user store, which `pluginsList` already reported.
+   */
+  pluginSkills(pluginId: string): Promise<Scan<SkillInfo[]>>
+  /**
    * Enable or disable one plugin in one settings layer by editing that
    * file's `enabledPlugins` key in place (ADR-0006), journaled and therefore
    * reversible (ADR-0001). Only that key's bytes change; every other key and
@@ -470,6 +483,7 @@ export const channels = {
   skillToggle: 'kondo:skill-toggle',
   skillMove: 'kondo:skill-move',
   pluginsList: 'kondo:plugins-list',
+  pluginSkills: 'kondo:plugin-skills',
   pluginToggle: 'kondo:plugin-toggle',
   hooksList: 'kondo:hooks-list',
   settingsLayers: 'kondo:settings-layers',

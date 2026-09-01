@@ -31,6 +31,9 @@ export function registerIpc(api: KondoApi): void {
     api.skillMove(String(skillId), String(destinationId))
   )
   ipcMain.handle(channels.pluginsList, () => api.pluginsList())
+  ipcMain.handle(channels.pluginSkills, (_event, pluginId: unknown) =>
+    api.pluginSkills(String(pluginId))
+  )
   ipcMain.handle(
     channels.pluginToggle,
     (_event, pluginId: unknown, layerId: unknown, operation: unknown, createLayer: unknown) =>

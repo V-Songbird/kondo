@@ -288,6 +288,16 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       return finish((await kinds.plugin.discover(context(c))) ?? [], c)
     },
 
+    async pluginSkills(pluginId: string) {
+      if (typeof pluginId !== 'string' || !pluginId.startsWith('plugin:')) {
+        return badRequest([], 'pluginSkills expects a plugin: id.')
+      }
+      const c = collector()
+      const skills = await kinds.pluginSkill.discover(context(c, pluginId))
+      if (!skills) return unknownId([], pluginId)
+      return finish(skills, c)
+    },
+
     async pluginToggle(
       pluginId: string,
       layerId: string,
