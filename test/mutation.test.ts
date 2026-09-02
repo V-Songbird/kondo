@@ -2,8 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fsp from 'node:fs/promises'
 import type { PathLike } from 'node:fs'
 import path from 'node:path'
+import type { KondoApi } from '../shared/contract'
 import { createLocator } from '../electron/main/workspace/locator'
-import { createMutations, type Mutations } from '../electron/main/workspace/mutations'
+import {
+  createMutations,
+  digestSource,
+  type Mutations
+} from '../electron/main/workspace/mutations'
+import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   exists,
   hashTree,
@@ -11,6 +17,7 @@ import {
   recordWrites,
   skillManifest,
   writeFileTree,
+  writeJson,
   type FixtureWorld
 } from './helpers'
 
@@ -247,7 +254,100 @@ describe('mutation safety invariants (ADR-0001)', () => {
     expect(result.errors[0]!.message).toContain('emptied')
   })
 
+  // -------------------------------------------------------------------------
+  // The splice step (ADR-0010)
+
+  const settingsFile = (): string => path.join(world.userRoot, 'settings.json')
+  const readSettings = (): Promise<string> => fsp.readFile(settingsFile(), 'utf8')
+
+  const spliceQuietToLoud = async (
+    source: string,
+    expectDigest = digestSource(source)
+  ): Promise<Awaited<ReturnType<Mutations['mutate']>>> =>
+    mutations.mutate({
+      op: 'settings-edit',
+      kind: 'settings',
+      entityId: 'settings:user:user',
+      summary: 'Splice outputStyle',
+      steps: [
+        {
+          type: 'splice',
+          store: 'user',
+          at: 'settings.json',
+          expectDigest,
+          edits: [{ at: source.indexOf('quiet'), remove: 'quiet'.length, insert: 'loud' }]
+        }
+      ]
+    })
+
+  it('changes only the span a splice names, and undoes by inverting it', async () => {
+    const before = await readSettings()
+    const beforeTree = await hashTree(world.userRoot)
+
+    const done = await spliceQuietToLoud(before)
+    expect(done.errors).toEqual([])
+    expect(await readSettings()).toBe(before.replace('quiet', 'loud'))
+
+    const undone = await mutations.undo(done.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(await readSettings()).toBe(before)
+    // The inverse went onto the file's current bytes, and nothing was parked
+    // in the trash to restore from: undo is the edits run backwards.
+    expect(await hashTree(world.userRoot)).toBe(beforeTree)
+    expect((await mutations.trashSize()).data.entryCount).toBe(0)
+  })
+
+  it('refuses a splice whose file has moved on, writing nothing at all', async () => {
+    const before = await readSettings()
+    const beforeTree = await hashTree(world.userRoot)
+
+    const result = await spliceQuietToLoud(before, digestSource('{}\n'))
+    expect(result.data).toBeNull()
+    expect(result.errors.map((error) => error.code)).toContain('stale-file')
+    expect(await hashTree(world.userRoot)).toBe(beforeTree)
+    // Refused before the journal, so there is no entry claiming it happened.
+    expect(await exists(path.join(world.kondoDataRoot, 'journal.jsonl'))).toBe(false)
+  })
+
+  it('refuses to undo a splice onto bytes something else has since written', async () => {
+    const done = await spliceQuietToLoud(await readSettings())
+    expect(done.errors).toEqual([])
+
+    // Claude, mid-session, rewriting the same file.
+    const theirs = '{\n  "outputStyle": "loud",\n  "theme": "dark"\n}\n'
+    await fsp.writeFile(settingsFile(), theirs, 'utf8')
+
+    const undone = await mutations.undo(done.data!.id)
+    expect(undone.data).toBeNull()
+    expect(undone.errors.map((error) => error.code)).toContain('stale-file')
+    // The whole point: their bytes are still there.
+    expect(await readSettings()).toBe(theirs)
+  })
+
+  it('holds the user-config store to the one file it is (ADR-0003)', async () => {
+    await fsp.writeFile(world.locator.userConfigFile, '{}\n', 'utf8')
+    const result = await mutations.mutate({
+      op: 'settings-edit',
+      kind: 'settings',
+      entityId: 'settings:user:user',
+      summary: 'Reach past the registry',
+      steps: [
+        {
+          type: 'splice',
+          store: 'user-config',
+          at: '.bashrc',
+          expectDigest: digestSource('{}\n'),
+          edits: []
+        }
+      ]
+    })
+    expect(result.data).toBeNull()
+    expect(result.errors.map((error) => error.code)).toContain('out-of-store')
+  })
+
   it('never writes outside a known store root or kondo data', async () => {
+    const registry = '{\n  "numStartups": 41\n}\n'
+    await fsp.writeFile(world.locator.userConfigFile, registry, 'utf8')
     const touched: string[] = []
     const restores = recordWrites(touched)
 
@@ -260,7 +360,14 @@ describe('mutation safety invariants (ADR-0001)', () => {
         steps: [
           { type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills.disabled/alpha-skill' },
           { type: 'trash', store: 'user', from: 'skills/beta-skill' },
-          { type: 'write', store: 'user', at: 'settings.json', content: '{}' }
+          { type: 'write', store: 'user', at: 'settings.json', content: '{}' },
+          {
+            type: 'splice',
+            store: 'user-config',
+            at: path.basename(world.locator.userConfigFile),
+            expectDigest: digestSource(registry),
+            edits: [{ at: registry.indexOf('41'), remove: 2, insert: '42' }]
+          }
         ]
       })
       await mutations.undo(done.data!.id)
@@ -279,9 +386,18 @@ describe('mutation safety invariants (ADR-0001)', () => {
       const allowed =
         inside(target, world.userRoot) ||
         inside(target, world.desktopRoot) ||
-        inside(target, world.kondoDataRoot)
+        inside(target, world.kondoDataRoot) ||
+        // The registry, and the temporary sibling a splice replaces it
+        // through — it has to share a filesystem with the file, so it lives
+        // beside it and is renamed or removed within the step (ADR-0010).
+        target.startsWith(world.locator.userConfigFile)
       expect(allowed, `escaped the write boundary: ${target}`).toBe(true)
     }
+    // And the temporary is gone: nothing kondo wrote outlives the step but
+    // the registry itself.
+    expect(
+      (await fsp.readdir(world.home)).filter((name) => name.includes('.kondo-'))
+    ).toEqual([])
   })
 
   it('refuses a step that escapes its store root, before journaling', async () => {
@@ -363,6 +479,229 @@ describe('mutation safety invariants (ADR-0001)', () => {
       const locator = createLocator({ ...scenario, env: {} })
       expect(outside(locator.kondoDataRoot, locator.userRoot), scenario.platform).toBe(true)
       expect(outside(locator.kondoDataRoot, locator.desktopRoot!), scenario.platform).toBe(true)
+      // The registry's own root: a directory, so a splice step can name it,
+      // and holding the file rather than being it (ADR-0010).
+      expect(path.dirname(locator.userConfigFile)).toBe(locator.userConfigRoot)
     }
   })
 })
+
+/**
+ * Configuration orphans: members Claude still reads with nothing behind them,
+ * previewed without a write and removed by splice (ADR-0010). The registry
+ * and the settings layer below are both written with formatting no
+ * reserialize could reproduce, so byte equality is what proves the edit was
+ * a splice and not a rewrite.
+ */
+describe('configuration orphans (ADR-0010)', () => {
+  let world: FixtureWorld
+  let live: string
+  let dead: string
+  let api: KondoApi
+
+  const USER_SETTINGS = [
+    '{',
+    '    "theme": "dark",',
+    '    "enabledPlugins": {',
+    '        "alpha@acme": true,',
+    '        "ghost@acme": true,',
+    '        "phantom@acme": false',
+    '    },',
+    '    "skillOverrides": {',
+    '        "alpha-skill": "off",',
+    '        "vanished-skill": "off"',
+    '    }',
+    '}',
+    ''
+  ].join('\n')
+
+  const registrySource = (): string =>
+    [
+      '{',
+      '  "numStartups": 41,',
+      '  "projects": {',
+      `    ${JSON.stringify(live)}: { "allowedTools": [] },`,
+      `    ${JSON.stringify(dead)}: {`,
+      '      "mcpServers": {',
+      '        "ghost-server": { "type": "stdio", "command": "node",',
+      '          "env": { "API_KEY": "sk-never-surface-me" } }',
+      '      },',
+      '      "lastCost": 1.5',
+      '    }',
+      '  },',
+      '  "mcpServers": { "keeper": { "type": "stdio", "command": "node" } }',
+      '}',
+      ''
+    ].join('\n')
+
+  const readRegistry = (): Promise<string> =>
+    fsp.readFile(world.locator.userConfigFile, 'utf8')
+  const readSettings = (): Promise<string> =>
+    fsp.readFile(path.join(world.userRoot, 'settings.json'), 'utf8')
+
+  const orphan = async (kind: string, name: string): Promise<string> => {
+    const found = (await api.configOrphansPreview()).data.find(
+      (row) => row.kind === kind && row.name.includes(name)
+    )
+    if (!found) throw new Error(`fixture has no ${kind} orphan for ${name}`)
+    return found.id
+  }
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    live = path.join(world.base, 'work', 'alive')
+    dead = path.join(world.base, 'work', 'buried')
+    await fsp.mkdir(live, { recursive: true })
+
+    await writeFileTree(world.userRoot, {
+      'settings.json': USER_SETTINGS,
+      'skills/alpha-skill/SKILL.md': skillManifest('alpha-skill', 'A skill that is here'),
+      'plugins/installed_plugins.json': writeJson({
+        version: 2,
+        plugins: {
+          'alpha@acme': [
+            {
+              scope: 'user',
+              version: '1.0.0',
+              installPath: path.join(world.userRoot, 'plugins', 'cache', 'acme', 'alpha', '1.0.0')
+            }
+          ]
+        }
+      })
+    })
+    await fsp.writeFile(world.locator.userConfigFile, registrySource(), 'utf8')
+    api = createWorkspace({ locator: world.locator, platform: process.platform })
+  })
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await world.cleanup()
+  })
+
+  it('names every orphan and nothing that is still standing', async () => {
+    const preview = await api.configOrphansPreview()
+    expect(preview.errors).toEqual([])
+    expect(
+      preview.data.map((row) => `${row.kind}:${row.name}`).sort()
+    ).toEqual([
+      'enabled-plugin:ghost@acme',
+      'enabled-plugin:phantom@acme',
+      `mcp-declaration:ghost-server`,
+      `project-entry:${dead}`,
+      'skill-override:vanished-skill'
+    ].sort())
+  })
+
+  it('never surfaces an env or headers value from a declaration', async () => {
+    const preview = await api.configOrphansPreview()
+    expect(JSON.stringify(preview)).not.toContain('sk-never-surface-me')
+    expect(JSON.stringify(preview)).not.toContain('API_KEY')
+  })
+
+  it('lists an uninstalled enabledPlugins key as a plugin row of its own', async () => {
+    const plugins = await api.pluginsList()
+    const ghost = plugins.data.find((row) => row.id === 'plugin:ghost@acme')
+    expect(ghost?.installed).toBe(false)
+    expect(ghost?.version).toBeNull()
+    expect(plugins.data.find((row) => row.id === 'plugin:alpha@acme')?.installed).toBe(true)
+  })
+
+  it('splices a dead registry entry out and leaves every other byte alone', async () => {
+    const before = await readRegistry()
+    const result = await api.configOrphansRemove([await orphan('project-entry', dead)])
+    expect(result.errors).toEqual([])
+    expect(result.data?.stepCount).toBe(1)
+
+    const after = await readRegistry()
+    // The whole member and the comma that joined it to the live entry, and
+    // not one byte more: every other key keeps its place and its spacing.
+    const live_end = '{ "allowedTools": [] }'
+    expect(after).toBe(
+      before.slice(0, before.indexOf(live_end) + live_end.length) +
+        before.slice(before.indexOf('\n  },\n  "mcpServers"'))
+    )
+    expect(JSON.parse(after)).toMatchObject({ numStartups: 41 })
+
+    const undone = await api.journalUndo(result.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(await readRegistry()).toBe(before)
+  })
+
+  it('removes two adjacent members of one object in one step', async () => {
+    const result = await api.configOrphansRemove([
+      await orphan('enabled-plugin', 'ghost@acme'),
+      await orphan('enabled-plugin', 'phantom@acme')
+    ])
+    expect(result.errors).toEqual([])
+    expect(await readSettings()).toBe(
+      USER_SETTINGS.replace(
+        '        "alpha@acme": true,\n        "ghost@acme": true,\n        "phantom@acme": false\n',
+        '        "alpha@acme": true\n'
+      )
+    )
+
+    const undone = await api.journalUndo(result.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(await readSettings()).toBe(USER_SETTINGS)
+  })
+
+  it('takes a project entry and its declaration out as one member, not two', async () => {
+    const result = await api.configOrphansRemove([
+      await orphan('project-entry', dead),
+      await orphan('mcp-declaration', 'ghost-server')
+    ])
+    expect(result.errors).toEqual([])
+    // One step over one file: the wider member covered the narrower one.
+    expect(result.data?.stepCount).toBe(1)
+    expect(await readRegistry()).not.toContain('ghost-server')
+    expect(await readRegistry()).toContain('"keeper"')
+  })
+
+  it('spans two files in one journal entry, so one undo puts both back', async () => {
+    const registry = await readRegistry()
+    const settings = await readSettings()
+
+    const result = await api.configOrphansRemove([
+      await orphan('project-entry', dead),
+      await orphan('skill-override', 'vanished-skill')
+    ])
+    expect(result.errors).toEqual([])
+    expect(result.data?.stepCount).toBe(2)
+    expect(await readRegistry()).not.toBe(registry)
+    expect(await readSettings()).not.toBe(settings)
+
+    const undone = await api.journalUndo(result.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(await readRegistry()).toBe(registry)
+    expect(await readSettings()).toBe(settings)
+  })
+
+  it('refuses to undo onto a registry Claude has since rewritten', async () => {
+    const result = await api.configOrphansRemove([await orphan('project-entry', dead)])
+    expect(result.errors).toEqual([])
+
+    // Claude, mid-session, writing the same 2 MB file (ADR-0009).
+    const theirs = (await readRegistry()).replace('"numStartups": 41', '"numStartups": 42')
+    await fsp.writeFile(world.locator.userConfigFile, theirs, 'utf8')
+
+    const undone = await api.journalUndo(result.data!.id)
+    expect(undone.data).toBeNull()
+    expect(undone.errors.map((error) => error.code)).toContain('stale-file')
+    // Their bytes stand. The entry stays in the journal, honest about why it
+    // could not be reversed rather than reversing onto bytes it never saw.
+    expect(await readRegistry()).toBe(theirs)
+  })
+
+  it('reports an id the current scan does not hold rather than guessing', async () => {
+    const result = await api.configOrphansRemove(['orphan:project-entry:user-config:projects/nope'])
+    expect(result.data).toBeNull()
+    expect(result.errors.map((error) => error.code)).toContain('unknown-id')
+  })
+
+  it('writes no journal entry when nothing was chosen', async () => {
+    const result = await api.configOrphansRemove([])
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([])
+    expect((await api.journalList()).data).toHaveLength(0)
+  })
+})
+
