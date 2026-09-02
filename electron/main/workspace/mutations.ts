@@ -831,14 +831,26 @@ export function createMutations(
             }
           } else {
             const target = await resolveIn(step.store, step.from)
+            const kept = step.displaced ? trashPath(original.id, step.displaced) : null
+            // Entry 010's guard, one step further. A move and a trash can tell
+            // a step that never ran from an emptied trash by looking at the
+            // source; a write cannot, because its target sits there either
+            // way. So this keeps the half it can decide — never displace bytes
+            // that have nothing to come back — and lets the missing trash path
+            // raise the ENOENT that is already the emptied-trash refusal.
+            // Deliberate, over a per-step signal in the returned errors: a
+            // silent skip would report an undo that succeeded and put nothing
+            // back, which is the worse of the two half-truths, and the store
+            // is untouched either way.
+            if (kept !== null) await fs.stat(kept)
             // Nothing is destroyed: the current bytes go to the undo's trash
             // before whatever they displaced comes back.
             if (await exists(target)) {
               await relocate(target, trashPath(id, `${step.store}/${step.from}`))
             }
-            if (step.displaced) {
+            if (kept !== null) {
               await fs.mkdir(path.dirname(target), { recursive: true })
-              await fs.cp(trashPath(original.id, step.displaced), target, { recursive: true })
+              await fs.cp(kept, target, { recursive: true })
             }
           }
           await dropCreated(step.created, createdIn(step))

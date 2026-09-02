@@ -293,4 +293,6 @@ bulk size. The Claude-specific parts ✅:
   a following marker line names that entry as failed; `journalList` reports it
   as `failed` and never lists the marker itself. Undo of such an entry skips
   any step whose effect is absent while its source is still in place, and puts
-  back only what actually ran.
+  back only what actually ran. A `write` is the exception it cannot skip: its
+  target is there whether or not the step ran, so undo refuses the whole entry
+  rather than displace bytes it has nothing to put back.

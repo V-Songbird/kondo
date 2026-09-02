@@ -254,6 +254,62 @@ describe('mutation safety invariants (ADR-0001)', () => {
     expect(result.errors[0]!.message).toContain('emptied')
   })
 
+  it('leaves a write target in place when the bytes it displaced are not there', async () => {
+    const before = await hashTree(world.userRoot)
+    const rename = fsp.rename.bind(fsp)
+    const failing = vi
+      .spyOn(fsp, 'rename')
+      .mockImplementation(async (from: PathLike, to: PathLike): Promise<void> => {
+        if (String(from).includes('beta-skill')) throw new Error('the volume went away')
+        return rename(from, to)
+      })
+
+    const done = await mutations.mutate({
+      op: 'move',
+      kind: 'skill',
+      entityId: 'skill:user:beta-skill',
+      summary: 'Trash beta-skill, then rewrite settings',
+      steps: [
+        { type: 'trash', store: 'user', from: 'skills/beta-skill' },
+        { type: 'write', store: 'user', at: 'settings.json', content: '{ "outputStyle": "loud" }' }
+      ]
+    })
+    expect(done.data).toBeNull()
+    failing.mockRestore()
+
+    const listed = await mutations.list()
+    const entry = listed.data.find((row) => !row.isUndo)!
+    expect(entry.failed).toBe(true)
+
+    // The write never ran, so nothing was displaced into the trash. The undo
+    // refuses rather than skipping in silence, and — the invariant — leaves
+    // the store exactly as it found it instead of taking settings.json away.
+    const undone = await mutations.undo(entry.id)
+    expect(undone.data).toBeNull()
+    expect(undone.errors[0]!.message).toContain('emptied')
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('keeps the written bytes when an emptied trash has nothing to restore', async () => {
+    const done = await mutations.mutate({
+      op: 'move',
+      kind: 'skill',
+      entityId: 'skill:user:settings',
+      summary: 'Rewrite settings',
+      steps: [{ type: 'write', store: 'user', at: 'settings.json', content: '{ "outputStyle": "loud" }' }]
+    })
+    expect(done.errors).toEqual([])
+    await mutations.emptyTrash()
+
+    const result = await mutations.undo(done.data!.id)
+    expect(result.data).toBeNull()
+    expect(result.errors[0]!.message).toContain('emptied')
+    // Worse than not undoing at all would be losing the current bytes too.
+    expect(await fsp.readFile(path.join(world.userRoot, 'settings.json'), 'utf8')).toBe(
+      '{ "outputStyle": "loud" }'
+    )
+  })
+
   // -------------------------------------------------------------------------
   // The splice step (ADR-0010)
 
