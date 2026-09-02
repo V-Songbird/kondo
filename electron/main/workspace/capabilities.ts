@@ -50,6 +50,26 @@ const SESSIONS_ARE_SWEPT =
 // changes. Entry 031 brings the splice step that makes this row movable.
 const MCP_IS_READ_ONLY =
   'kondo reads MCP servers but does not write ~/.claude.json or .mcp.json yet.'
+// ADR-0006: an agent, command, rule or output style is loaded because its
+// file is there. Claude ships no `.disabled` sibling for these directories
+// and no settings key that benches one, so kondo has no faithful mechanism
+// to offer and invents none. This row changes the day one exists.
+const PLACED_HAS_NO_CONVENTION =
+  'Claude has no convention for disabling one of these; move the file out of the directory instead.'
+// Relocating one is entry 028: it generalises the skill placement table so a
+// promotion carries the same collision refusal and the same undo.
+const PLACED_MOVE_NOT_YET =
+  'kondo does not move agents, commands, rules or output styles between scopes yet.'
+
+/** The row every placed kind gets, in every scope it has. */
+function placed(): Capabilities {
+  return {
+    enable: deny(PLACED_HAS_NO_CONVENTION),
+    disable: deny(PLACED_HAS_NO_CONVENTION),
+    move: deny(PLACED_MOVE_NOT_YET)
+  }
+}
+
 const STORE_IS_NOT_A_TOGGLE =
   'A store is not a toggle; the tidy sweep is the only thing that writes at this level.'
 
@@ -100,6 +120,12 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
     local: neither(MCP_IS_READ_ONLY),
     project: neither(MCP_IS_READ_ONLY)
   },
+  // The four hand-placed kinds (domain.md). Same answer in every scope, and
+  // a project store has no `output-styles` directory to give that kind one.
+  agent: { user: placed(), project: placed() },
+  command: { user: placed(), project: placed() },
+  rule: { user: placed(), project: placed() },
+  'output-style': { user: placed() },
   // No listing produces a `store:` entity — this row exists so the sweep's
   // journal entry can name what it acted on truthfully, and so that anything
   // later reaching for a store-level toggle is refused rather than invented.

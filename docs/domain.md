@@ -45,9 +45,9 @@ usage):
 | `skills.disabled/` | Claude's own disable convention: a skill moved here stops loading ✅. Kondo adopts this for enable/disable (ADR-0006). |
 | `plugins/cache/<mp>/<plugin>/<ver>/skills/` | Skills a plugin ships ✅. These belong to the plugin, not the user: kondo's skills catalogue deliberately excludes them, because benching or relocating one leaves the plugin referring to a directory that is no longer there. They belong to the plugins view, alongside the plugin that owns them, where `pluginSkills(pluginId)` reads them on demand when a plugin's row is opened. The `plugin` skill scope and its capability-matrix row keep that listing read-only. |
 | `plugins/` | Plugin machinery ✅: `installed_plugins.json` (`version: 2`, `plugins[<name>@<marketplace>]` = array of `{ scope, installPath, version, installedAt, lastUpdated, gitCommitSha }`), `known_marketplaces.json`, `plugin-catalog-cache.json` (holds keys differing only by case — parse case-sensitively), `cache/<marketplace>/<plugin>/<version>/` (the installed code), `marketplaces/`, `data/<plugin>-<marketplace>/`, `.install-manifests/<id>.json`, `.last_inuse_sweep`. Residue accumulates ✅: 28 of 39 cached version directories were not the installed version, `.in_use` markers sat on every version (so the marker does not mean "current"), 4 install manifests and 47 of 55 `data/` directories belonged to plugins no longer installed. Cleanup target for entry 033. |
-| `commands/` | User-scope slash commands (`.md` files) ✅ (present; contents not yet read). |
+| `commands/` | User-scope slash commands (`.md` files) ✅. Read as placed entries — see below. |
 | `hooks/` | Hook scripts ✅. Two scripts observed while `settings.json` `hooks` was `{}` — a script on disk is not an armed hook; only a settings entry arms one. |
-| `agents/`, `output-styles/`, `rules/` | User-scope subagents, output styles and rules ◇ (documented by Claude Code; absent on this machine). Kondo reads none of them yet (entry 024). |
+| `agents/`, `output-styles/`, `rules/` | User-scope subagents, output styles and rules ◇ (documented by Claude Code; absent on this machine). Read as placed entries — see below. |
 | `history.jsonl` | Global prompt history. Line schema: `display`, `pastedContents`, `timestamp`, `project`, `sessionId` ✅. |
 | `sessions/` | Live-session registry: `<pid>.json` + `<pid>.<hash>.key` pairs ✅. Presence ≠ running; stale entries linger. |
 | `session-env/` | Per-session environment snapshots, one dir per session id ✅. Orphan-sweep candidate. |
@@ -120,6 +120,36 @@ refuses enable, disable and move until entry 031 ships a write path
 on the observed machine ✅) and is **not** one of the three scopes above;
 kondo does not read it.
 
+### Placed entries — skills, agents, commands, rules, output styles
+
+What the user put in a directory Claude loads. On disk they take one of two
+shapes, and that shape — not the kind — is what a reader needs to know:
+
+- **skill directory** — `<name>/SKILL.md`, the shape `skills/` and
+  `skills.disabled/` hold ✅.
+- **single markdown file** — `<name>.md`, whose own frontmatter carries a
+  `description` ✅. The shape the four kinds below hold.
+
+The **name on disk keys the entity**, never the frontmatter's `name`: the two
+can disagree, and only the filename is unique within a directory. Frontmatter
+that is missing or malformed leaves `description` null and is not an error
+(ADR-0005).
+
+| Kind | User store | Project store | Id |
+|---|---|---|---|
+| `agent` | `~/.claude/agents/*.md` ◇ | `<project>/.claude/agents/*.md` ✅ | `agent:user:<name>` · `agent:project/<flat>:<name>` |
+| `command` | `~/.claude/commands/*.md` ✅ | `<project>/.claude/commands/*.md` ◇ | `command:user:<name>` · `command:project/<flat>:<name>` |
+| `rule` | `~/.claude/rules/*.md` ◇ | `<project>/.claude/rules/*.md` ✅ | `rule:user:<name>` · `rule:project/<flat>:<name>` |
+| `output-style` | `~/.claude/output-styles/*.md` ◇ | not read — unobserved in a project store | `output-style:user:<name>` |
+
+All four are **read-only in every scope**. Claude loads them by presence:
+there is no `.disabled` sibling directory and no settings key that benches
+one, so the capability matrix refuses `enable` and `disable` outright rather
+than kondo inventing a mechanism (ADR-0006). `move` is refused too, until
+entry 028 generalises the skill placement table to them. The owning project
+travels as `PlacedEntryInfo.projectId`, never as a substring the renderer
+splits out of an id (ADR-0008).
+
 ### `projects/` — sessions
 
 - One directory per working directory Claude Code has run in, named by
@@ -160,7 +190,9 @@ kondo does not read it.
 - `skills/`, `agents/`, `rules/`, `hooks/` ✅ — project-scope variants,
   observed in every sampled project store (`agents/*.md`, `rules/*.md`,
   `hooks/` scripts with `__pycache__` and `*.test.js` noise beside them).
-  `commands/` ◇. Kondo reads only `skills/` today (entry 024 adds the rest).
+  `commands/` ◇. Kondo reads `skills/`, `agents/`, `commands/` and `rules/`
+  (see "Placed entries" above); `hooks/` holds scripts, and a script on disk
+  is not an armed hook, so it is read through the settings layers instead.
 - `worktrees/` and `docs/` ✅ — seen in one store. Claude registers a git
   worktree under `.claude/worktrees/` as a project of its own in
   `~/.claude.json`, so it is both inside the boundary and a duplicate-project

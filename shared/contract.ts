@@ -68,6 +68,16 @@ export type EntityKind =
    */
   | 'mcp'
   /**
+   * The four kinds Claude loads from a directory of hand-placed files — a
+   * subagent, a slash command, a rule, an output style. Read-only today:
+   * Claude has no disable convention for any of them (ADR-0006), and moving
+   * one between scopes waits on entry 028.
+   */
+  | 'agent'
+  | 'command'
+  | 'rule'
+  | 'output-style'
+  /**
    * A whole store, rather than one thing inside it. The tidy sweep acts at
    * this level: it displaces transcripts, sidecars and cache directories in
    * one operation, so no single entity below is the thing it changed.
@@ -232,6 +242,41 @@ export interface SkillInfo extends EntityIdentity {
    * The `project:code:<dirName>` id of the project this skill belongs to, or
    * null for a user-scope or plugin-shipped one. Attribution travels as this
    * field (ADR-0008) — the renderer joins on it and never splits an id.
+   */
+  projectId: string | null
+}
+
+/** The kinds that are one hand-placed file in a directory Claude loads. */
+export type PlacedKind = 'agent' | 'command' | 'rule' | 'output-style'
+
+/** Where a placed entry sits: the user store, or one project's store. */
+export type PlacedScope = 'user' | 'project'
+
+/**
+ * One agent, command, rule or output style, as kondo lists it. The four are
+ * one shape because on disk they are one thing — a `.md` file whose
+ * frontmatter describes it — differing only in the directory they sit in.
+ *
+ * Read-only in every scope (ADR-0006): Claude loads these by presence and
+ * offers no `.disabled` sibling and no settings key to bench one, so the
+ * matrix refuses both toggles rather than kondo inventing a mechanism.
+ */
+export interface PlacedEntryInfo extends EntityIdentity {
+  /** `<kind>:user:<name>` · `<kind>:project/<flat>:<name>` */
+  id: string
+  kind: PlacedKind
+  /**
+   * The name on disk — the file's, without its `.md`. Never the frontmatter's
+   * `name`, which may disagree with it and cannot key anything.
+   */
+  name: string
+  description: string | null
+  scope: PlacedScope
+  /** Display path of the file that holds it (tildified). */
+  origin: string
+  /**
+   * The `project:code:<dirName>` id of the project this entry belongs to, or
+   * null for a user-scope one. Attribution travels as this field (ADR-0008).
    */
   projectId: string | null
 }

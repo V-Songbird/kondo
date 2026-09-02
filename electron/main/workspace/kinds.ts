@@ -6,6 +6,8 @@ import type {
   EntityKind,
   HookInfo,
   McpServerInfo,
+  PlacedEntryInfo,
+  PlacedKind,
   PluginInfo,
   SessionDetail,
   SessionProject,
@@ -30,6 +32,7 @@ import {
   pluginStateIn,
   readSettingsLayers,
   scanMcpServers,
+  scanPlacedEntries,
   scanPluginSkills,
   scanPlugins,
   scanSkills,
@@ -362,6 +365,32 @@ const mcp: EntityKindDefinition<McpServerInfo> = {
   ...noPlanYet
 }
 
+/**
+ * Agents, commands, rules and output styles: one definition shape, built four
+ * times, because on disk the four differ only in the directory they sit in.
+ * A factory rather than four literals — the near-copies would be identical
+ * but for the kind they close over.
+ *
+ * Read-only in every scope. Claude loads these by presence and ships no
+ * disable convention for them (ADR-0006), so the toggle seats stay unwired on
+ * purpose; `move` waits on entry 028.
+ */
+function placedKind(kind: PlacedKind): EntityKindDefinition<PlacedEntryInfo> {
+  const definition: EntityKindDefinition<PlacedEntryInfo> = {
+    kind,
+    scopes: scopesFor(kind),
+    async discover(context) {
+      return scanPlacedEntries(context.locator, kind, await context.projects(), context.c)
+    },
+    read(id, context) {
+      return findById(id, definition.discover(context))
+    },
+    capabilities: (scope) => capabilitiesFor(kind, scope),
+    ...noPlanYet
+  }
+  return definition
+}
+
 const desktopSession: EntityKindDefinition<DesktopSession> = {
   kind: 'session',
   scopes: ['desktop'],
@@ -604,5 +633,9 @@ export const kinds = {
   project,
   session,
   desktopSession,
-  mcp
+  mcp,
+  agent: placedKind('agent'),
+  command: placedKind('command'),
+  rule: placedKind('rule'),
+  outputStyle: placedKind('output-style')
 } as const

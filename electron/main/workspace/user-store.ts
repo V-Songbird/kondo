@@ -4,6 +4,9 @@ import type {
   HookInfo,
   McpScope,
   McpServerInfo,
+  PlacedEntryInfo,
+  PlacedKind,
+  PlacedScope,
   PluginEffectiveState,
   PluginInfo,
   PluginScopeState,
@@ -729,18 +732,95 @@ export async function scanMcpServers(
 }
 
 // ---------------------------------------------------------------------------
-// Skills
+// Hand-placed entries: skills, agents, commands, rules, output styles
 
 const SKILL_MANIFEST = 'SKILL.md'
 const MAX_MANIFEST_BYTES = 262_144
+const MARKDOWN = '.md'
 
 /**
- * Every skill directory sitting directly under `root`, as SkillInfo. Reading
- * one means reading its `SKILL.md` frontmatter, so this is tier-2 work
- * (ADR-0007) and the caller decides when to pay for it. A root that is not
- * there at all is not an error — `safeReaddir` says so, and the answer is
- * simply empty.
+ * The two shapes a hand-placed entry takes on disk (domain.md):
+ *
+ * - `skill-dir` — a directory whose `SKILL.md` describes it.
+ * - `markdown` — one `<name>.md` file whose own frontmatter describes it.
+ *
+ * The shape is the only thing that differs between reading `skills/` and
+ * reading `agents/`, `commands/`, `rules/` or `output-styles/`, which is why
+ * one reader takes it as a parameter rather than four near-copies existing.
  */
+type PlacedShape = 'skill-dir' | 'markdown'
+
+/** One entry read off disk, before a kind turns it into an entity. */
+interface PlacedRecord {
+  /** The name on disk: the directory's, or the file's without `.md`. */
+  name: string
+  description: string | null
+  /** Absolute path of the directory or file that holds it. */
+  target: string
+}
+
+/**
+ * Every entry sitting directly under `root`, in whichever shape that
+ * directory holds. Reading one means reading its frontmatter, so this is
+ * tier-2 work (ADR-0007) and the caller decides when to pay for it. A root
+ * that is not there at all is not an error — `safeReaddir` says so, and the
+ * answer is simply empty. Frontmatter that is missing or malformed leaves
+ * the description null rather than failing the entry (ADR-0005).
+ */
+async function readPlacedDir(
+  locator: StoreLocator,
+  root: string,
+  shape: PlacedShape,
+  c: Collector
+): Promise<PlacedRecord[]> {
+  const records: PlacedRecord[] = []
+  const display = tildify(root, locator.home)
+  for (const entry of await safeReaddir(root, display, c)) {
+    // A symlink is admitted in either shape; the read below is what decides
+    // whether what it points at is the shape this directory claims to hold.
+    const link = entry.isSymbolicLink()
+    let name: string
+    let target: string
+    let manifest: string
+    let manifestDisplay: string
+    if (shape === 'skill-dir') {
+      if (!entry.isDirectory() && !link) continue
+      name = entry.name
+      target = path.join(root, entry.name)
+      manifest = path.join(target, SKILL_MANIFEST)
+      manifestDisplay = `${display}/${entry.name}/${SKILL_MANIFEST}`
+    } else {
+      if (!entry.isFile() && !link) continue
+      if (!entry.name.toLowerCase().endsWith(MARKDOWN)) continue
+      name = entry.name.slice(0, -MARKDOWN.length)
+      // A file called exactly `.md` names nothing and cannot key an id.
+      if (name === '') continue
+      target = path.join(root, entry.name)
+      manifest = target
+      manifestDisplay = `${display}/${entry.name}`
+    }
+
+    let content: string
+    try {
+      content = await fs.readFile(manifest, 'utf8')
+    } catch (cause) {
+      // A directory with no `SKILL.md` is not a skill, and a file that went
+      // away between the listing and the read is simply gone — neither is
+      // worth reporting. Anything else is.
+      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') continue
+      c.fail('read-failed', manifestDisplay, cause)
+      continue
+    }
+    records.push({
+      name,
+      description: readFrontmatter(content.slice(0, MAX_MANIFEST_BYTES)).description,
+      target
+    })
+  }
+  return records
+}
+
+/** The skill directories under `root`, as SkillInfo. */
 async function readSkillDir(
   locator: StoreLocator,
   root: string,
@@ -750,37 +830,81 @@ async function readSkillDir(
   owner: string | null,
   c: Collector
 ): Promise<SkillInfo[]> {
-  const skills: SkillInfo[] = []
-  const display = tildify(root, locator.home)
-  for (const entry of await safeReaddir(root, display, c)) {
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
-    const dir = path.join(root, entry.name)
-    const manifest = path.join(dir, SKILL_MANIFEST)
-    const manifestDisplay = `${display}/${entry.name}/${SKILL_MANIFEST}`
-    let description: string | null = null
-    try {
-      const content = await fs.readFile(manifest, 'utf8')
-      description = readFrontmatter(content.slice(0, MAX_MANIFEST_BYTES)).description
-    } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') continue
-      c.fail('read-failed', manifestDisplay, cause)
-      continue
+  return (await readPlacedDir(locator, root, 'skill-dir', c)).map((record) => ({
+    id: `skill:${keyPrefix}:${record.name}`,
+    kind: 'skill',
+    capabilities: capabilitiesFor('skill', scope),
+    name: record.name,
+    description: record.description,
+    scope,
+    origin: tildify(record.target, locator.home),
+    enabled,
+    // ADR-0008: the owning project travels as a field. The renderer joins
+    // on it rather than splitting `skill:project/<flat>:<name>` apart.
+    projectId: owner
+  }))
+}
+
+/**
+ * The directory each placed kind lives in, and whether a project store has
+ * one too (domain.md). Output styles are user-scope here because no project
+ * store has been observed carrying them; kondo does not go looking for a
+ * directory it has never seen.
+ */
+const PLACED_DIRS: Record<PlacedKind, { dir: string; inProject: boolean }> = {
+  agent: { dir: 'agents', inProject: true },
+  command: { dir: 'commands', inProject: true },
+  rule: { dir: 'rules', inProject: true },
+  'output-style': { dir: 'output-styles', inProject: false }
+}
+
+/**
+ * Every entry of one placed kind, in the user store and in each verified
+ * project. Read-only by construction: the scope resolves to a matrix row
+ * refusing both toggles (ADR-0006 — Claude has no disable convention for
+ * these) and refusing `move` until entry 028, so an id from this listing
+ * cannot be mutated by whatever gets hold of one.
+ */
+export async function scanPlacedEntries(
+  locator: StoreLocator,
+  kind: PlacedKind,
+  projects: VerifiedProject[],
+  c: Collector
+): Promise<PlacedEntryInfo[]> {
+  const { dir, inProject } = PLACED_DIRS[kind]
+  const roots: Array<[string, PlacedScope, string, string | null]> = [
+    [path.join(locator.userRoot, dir), 'user', 'user', null]
+  ]
+  if (inProject) {
+    for (const project of projects) {
+      // ADR-0002: the project store is its .claude directory and nothing
+      // above it, so the root is joined from there and never from the root.
+      roots.push([
+        path.join(project.absPath, '.claude', dir),
+        'project',
+        `project/${project.dirName}`,
+        projectId(project.dirName)
+      ])
     }
-    skills.push({
-      id: `skill:${keyPrefix}:${entry.name}`,
-      kind: 'skill',
-      capabilities: capabilitiesFor('skill', scope),
-      name: entry.name,
-      description,
-      scope,
-      origin: tildify(dir, locator.home),
-      enabled,
-      // ADR-0008: the owning project travels as a field. The renderer joins
-      // on it rather than splitting `skill:project/<flat>:<name>` apart.
-      projectId: owner
-    })
   }
-  return skills
+
+  const entries: PlacedEntryInfo[] = []
+  for (const [root, scope, keyPrefix, owner] of roots) {
+    for (const record of await readPlacedDir(locator, root, 'markdown', c)) {
+      entries.push({
+        id: `${kind}:${keyPrefix}:${record.name}`,
+        kind,
+        capabilities: capabilitiesFor(kind, scope),
+        name: record.name,
+        description: record.description,
+        scope,
+        origin: tildify(record.target, locator.home),
+        projectId: owner
+      })
+    }
+  }
+  entries.sort((a, b) => a.id.localeCompare(b.id))
+  return entries
 }
 
 /**

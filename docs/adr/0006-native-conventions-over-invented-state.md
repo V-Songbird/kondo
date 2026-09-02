@@ -32,6 +32,14 @@ preferences, scan cache — never the truth about the user's Claude setup.
   unrecognized convention degrades per ADR-0005.
 - Some toggles have no native convention yet (e.g. disabling a single hook).
   Those ship only once a faithful mechanism exists, and get their own ADR.
+- Agents, commands, rules and output styles have **no** disable convention at
+  all: Claude loads them because the file is in the directory, and ships no
+  `.disabled` sibling and no settings key that benches one. Kondo lists them
+  read-only (entry 024) and the matrix refuses both toggles with that as the
+  stated reason, rather than inventing a mechanism that would be true in
+  kondo's UI and false in every session. Moving one between scopes is a
+  different question — it changes nothing about how Claude reads the file —
+  and is refused only until entry 028 ships it.
 - Revisited 2026-09-02: Claude has *two* per-skill conventions, and kondo
   speaks one. `skills.disabled/` was observed in the wild and is what the
   toggle writes. `skillOverrides` in a settings layer (`'off'`,
