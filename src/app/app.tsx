@@ -1,28 +1,28 @@
 import { useState } from 'react'
-import { Dashboard } from '../features/dashboard/dashboard'
-import { Sessions } from '../features/sessions/sessions'
+import { Projects } from '../features/projects/projects'
 import { Tidy } from '../features/tidy/tidy'
-import { Skills } from '../features/skills/skills'
-import { Plugins } from '../features/plugins/plugins'
-import { Hooks } from '../features/hooks/hooks'
-import { Settings } from '../features/settings/settings'
 import { Journal } from '../features/journal/journal'
 
+/**
+ * Three destinations, and the first one is where the app opens. Kondo used to
+ * offer a tab per entity kind, which asked the user to know what a hook or a
+ * settings layer was before they could find anything; the kinds are still all
+ * there, reached the way a person actually thinks about them — through the
+ * project they belong to.
+ *
+ * What is left beside Projects is the two things that are not about one
+ * project at all: the sweep, and the history of everything kondo has changed.
+ */
 const views = [
-  { key: 'dashboard', label: 'Dashboard', component: Dashboard },
-  { key: 'sessions', label: 'Sessions', component: Sessions },
-  { key: 'tidy', label: 'Tidy', component: Tidy },
-  { key: 'skills', label: 'Skills', component: Skills },
-  { key: 'plugins', label: 'Plugins', component: Plugins },
-  { key: 'hooks', label: 'Hooks', component: Hooks },
-  { key: 'settings', label: 'Settings', component: Settings },
-  { key: 'journal', label: 'Journal', component: Journal }
+  { key: 'projects', label: 'Projects', component: Projects },
+  { key: 'cleanup', label: 'Clean up', component: Tidy },
+  { key: 'history', label: 'History', component: Journal }
 ] as const
 
 type ViewKey = (typeof views)[number]['key']
 
 export function App() {
-  const [active, setActive] = useState<ViewKey>('dashboard')
+  const [active, setActive] = useState<ViewKey>('projects')
   const view = views.find((entry) => entry.key === active) ?? views[0]
   const Body = view.component
 

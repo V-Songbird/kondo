@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import type { TidyCategory } from '../../../shared/contract'
+import type { JournalEntryInfo, TidyCategory } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
+import { LastChange } from '../../ui/last-change'
 import { formatBytes, formatCount } from '../../lib/format'
 
 /**
@@ -37,6 +38,7 @@ export function Tidy() {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<string | null>(null)
+  const [change, setChange] = useState<JournalEntryInfo | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const { reload } = state
 
@@ -56,11 +58,16 @@ export function Tidy() {
     setConfirming(false)
     setProblem(null)
     setOutcome(null)
+    setChange(null)
     try {
       const done = await api.tidySweep(selected)
       setProblem(done.errors[0]?.message ?? null)
       if (done.errors.length === 0) {
-        setOutcome(done.data?.summary ?? 'Nothing left to sweep — the store is already tidy.')
+        // A sweep that moved something is a change with a way back, so it
+        // goes to the banner; a tidy store has nothing to undo and just says
+        // so (ADR-0001 — the entry is what the undo hangs on).
+        setChange(done.data)
+        if (done.data === null) setOutcome('Nothing left to sweep — the store is already tidy.')
       }
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
@@ -77,14 +84,10 @@ export function Tidy() {
   return (
     <div className="space-y-4">
       {problem !== null && <div className="card border-bad/50 text-bad">{problem}</div>}
-      {outcome !== null && (
-        <div className="card border-ok/50">
-          <div className="text-ok">{outcome}</div>
-          <div className="text-mut">
-            Nothing was deleted, and one undo puts the whole sweep back.
-          </div>
-        </div>
-      )}
+      {outcome !== null && <div className="card border-ok/50 text-ok">{outcome}</div>}
+      {/* The way back, offered where the sweep was run rather than in
+          History. Keyed on the entry so a second sweep starts a fresh one. */}
+      <LastChange key={change?.id} entry={change} onUndone={reload} />
 
       <AsyncView state={state}>
         {(scan) => {

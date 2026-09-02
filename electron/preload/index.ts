@@ -8,6 +8,9 @@ import {
 
 /** The bridge stays dumb: one invoke per method, no logic, no state. */
 const api: KondoApi = {
+  projectsList: (refresh?: boolean) =>
+    ipcRenderer.invoke(channels.projectsList, refresh === true),
+  projectDetail: (id: string) => ipcRenderer.invoke(channels.projectDetail, id),
   storesOverview: () => ipcRenderer.invoke(channels.storesOverview),
   sessionProjects: (refresh?: boolean) =>
     ipcRenderer.invoke(channels.sessionProjects, refresh === true),
@@ -28,6 +31,8 @@ const api: KondoApi = {
     createLayer?: boolean
   ) =>
     ipcRenderer.invoke(channels.pluginToggle, pluginId, layerId, operation, createLayer === true),
+  pluginClear: (pluginId: string, layerId: string) =>
+    ipcRenderer.invoke(channels.pluginClear, pluginId, layerId),
   hooksList: () => ipcRenderer.invoke(channels.hooksList),
   settingsLayers: () => ipcRenderer.invoke(channels.settingsLayers),
   tidyPreview: () => ipcRenderer.invoke(channels.tidyPreview),

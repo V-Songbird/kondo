@@ -215,6 +215,13 @@ splits out of an id (ADR-0008).
   answer per project (its `local`, then its `project`, then the shared
   `user` layer) plus one for the user scope on its own. A plugin no layer
   mentions resolves nowhere and `effectiveIn` is empty.
+- A per-project plugin control therefore has three positions, not two: on
+  here, off here, and **saying nothing**, which lets the layer above decide.
+  Writing `false` is not the third one — it states a value like any other, so
+  the way back to silence is removing the member from `enabledPlugins`
+  (`pluginClear`). Which file a position writes is chosen in the main process:
+  the highest-precedence layer of that scope that *already states a value*,
+  and `settings.local.json` when none does.
 
 ## Desktop store
 
@@ -254,6 +261,16 @@ bulk size. The Claude-specific parts ✅:
   `PluginScopeState` each carry `projectId`. The folder name beside it
   (`PluginScopeState.projectLabel`) is for display only — two projects can
   share one.
+- What a project "has" is a projection over those fields rather than a store
+  of its own, which is what lets the projects home be built without a new
+  adapter. `projectsList` counts by name alone: skill directories (both
+  `skills/` and `skills.disabled/`), `*.md` under `agents/`, `commands/` and
+  `rules/`, and which of the two settings files exist. Hooks and MCP servers
+  cannot be counted that way — a hook is a fragment of `settings.json` and an
+  MCP server a key of `~/.claude.json` or `.mcp.json` — so the listing reports
+  both as `null` and `projectDetail` counts them for the one scope opened.
+  The one place the two tiers disagree: a directory under `skills/` with no
+  `SKILL.md` counts as a skill and is not listed as one.
 - Timestamps are ISO-8601 strings in JSON files ✅; file mtimes are the
   fallback signal and are what staleness uses first (cheap).
 - All JSON/JSONL reads assume partial corruption is possible (interrupted

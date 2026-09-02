@@ -9,6 +9,8 @@ import type {
   PlacedEntryInfo,
   PlacedKind,
   PluginInfo,
+  PluginScopeState,
+  ProjectPluginState,
   SessionDetail,
   SessionProject,
   SessionSummary,
@@ -26,6 +28,7 @@ import { desktopSessions } from './desktop-store'
 import { summarizeTranscript } from './jsonl'
 import { toSessionProjects, toSessionSummaries, type SessionInventory } from './sessions'
 import {
+  clearEnabledPlugin,
   editEnabledPlugins,
   hooksFromLayers,
   newSettingsSource,
@@ -618,6 +621,130 @@ export async function pluginTogglePlan(
     )
   }
   return write(next)
+}
+
+// ---------------------------------------------------------------------------
+// Withdrawing a plugin statement, and the per-scope control it serves
+
+export interface PluginClearRequest {
+  entity: PluginInfo
+  /** `settings:<layer>:<key>` — the layer whose statement goes away. */
+  layerId: string
+}
+
+/**
+ * The store change that takes one layer's statement about one plugin away,
+ * leaving the layer above it to decide. It shares `PluginTogglePlan`'s answer
+ * shape because it is the same edit to the same key, in the one direction the
+ * toggle cannot express: writing `false` states a value, and only removing the
+ * member withdraws one.
+ *
+ * The matrix still gates it, on that layer's `disable` row: there is no
+ * `clear` operation to look up, and unstating a plugin is a strictly smaller
+ * change to the same key than stating one, so permission to write it covers
+ * permission to unwrite it. Nothing here creates a file — a layer that is not
+ * on disk already says nothing.
+ */
+export async function pluginClearPlan(
+  request: PluginClearRequest,
+  context: KindContext
+): Promise<PluginTogglePlan> {
+  const { entity, layerId } = request
+  const layer = (await context.layers()).find((candidate) => candidate.info.id === layerId)
+  if (!layer) {
+    return refused('unknown-id', `No settings layer with id "${layerId}" in the current scan.`)
+  }
+
+  const decision = capabilitiesFor('plugin', layer.info.layer).disable
+  if (!decision.allowed) {
+    return refused(
+      'not-permitted',
+      decision.reason ?? 'kondo cannot change a plugin in this layer.'
+    )
+  }
+
+  const key = entity.id.slice(PLUGIN_PREFIX.length)
+  if (!layer.info.exists || pluginStateIn(layer, key) === null) {
+    return refused(
+      'not-permitted',
+      `${layer.info.path} already says nothing about ${entity.name}.`
+    )
+  }
+  if (layer.source === null || layer.parsed === null) {
+    return refused(
+      'parse-failed',
+      `${layer.info.path} did not read back as a JSON object; kondo will not rewrite it.`
+    )
+  }
+  const next = clearEnabledPlugin(layer.source, key)
+  if (next === null) {
+    return refused(
+      'bad-request',
+      `kondo cannot edit enabledPlugins in ${layer.info.path} without reformatting it.`
+    )
+  }
+  return {
+    ok: true,
+    plan: {
+      op: 'settings-edit',
+      kind: 'plugin',
+      entityId: entity.id,
+      summary: `Stop stating plugin ${entity.name} in ${layer.info.path}`,
+      steps: [{ type: 'write', store: layer.store, at: layer.relative, content: next }]
+    }
+  }
+}
+
+/** domain.md's precedence order, so the highest-ranked layer comes first. */
+const SCOPE_ORDER: Record<PluginScopeState['layer'], number> = {
+  local: 0,
+  project: 1,
+  user: 2
+}
+
+/**
+ * Every installed plugin as one scope sees it: which position the control is
+ * in, what actually stands, and which file a change would land in.
+ *
+ * The policy in one line — the write goes to the highest-precedence layer of
+ * this scope that *already states a value*, and to this scope's
+ * `settings.local.json` when none does. A user who has already said something
+ * in `settings.json` expects the next click to change that statement rather
+ * than shadow it from a file they never opened; a user who has said nothing
+ * gets the private layer, which cannot surprise a teammate.
+ *
+ * `owner` is a `project:code:` id or null for the user scope, and the layers
+ * are matched on `PluginScopeState.projectId` — the join is a field, never a
+ * parsed id (ADR-0008). A scope with no settings layer of its own — a project
+ * with no `.claude` — yields nothing rather than a control pointed at
+ * somebody else's file.
+ */
+export function projectPluginStates(
+  plugins: PluginInfo[],
+  owner: string | null
+): ProjectPluginState[] {
+  const states: ProjectPluginState[] = []
+  for (const plugin of plugins) {
+    const mine = plugin.scopes
+      .filter((scope) => scope.projectId === owner)
+      .sort((a, b) => SCOPE_ORDER[a.layer] - SCOPE_ORDER[b.layer])
+    const stated = mine.find((scope) => scope.enabled !== null)
+    const target = stated ?? mine.find((scope) => scope.layer === 'local') ?? mine[0]
+    if (!target) continue
+    const effective = plugin.effectiveIn.find((entry) => entry.projectId === owner) ?? null
+    states.push({
+      pluginId: plugin.id,
+      name: plugin.name,
+      marketplace: plugin.marketplace,
+      choice: stated === undefined ? 'inherit' : stated.enabled ? 'on' : 'off',
+      effective: effective?.enabled ?? null,
+      effectiveLayerId: effective?.layerId ?? null,
+      targetLayerId: target.layerId,
+      capabilities: target.capabilities,
+      scopes: mine
+    })
+  }
+  return states
 }
 
 /**

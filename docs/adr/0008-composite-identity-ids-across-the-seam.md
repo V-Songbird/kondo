@@ -68,3 +68,20 @@ Decision, two halves:
   and cannot write into; the skill-move picker filters on that field, and the
   workspace refuses such a destination as `bad-request` naming the missing
   directory rather than as an id it never heard of.
+- A screen that is *about* a scope rather than about one entity still takes
+  an id, and the user store has one for it: `store:user:user`. The projects
+  home (entry 026) passes that where a project page passes
+  `project:code:<flat>`, so `projectDetail` has one parameter and not a
+  parameter plus a flag. Inventing a `project:global` was rejected — it would
+  be a project that is not one, and the `store` kind already exists for
+  exactly this: a whole store rather than a thing inside it.
+- A row of that home (`ProjectRow`) carries no `capabilities`, unlike every
+  entity DTO here. It is an aggregate over entities rather than an entity, so
+  there is no kind × scope × operation lookup it could stand for; permission
+  travels with the things inside it, which arrive with `projectDetail`.
+- The `projectId` join is what makes a project page possible without new
+  adapters: the workspace narrows every scanner to one project and then keeps
+  the entries whose `projectId` field matches. One join is not on that field —
+  `McpServerInfo` carries `project`, the flattened path — and it is done in
+  the main process, which is where flattening is understood. The renderer
+  still never splits an id.

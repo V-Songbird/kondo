@@ -12,6 +12,12 @@ import {
  * values are validated there, ADR-0008).
  */
 export function registerIpc(api: KondoApi): void {
+  ipcMain.handle(channels.projectsList, (_event, refresh: unknown) =>
+    api.projectsList(refresh === true)
+  )
+  ipcMain.handle(channels.projectDetail, (_event, id: unknown) =>
+    api.projectDetail(String(id))
+  )
   ipcMain.handle(channels.storesOverview, () => api.storesOverview())
   ipcMain.handle(channels.sessionProjects, (_event, refresh: unknown) =>
     api.sessionProjects(refresh === true)
@@ -43,6 +49,9 @@ export function registerIpc(api: KondoApi): void {
         operation as ToggleOperation,
         createLayer === true
       )
+  )
+  ipcMain.handle(channels.pluginClear, (_event, pluginId: unknown, layerId: unknown) =>
+    api.pluginClear(String(pluginId), String(layerId))
   )
   ipcMain.handle(channels.hooksList, () => api.hooksList())
   ipcMain.handle(channels.settingsLayers, () => api.settingsLayers())

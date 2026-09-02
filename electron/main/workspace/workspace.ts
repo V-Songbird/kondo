@@ -2,6 +2,9 @@ import path from 'node:path'
 import type {
   JournalEntryInfo,
   KondoApi,
+  ProjectDetail,
+  ProjectRow,
+  ProjectRowCounts,
   Scan,
   ScanError,
   SessionDetail,
@@ -11,11 +14,13 @@ import type {
   ToggleOperation
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
-import { collector, describe, finish, type Collector } from './scan'
+import { collector, describe, finish, mapPool, type Collector } from './scan'
 import {
   createKindContext,
   kinds,
+  pluginClearPlan,
   pluginTogglePlan,
+  projectPluginStates,
   skillMovePlan,
   type KindContext
 } from './kinds'
@@ -24,8 +29,9 @@ import {
   type ProjectRecord,
   type SessionInventory
 } from './sessions'
-import { userStoreReport, type VerifiedProject } from './user-store'
+import { countStoreEntries, userStoreReport, type VerifiedProject } from './user-store'
 import { desktopStoreReport } from './desktop-store'
+import { tildify } from './display'
 import { isStale } from './analysis'
 import { createMutations } from './mutations'
 import { readCategories, scanTidyCandidates, tidyPlan, toTidyPreview } from './tidy'
@@ -114,14 +120,22 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
   /**
    * One context per call: the kinds share this call's collector and read the
    * inventory through the same cache the workspace already holds.
+   *
+   * `only` narrows the project list every scanner takes as a parameter, so a
+   * project page reads the user store and that one project's `.claude` and
+   * nothing else (ADR-0007). Omitted, it is every verified project, as it was.
    */
-  const context = (c: Collector, parentId?: string): KindContext =>
+  const context = (
+    c: Collector,
+    parentId?: string,
+    only?: VerifiedProject[]
+  ): KindContext =>
     createKindContext({
       locator,
       c,
       now: now(),
       inventory: async () => (await inventory()).scan.data,
-      projects: async () => (await inventory()).verified,
+      projects: only ? async () => only : async () => (await inventory()).verified,
       parentId
     })
 
@@ -157,36 +171,199 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     unknown: []
   })
 
+  // ---------------------------------------------------------------------
+  // The projects home
+
+  /** The id of the one row that is the user store rather than a project. */
+  const GLOBAL_ROW = 'store:user:user'
+
+  /** A scope kondo cannot look inside still gets a row (ADR-0005). */
+  const NO_COUNTS: ProjectRowCounts = {
+    skills: 0,
+    agents: 0,
+    commands: 0,
+    rules: 0,
+    settings: 0,
+    hooks: null,
+    mcpServers: null
+  }
+
+  /** A project's `.claude`, or null when it has none to read (ADR-0002). */
+  const storeRoot = async (dirName: string): Promise<string | null> => {
+    const project = (await inventory()).verified.find(
+      (candidate) => candidate.dirName === dirName
+    )
+    return project ? path.join(project.absPath, '.claude') : null
+  }
+
+  const globalRow = async (c: Collector): Promise<ProjectRow> => ({
+    id: GLOBAL_ROW,
+    label: 'Global',
+    path: tildify(locator.userRoot, locator.home),
+    global: true,
+    hasStore: true,
+    sessionCount: 0,
+    lastActivityMs: 0,
+    counts: await countStoreEntries(locator, locator.userRoot, c)
+  })
+
+  const storesOverview = async (): Promise<Scan<StoresOverview>> => {
+    const c = collector()
+    const { scan } = await inventory()
+    const projects = scan.data.projects
+    const nowMs = now()
+
+    let sessionCount = 0
+    let staleCount = 0
+    let transcriptBytes = 0
+    for (const project of projects) {
+      sessionCount += project.sessions.length
+      transcriptBytes += project.sessions.reduce((sum, s) => sum + s.bytes, 0)
+      staleCount += project.sessions.filter((s) => isStale(s.mtimeMs, nowMs)).length
+    }
+
+    const [user, desktop] = await Promise.all([
+      userStoreReport(locator, transcriptBytes, c),
+      desktopStoreReport(locator, c)
+    ])
+    const errors: ScanError[] = [...scan.errors, ...c.errors]
+    return {
+      data: {
+        user,
+        desktop,
+        sessions: { projectCount: projects.length, sessionCount, staleCount, transcriptBytes }
+      },
+      errors,
+      unknown: [...scan.unknown, ...c.unknown]
+    }
+  }
+
   return {
-    async storesOverview(): Promise<Scan<StoresOverview>> {
+    storesOverview,
+
+    async projectsList(refresh?: boolean): Promise<Scan<ProjectRow[]>> {
       const c = collector()
-      const { scan } = await inventory()
-      const projects = scan.data.projects
-      const nowMs = now()
-
-      let sessionCount = 0
-      let staleCount = 0
-      let transcriptBytes = 0
-      for (const project of projects) {
-        sessionCount += project.sessions.length
-        transcriptBytes += project.sessions.reduce((sum, s) => sum + s.bytes, 0)
-        staleCount += project.sessions.filter((s) => isStale(s.mtimeMs, nowMs)).length
-      }
-
-      const [user, desktop] = await Promise.all([
-        userStoreReport(locator, transcriptBytes, c),
-        desktopStoreReport(locator, c)
-      ])
-      const errors: ScanError[] = [...scan.errors, ...c.errors]
+      const { scan } = await inventory(refresh === true)
+      const projects = (await kinds.project.discover(context(c))) ?? []
+      // Tier-1 throughout (ADR-0007): the cached inventory plus a handful of
+      // readdirs per project that has a store, and not one file opened.
+      const rows = await mapPool(projects, 8, async (project): Promise<ProjectRow> => {
+        const root = await storeRoot(project.dirName)
+        return {
+          id: project.id,
+          label: project.guessedPath ?? project.dirName,
+          path: project.guessedPath,
+          global: false,
+          hasStore: project.hasStore,
+          sessionCount: project.sessionCount,
+          lastActivityMs: project.lastActivityMs,
+          counts: root === null ? { ...NO_COUNTS } : await countStoreEntries(locator, root, c)
+        }
+      })
+      rows.sort((a, b) => b.lastActivityMs - a.lastActivityMs)
       return {
-        data: {
-          user,
-          desktop,
-          sessions: { projectCount: projects.length, sessionCount, staleCount, transcriptBytes }
-        },
-        errors,
+        // The global row leads, because the user store is what every project
+        // inherits from — it is the top of the chain, not one more project.
+        data: [await globalRow(c), ...rows],
+        errors: [...scan.errors, ...c.errors],
         unknown: [...scan.unknown, ...c.unknown]
       }
+    },
+
+    async projectDetail(id: string): Promise<Scan<ProjectDetail | null>> {
+      const global = id === GLOBAL_ROW
+      if (typeof id !== 'string' || (!global && !id.startsWith(PROJECT_ID_PREFIX))) {
+        return badRequest(null, `projectDetail expects a ${PROJECT_ID_PREFIX} id or ${GLOBAL_ROW}.`)
+      }
+      const c = collector()
+      const { scan, verified } = await inventory()
+
+      let only: VerifiedProject[] = []
+      let row: ProjectRow
+      if (global) {
+        row = await globalRow(c)
+      } else {
+        const dirName = id.slice(PROJECT_ID_PREFIX.length)
+        const record = scan.data.byDirName.get(dirName)
+        if (!record) return unknownId(null, id)
+        const store = verified.find((candidate) => candidate.dirName === dirName)
+        if (store) only = [store]
+        const rows = (await kinds.project.discover(context(c))) ?? []
+        const project = rows.find((candidate) => candidate.id === id)
+        row = {
+          id,
+          label: project?.guessedPath ?? dirName,
+          path: project?.guessedPath ?? null,
+          global: false,
+          hasStore: project?.hasStore ?? false,
+          sessionCount: project?.sessionCount ?? 0,
+          lastActivityMs: project?.lastActivityMs ?? 0,
+          counts: store === undefined
+            ? { ...NO_COUNTS }
+            : await countStoreEntries(locator, path.join(store.absPath, '.claude'), c)
+        }
+      }
+
+      // One context, narrowed to this scope: every scanner below reads the
+      // user store and — for a project — that project's `.claude`, and the
+      // filter then keeps what belongs to the scope asked for. The join is on
+      // the DTOs' own `projectId` fields, never on a parsed id (ADR-0008).
+      const shared = context(c, undefined, only)
+      const owner = global ? null : id
+      const mine = <T extends { projectId: string | null }>(entries: T[] | null): T[] =>
+        (entries ?? []).filter((entry) => entry.projectId === owner)
+
+      const [skills, agents, commands, rules, outputStyles, hooks, servers, layers, plugins] =
+        await Promise.all([
+          kinds.skill.discover(shared),
+          kinds.agent.discover(shared),
+          kinds.command.discover(shared),
+          kinds.rule.discover(shared),
+          kinds.outputStyle.discover(shared),
+          kinds.hook.discover(shared),
+          kinds.mcp.discover(shared),
+          kinds.settings.discover(shared),
+          kinds.plugin.discover(shared)
+        ])
+
+      // An MCP server carries the flattened project it was declared for
+      // rather than a project id, so this one join is on that name — inside
+      // the main process, which is where flattening is understood.
+      const dirName = global ? null : id.slice(PROJECT_ID_PREFIX.length)
+      const mcpServers = (servers ?? []).filter((server) =>
+        global ? server.scope === 'user' : server.project === dirName
+      )
+
+      const sessions = global ? [] : ((await kinds.session.discover(context(c, id))) ?? [])
+      const overview = global ? await storesOverview() : null
+      if (overview) c.errors.push(...overview.errors)
+
+      return finish(
+        {
+          row: {
+            ...row,
+            counts: {
+              ...row.counts,
+              // Counted at last: both live inside files, which is why the
+              // listing could not say (ADR-0007).
+              hooks: mine(hooks).length,
+              mcpServers: mcpServers.length
+            }
+          },
+          skills: mine(skills),
+          agents: mine(agents),
+          commands: mine(commands),
+          rules: mine(rules),
+          outputStyles: global ? (outputStyles ?? []) : [],
+          hooks: mine(hooks),
+          mcpServers,
+          settings: mine(layers),
+          plugins: projectPluginStates(plugins ?? [], owner),
+          sessions,
+          storage: overview?.data ?? null
+        },
+        c
+      )
     },
 
     async sessionProjects(refresh?: boolean) {
@@ -340,6 +517,31 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         { entity, layerId, operation, createLayer: createLayer === true },
         shared
       )
+      if (!planned.ok) {
+        c.errors.push({ code: planned.code, path: layerId, message: planned.message })
+        return finish(null, c)
+      }
+      return mutations.mutate(planned.plan)
+    },
+
+    async pluginClear(
+      pluginId: string,
+      layerId: string
+    ): Promise<Scan<JournalEntryInfo | null>> {
+      if (typeof pluginId !== 'string' || !pluginId.startsWith('plugin:')) {
+        return badRequest(null, 'pluginClear expects a plugin: id.')
+      }
+      if (typeof layerId !== 'string' || !layerId.startsWith('settings:')) {
+        return badRequest(null, 'pluginClear expects a settings: layer id.')
+      }
+      const c = collector()
+      // One context, as the toggle does: the plugin and the layer are read
+      // once, so the splice sees the bytes the entity was built from.
+      const shared = context(c)
+      const entity = await kinds.plugin.read(pluginId, shared)
+      if (!entity) return unknownId(null, pluginId)
+
+      const planned = await pluginClearPlan({ entity, layerId }, shared)
       if (!planned.ok) {
         c.errors.push({ code: planned.code, path: layerId, message: planned.message })
         return finish(null, c)

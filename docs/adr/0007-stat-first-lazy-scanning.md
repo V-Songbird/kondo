@@ -38,3 +38,11 @@ Decision: scanning happens in two tiers.
 - A plugin's own skills are a tier-2 read of the plugins view:
   `pluginSkills(pluginId)` opens each `SKILL.md` under the one plugin whose
   row was opened, never every plugin's at listing time.
+- The projects home is the same split at the app's front door.
+  `projectsList` is tier 1 — the cached inventory plus a readdir per
+  directory it counts, opening no file in any store — and `projectDetail` is
+  tier 2 for the one row a user picked. Two of the counts a row would like to
+  show cannot be made at tier 1 at all, because they live inside files: hooks
+  and MCP servers are `null` in the listing and counted in the detail. The
+  honest null is the point; reading every project's `settings.json` to draw a
+  list is exactly the startup cost this ADR exists to refuse.

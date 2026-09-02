@@ -523,9 +523,153 @@ export interface TidyPreview {
 }
 
 // ---------------------------------------------------------------------------
+// The projects home
+
+/**
+ * What one row of the projects list counts. Every number here is the length
+ * of a readdir, so drawing the home screen for a machine with thousands of
+ * projects opens no file at all (ADR-0007).
+ *
+ * `hooks` and `mcpServers` are null for exactly that reason: a hook is a
+ * fragment of a `settings.json` and an MCP server a key of `~/.claude.json`
+ * or `.mcp.json`, so neither can be counted without reading one. Both are
+ * counted for the single project `projectDetail` is called for.
+ *
+ * `skills` counts directories, benched ones included, without opening their
+ * `SKILL.md`. A directory with no manifest is not a skill and is therefore
+ * counted here and absent from the detail — the one place the two tiers are
+ * allowed to disagree, and the price of the count being a readdir.
+ */
+export interface ProjectRowCounts {
+  skills: number
+  agents: number
+  commands: number
+  rules: number
+  /** How many of the two settings files this scope actually has. */
+  settings: number
+  hooks: number | null
+  mcpServers: number | null
+}
+
+/**
+ * One line of the projects home: a project Claude knows about, or the single
+ * global row standing for the user store itself.
+ *
+ * A row is an aggregate over entities rather than an entity, so it carries no
+ * capability matrix of its own — the things inside it do, and they arrive
+ * with `projectDetail`.
+ */
+export interface ProjectRow {
+  /**
+   * `project:code:<dirName>`, or `store:user:user` for the global row — the
+   * user store is a store and not a project (ADR-0008).
+   */
+  id: string
+  /** The project's real directory, its flattened name, or `Global`. */
+  label: string
+  /** Display path of the store this row covers (tildified), or null. */
+  path: string | null
+  /** True for the one row that is the user store. */
+  global: boolean
+  /**
+   * There is a `.claude` directory to read. False rows still render, with
+   * zero counts — a project kondo can name and cannot look inside (ADR-0005).
+   */
+  hasStore: boolean
+  sessionCount: number
+  lastActivityMs: number
+  counts: ProjectRowCounts
+}
+
+/**
+ * The three positions of the per-project plugin control. `inherit` is the
+ * absence of a statement: this scope says nothing, so the layer above it
+ * decides. On a project that reads as "follows global"; on the global row it
+ * reads as "not set".
+ */
+export type ProjectPluginChoice = 'on' | 'off' | 'inherit'
+
+/** One installed plugin as one scope sees it, and where a click would land. */
+export interface ProjectPluginState {
+  /** `plugin:<name>@<marketplace>` (ADR-0008). */
+  pluginId: string
+  name: string
+  marketplace: string
+  /** Which position this scope's own layers put the control in. */
+  choice: ProjectPluginChoice
+  /** What Claude honours here; null when no layer in the chain speaks. */
+  effective: boolean | null
+  /** The `settings:` id of the layer whose value stands, or null. */
+  effectiveLayerId: string | null
+  /**
+   * Where a change lands: the highest-precedence layer of this scope that
+   * already states a value, else this scope's `settings.local.json`. Chosen
+   * in the main process, because which file a write goes to is policy and
+   * never the renderer's to pick.
+   */
+  targetLayerId: string
+  /** The matrix row for writing a plugin in the target layer. */
+  capabilities: Capabilities
+  /**
+   * The layers this scope's answer resolves from, highest precedence first —
+   * what the chip strip behind the disclosure shows.
+   */
+  scopes: PluginScopeState[]
+}
+
+/**
+ * One project page. Tier-2 (ADR-0007): every list here cost a read, and it
+ * was paid for the one scope the user opened rather than for all of them.
+ *
+ * Each list is already narrowed to this scope — the main process filtered on
+ * the DTOs' own `projectId` fields (ADR-0008), so the renderer never joins
+ * and never splits an id.
+ */
+export interface ProjectDetail {
+  /** The row again, with `hooks` and `mcpServers` counted this time. */
+  row: ProjectRow
+  skills: SkillInfo[]
+  agents: PlacedEntryInfo[]
+  commands: PlacedEntryInfo[]
+  rules: PlacedEntryInfo[]
+  /** Global row only: no project store has an `output-styles` directory. */
+  outputStyles: PlacedEntryInfo[]
+  hooks: HookInfo[]
+  mcpServers: McpServerInfo[]
+  settings: SettingsLayerInfo[]
+  plugins: ProjectPluginState[]
+  /** Empty on the global row: a session belongs to the project it recorded. */
+  sessions: SessionSummary[]
+  /**
+   * What the store holds, on the global row only — the numbers the old size
+   * dashboard was. A project's `.claude` is not a store kondo measures.
+   */
+  storage: StoresOverview | null
+}
+
+// ---------------------------------------------------------------------------
 // The API surface
 
 export interface KondoApi {
+  /**
+   * The projects home: the global row first, then one row per project Claude
+   * knows about, newest activity first. Tier-1 throughout (ADR-0007) — the
+   * cached session inventory plus one readdir per directory a row counts, and
+   * not one file opened. A project with no `.claude` still gets a row.
+   */
+  projectsList(refresh?: boolean): Promise<Scan<ProjectRow[]>>
+  /**
+   * Everything tied to one scope, read for that scope alone: the skills,
+   * agents, commands, rules, hooks, MCP servers, settings layers, plugin
+   * states and sessions belonging to it. This is the tier-2 half of the
+   * projects home, and it is paid for the row the user opened rather than
+   * for the whole list (ADR-0007).
+   *
+   * `id` is a `project:code:` id from `projectsList`, or `store:user:user`
+   * for the global row, which additionally answers with the store reports
+   * the size dashboard used to be.
+   */
+  projectDetail(id: string): Promise<Scan<ProjectDetail | null>>
   storesOverview(): Promise<Scan<StoresOverview>>
   sessionProjects(refresh?: boolean): Promise<Scan<SessionProject[]>>
   sessionList(projectId: string): Promise<Scan<SessionSummary[]>>
@@ -587,6 +731,21 @@ export interface KondoApi {
     operation: ToggleOperation,
     createLayer?: boolean
   ): Promise<Scan<JournalEntryInfo | null>>
+  /**
+   * Remove what one settings layer says about one plugin, so the layer above
+   * it decides again — the "follows global" position of the per-project
+   * control. The inverse of `pluginToggle`, and the only way back to silence:
+   * writing `false` states a value, it does not withdraw one.
+   *
+   * Only that key's bytes leave the file; every other key and the file's own
+   * formatting survive. The write is journaled with the previous bytes held
+   * in kondo's trash, so undo restores the file exactly (ADR-0001).
+   *
+   * A layer that already says nothing is refused rather than rewritten, and
+   * a layer whose file does not exist is refused too — there is nothing to
+   * clear, and nothing licenses creating a file to say less than nothing.
+   */
+  pluginClear(pluginId: string, layerId: string): Promise<Scan<JournalEntryInfo | null>>
   hooksList(): Promise<Scan<HookInfo[]>>
   settingsLayers(): Promise<Scan<SettingsLayerInfo[]>>
   /**
@@ -630,6 +789,8 @@ export interface KondoApi {
 
 /** Channel names, keyed by KondoApi method — written once, imported twice. */
 export const channels = {
+  projectsList: 'kondo:projects-list',
+  projectDetail: 'kondo:project-detail',
   storesOverview: 'kondo:stores-overview',
   sessionProjects: 'kondo:session-projects',
   sessionList: 'kondo:session-list',
@@ -641,6 +802,7 @@ export const channels = {
   pluginsList: 'kondo:plugins-list',
   pluginSkills: 'kondo:plugin-skills',
   pluginToggle: 'kondo:plugin-toggle',
+  pluginClear: 'kondo:plugin-clear',
   hooksList: 'kondo:hooks-list',
   settingsLayers: 'kondo:settings-layers',
   tidyPreview: 'kondo:tidy-preview',

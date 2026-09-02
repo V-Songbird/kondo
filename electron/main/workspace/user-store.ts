@@ -7,6 +7,7 @@ import type {
   PlacedEntryInfo,
   PlacedKind,
   PlacedScope,
+  ProjectRowCounts,
   PluginEffectiveState,
   PluginInfo,
   PluginScopeState,
@@ -437,6 +438,48 @@ export function editEnabledPlugins(
     return source.slice(0, entry.valueStart) + literal + source.slice(entry.valueEnd)
   }
   return insertMember(source, inner, `${JSON.stringify(key)}: ${literal}`)
+}
+
+/**
+ * The inverse of `editEnabledPlugins`: take this layer's statement about one
+ * plugin away, so the layer above it decides again. Writing `false` states a
+ * value; only removing the member withdraws one, which is what the "follows
+ * global" position of the per-project control means.
+ *
+ * A splice like its inverse — the member's span and one separating comma are
+ * all that leave the file, so every other key keeps its bytes. When it was
+ * the only statement, `enabledPlugins` is left as an empty object rather than
+ * removed: a layer that holds the key and says nothing under it is exactly
+ * what "this layer states no plugin" looks like on disk, and removing the key
+ * as well would be a second, unasked-for edit.
+ *
+ * Null when the shape is one kondo cannot splice faithfully — a non-object
+ * root or the legacy array form — and `source` unchanged when there was
+ * nothing there to take away.
+ */
+export function clearEnabledPlugin(source: string, key: string): string | null {
+  const rootOpen = skipWs(source, 0)
+  if (source[rootOpen] !== '{') return null
+  const root = readObject(source, rootOpen)
+  if (!root) return null
+
+  const member = root.members.find((candidate) => candidate.key === ENABLED_PLUGINS)
+  if (!member) return source
+  if (source[member.valueStart] !== '{') return null
+  const inner = readObject(source, member.valueStart)
+  if (!inner) return null
+
+  const at = inner.members.findIndex((candidate) => candidate.key === key)
+  if (at < 0) return source
+  const entry = inner.members[at] as JsonMember
+
+  // Take the comma that joined it to whichever neighbour it had, so the
+  // object left behind is still valid JSON with the file's own layout.
+  const next = inner.members[at + 1]
+  if (next) return source.slice(0, entry.keyStart) + source.slice(next.keyStart)
+  const previous = inner.members[at - 1]
+  if (previous) return source.slice(0, previous.valueEnd) + source.slice(entry.valueEnd)
+  return `${source.slice(0, inner.open + 1)}}${source.slice(inner.close + 1)}`
 }
 
 /** The whole of a settings file kondo creates for one plugin toggle. */
@@ -905,6 +948,68 @@ export async function scanPlacedEntries(
   }
   entries.sort((a, b) => a.id.localeCompare(b.id))
   return entries
+}
+
+/** The two settings files any scope may hold, by name. */
+const SETTINGS_NAMES = [SETTINGS_FILE, SETTINGS_LOCAL_FILE] as const
+
+/** Directory names count as entries in either shape; so do symlinks to them. */
+function isDirLike(entry: { isDirectory(): boolean; isSymbolicLink(): boolean }): boolean {
+  return entry.isDirectory() || entry.isSymbolicLink()
+}
+
+function isMarkdownLike(entry: {
+  name: string
+  isFile(): boolean
+  isSymbolicLink(): boolean
+}): boolean {
+  return (
+    (entry.isFile() || entry.isSymbolicLink()) &&
+    entry.name.length > MARKDOWN.length &&
+    entry.name.toLowerCase().endsWith(MARKDOWN)
+  )
+}
+
+/**
+ * Tier-1 counts for one store root — the user store, or one project's
+ * `.claude` (ADR-0002). Names only: one readdir of the root and one of each
+ * directory that holds entries, and not a single file opened (ADR-0007). A
+ * root that is not there answers zeroes rather than failing, which is how a
+ * project with no store still gets a row (ADR-0005).
+ *
+ * Hooks and MCP servers are null here on purpose: both live *inside* files,
+ * so no readdir can count them. `projectDetail` counts them for the one row
+ * a user opens.
+ */
+export async function countStoreEntries(
+  locator: StoreLocator,
+  root: string,
+  c: Collector
+): Promise<ProjectRowCounts> {
+  const display = tildify(root, locator.home)
+  const listing = await safeReaddir(root, display, c)
+  const present = new Set(listing.filter((entry) => entry.isFile()).map((entry) => entry.name))
+  const held = new Set(listing.filter(isDirLike).map((entry) => entry.name))
+
+  const count = async (
+    dir: string,
+    admits: (entry: { name: string; isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean }) => boolean
+  ): Promise<number> => {
+    // The root listing already says which directories exist, so a store
+    // holding none of them costs exactly one readdir in total.
+    if (!held.has(dir)) return 0
+    return (await safeReaddir(path.join(root, dir), `${display}/${dir}`, c)).filter(admits).length
+  }
+
+  return {
+    skills: (await count('skills', isDirLike)) + (await count('skills.disabled', isDirLike)),
+    agents: await count(PLACED_DIRS.agent.dir, isMarkdownLike),
+    commands: await count(PLACED_DIRS.command.dir, isMarkdownLike),
+    rules: await count(PLACED_DIRS.rule.dir, isMarkdownLike),
+    settings: SETTINGS_NAMES.filter((name) => present.has(name)).length,
+    hooks: null,
+    mcpServers: null
+  }
 }
 
 /**
