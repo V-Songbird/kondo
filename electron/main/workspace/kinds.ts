@@ -5,6 +5,7 @@ import type {
   EntityIdentity,
   EntityKind,
   HookInfo,
+  McpServerInfo,
   PluginInfo,
   SessionDetail,
   SessionProject,
@@ -28,6 +29,7 @@ import {
   newSettingsSource,
   pluginStateIn,
   readSettingsLayers,
+  scanMcpServers,
   scanPluginSkills,
   scanPlugins,
   scanSkills,
@@ -340,6 +342,26 @@ const session: EntityKindDefinition<SessionSummary, SessionDetail> = {
   ...noPlanYet
 }
 
+/**
+ * MCP servers, read-only in every scope. Discovery is tier-1 (ADR-0007): the
+ * registry parse plus one `.mcp.json` per verified project, no walk of
+ * anything. The matrix refuses enable, disable and move alike until entry 031
+ * brings a write path that `~/.claude.json` can survive (ADR-0009), so the
+ * seats below stay unwired on purpose.
+ */
+const mcp: EntityKindDefinition<McpServerInfo> = {
+  kind: 'mcp',
+  scopes: scopesFor('mcp'),
+  async discover(context) {
+    return scanMcpServers(context.locator, await context.projects(), context.c)
+  },
+  read(id, context) {
+    return findById(id, mcp.discover(context))
+  },
+  capabilities: (scope) => capabilitiesFor('mcp', scope),
+  ...noPlanYet
+}
+
 const desktopSession: EntityKindDefinition<DesktopSession> = {
   kind: 'session',
   scopes: ['desktop'],
@@ -581,5 +603,6 @@ export const kinds = {
   settings,
   project,
   session,
-  desktopSession
+  desktopSession,
+  mcp
 } as const

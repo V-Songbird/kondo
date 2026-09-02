@@ -25,10 +25,11 @@ drift. Unknown ≠ error (see ADR-0005).
 | Desktop store | Windows: `%APPDATA%\Claude` ✅ · macOS: `~/Library/Application Support/Claude` ◇ · Linux: `~/.config/Claude` ◇ | Claude desktop app (Electron `userData`) |
 
 The privacy boundary (ADR-0002): inside a project, kondo opens **only** the
-`.claude` directory. Everything else in the project is off-limits. One
-Claude-owned file sits at the project root outside it — `<project>/.mcp.json`
-(project-scope MCP servers) — and reading it needs the ADR-0002 amendment
-entry 023 carries; until then kondo does not open it.
+`.claude` directory. Everything else in the project is off-limits, with one
+named exception: `<project>/.mcp.json` (project-scope MCP servers), which the
+ADR-0002 amendment grants and `test/boundary.test.ts` pins. Outside a
+`.claude` directory kondo opens exactly two files — that one and
+`~/.claude.json` — and stats exactly one path, the project root.
 
 ## User store: `~/.claude`
 
@@ -85,6 +86,34 @@ only the parts named here (ADR-0009):
 
 Writing this file is not yet safe for kondo: see ADR-0009's consequences and
 entry 031.
+
+### MCP servers — three scopes, two files
+
+An MCP server declaration is `{ type?, command, args?, env? }` for a local
+process or `{ type, url, headers? }` for a remote one ✅. **`env` and
+`headers` hold API keys and bearer tokens**, so kondo builds nothing from
+either — not their values and not their key names. What it keeps is the name,
+the transport, and the file that declares it.
+
+| Scope | Where | Id | Disabled by |
+|---|---|---|---|
+| `user` | `mcpServers` of `~/.claude.json` ✅ | `mcp:user:<name>` | nothing — the user scope has no disable list |
+| `local` | `projects[<abs path>].mcpServers` of `~/.claude.json` ✅ (20 entries observed) | `mcp:local:<flat>/<name>` | `projects[<abs path>].disabledMcpServers` ✅ (7 observed) |
+| `project` | `mcpServers` of `<project>/.mcp.json` ✅ | `mcp:project:<flat>/<name>` | `projects[<abs path>].disabledMcpjsonServers` ✅ (empty array here) |
+
+`<flat>` is the flattened project path (ADR-0009), which is what joins a
+declaration to the project directory it belongs to. A `local` declaration
+whose registry path is no longer on disk is reported with `orphan: true` —
+the dead-project signal in its MCP form, and what entry 031 will remove.
+Discovery is tier-1 (ADR-0007): one registry parse, one `stat` per registry
+entry that actually declares a server, one `.mcp.json` read per verified
+project. The kind is read-only in all three scopes; the capability matrix
+refuses enable, disable and move until entry 031 ships a write path
+`~/.claude.json` can survive.
+
+`~/.claude/.mcp.json` also exists inside the user store (empty `mcpServers`
+on the observed machine ✅) and is **not** one of the three scopes above;
+kondo does not read it.
 
 ### `projects/` — sessions
 

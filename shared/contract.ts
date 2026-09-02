@@ -62,6 +62,12 @@ export type EntityKind =
   | 'session'
   | 'project'
   /**
+   * One MCP server declaration. Read-only today: the files that hold them —
+   * `~/.claude.json` and `<project>/.mcp.json` — are ones kondo cannot yet
+   * write safely (ADR-0009), so the matrix refuses every operation.
+   */
+  | 'mcp'
+  /**
    * A whole store, rather than one thing inside it. The tidy sweep acts at
    * this level: it displaces transcripts, sidecars and cache directories in
    * one operation, so no single entity below is the thing it changed.
@@ -247,6 +253,52 @@ export interface PluginInfo extends EntityIdentity {
    * one. Null when no layer mentions the plugin at all.
    */
   winningLayerId: string | null
+}
+
+/**
+ * Where one MCP server is declared (domain.md):
+ *
+ * - `user` — `mcpServers` of `~/.claude.json`, in force everywhere.
+ * - `local` — `projects[<path>].mcpServers` of the same file: one project's
+ *   own servers, private to the machine.
+ * - `project` — `mcpServers` of `<project>/.mcp.json`, the file a team
+ *   commits. The one Claude-owned file kondo opens outside a `.claude`
+ *   directory (ADR-0002).
+ */
+export type McpScope = 'user' | 'local' | 'project'
+
+/**
+ * One MCP server as kondo lists it. Deliberately thin: a declaration also
+ * carries `env` and `headers`, which hold API keys and bearer tokens in the
+ * wild, so nothing here can be built from either — not their values and not
+ * their names. What crosses the seam is where the server is declared and
+ * what it is called.
+ */
+export interface McpServerInfo extends EntityIdentity {
+  /** `mcp:user:<name>` · `mcp:local:<flat>/<name>` · `mcp:project:<flat>/<name>` */
+  id: string
+  name: string
+  scope: McpScope
+  /**
+   * The declared `type` — `stdio`, `http`, `sse` — or `stdio` inferred from a
+   * `command`, or `unknown` when the declaration says neither.
+   */
+  transport: string
+  /** Display path of the file that declares it (tildified). */
+  source: string
+  /**
+   * The flattened project path this declaration belongs to (ADR-0009), or
+   * null for the user scope.
+   */
+  project: string | null
+  /** False when the owning project's disable list names it. */
+  enabled: boolean
+  /**
+   * The path this declaration is tied to is no longer on disk — a server
+   * left behind by a project that has been deleted or moved. Entry 031 is
+   * what will be able to remove one.
+   */
+  orphan: boolean
 }
 
 export interface HookInfo extends EntityIdentity {

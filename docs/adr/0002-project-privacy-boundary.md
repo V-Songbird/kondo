@@ -13,17 +13,43 @@ requires an existence check on the reconstructed path. That is a `stat` of
 the project root and its `.claude` child only — never a directory listing,
 never file reads.
 
+## Amendment (entry 023): `<project>/.mcp.json`
+
+**`<project>/.mcp.json` is the one Claude-owned file kondo may open outside a
+`.claude` directory.** Nothing else at a project root is readable — not
+`CLAUDE.md`, not `CLAUDE.local.md`, not `package.json`, not `.gitignore`.
+
+Why this one file and no other: project-scope MCP servers are declared there
+and nowhere else. Claude Code fixed that name and that location, so the file
+is Claude's own data that merely happens to sit one directory above the
+boundary; the alternative — leaving project-scope servers invisible — would
+mean kondo shows a user two of their three MCP scopes and silently drops the
+one their team committed. The read is by exact name, so no listing of the
+project root is needed to find it, and the values under `env` and `headers`
+are never carried out of it: they hold API keys and bearer tokens.
+
+The exception buys exactly one file. Any second file outside `.claude`
+requires its own amendment here, and `test/boundary.test.ts` pins the list so
+a widening fails a test rather than passing review.
+
 ## Considered options
 
 - **Read project files to enrich insights** (e.g. detect language, size the
   repo). Rejected: any project-content read makes "Claude-only" a lie and
   turns kondo into a scanner users must audit.
 - **Hard boundary with the stat-only exception (chosen).**
+- **Read `.mcp.json` through the `.claude` boundary only.** Rejected: it is
+  not there. Claude reads project-scope MCP servers from the project root, so
+  refusing the path would mean inventing a location Claude does not use
+  (ADR-0006).
 
 ## Consequences
 
 - Enforced in code: the store locator exposes no API that yields a
   non-`.claude` project path, and a safety-invariant test fails if any code
   path escapes (docs/testing.md).
+- The allowed set outside a `.claude` directory is exactly three things and
+  `test/boundary.test.ts` asserts it as a literal: the project root itself
+  (stat only), `~/.claude.json` (ADR-0009), and `<project>/.mcp.json`.
 - Some insights stay impossible on purpose; ROADMAP lists this under
   non-goals so it is not re-litigated feature by feature.

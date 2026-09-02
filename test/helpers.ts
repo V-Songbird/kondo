@@ -80,6 +80,50 @@ export async function registerProjects(world: FixtureWorld, paths: string[]): Pr
   await fs.writeFile(world.locator.userConfigFile, writeJson({ projects }), 'utf8')
 }
 
+/**
+ * One MCP server declaration, `env` and `headers` included on purpose: every
+ * fixture that uses this carries a secret kondo must never surface, so a
+ * suite can assert on the absence rather than on nothing at all.
+ */
+export function mcpServer(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: 'stdio',
+    command: 'node',
+    args: ['server.js'],
+    env: { API_KEY: 'sk-never-surface-me' },
+    ...overrides
+  }
+}
+
+/**
+ * Write both files an MCP scan reads: the fixture's `~/.claude.json` (user
+ * `mcpServers` plus one entry per project, carrying that project's own
+ * `mcpServers` / `disabledMcpServers` / `disabledMcpjsonServers`) and a
+ * `<project>/.mcp.json` for each project given one.
+ *
+ * `projects` is keyed by absolute path exactly as Claude keys the registry,
+ * so a path that is not on disk is how a test asks for an orphan. This
+ * replaces `registerProjects` where a suite needs more than bare keys.
+ */
+export async function registerMcp(
+  world: FixtureWorld,
+  registry: {
+    mcpServers?: Record<string, unknown>
+    projects?: Record<string, Record<string, unknown>>
+  },
+  projectFiles: Record<string, unknown> = {}
+): Promise<void> {
+  await fs.writeFile(
+    world.locator.userConfigFile,
+    writeJson({ mcpServers: registry.mcpServers ?? {}, projects: registry.projects ?? {} }),
+    'utf8'
+  )
+  for (const [absPath, content] of Object.entries(projectFiles)) {
+    await fs.mkdir(absPath, { recursive: true })
+    await fs.writeFile(path.join(absPath, '.mcp.json'), writeJson(content), 'utf8')
+  }
+}
+
 export function skillManifest(name: string, description: string): string {
   return `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`
 }

@@ -2,12 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type { KondoApi } from '../shared/contract'
+import { createKindContext, kinds } from '../electron/main/workspace/kinds'
+import { collector } from '../electron/main/workspace/scan'
+import { scanSessionInventory } from '../electron/main/workspace/sessions'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   healthyTranscript,
   flattenPath,
   makeWorld,
-  registerProjects,
+  mcpServer,
+  registerMcp,
   skillManifest,
   UUID_A,
   writeFileTree,
@@ -42,9 +46,17 @@ describe('privacy boundary (ADR-0002)', () => {
       '.claude/settings.json': writeJson({ outputStyle: 'quiet' }),
       '.claude/skills/delta-skill/SKILL.md': skillManifest('delta-skill', 'Project-scoped'),
       'src/secret.ts': 'export const apiKey = "never-read-me"',
-      'README.md': 'project file, off-limits'
+      'README.md': 'project file, off-limits',
+      // Decoys at the project root: near-misses for the one file the
+      // amendment names, and the instructions ADR-0002 keeps invisible.
+      'CLAUDE.md': 'project instructions, off-limits',
+      '.mcp.local.json': writeJson({ mcpServers: { sneaky: mcpServer() } })
     })
-    await registerProjects(world, [workdir])
+    await registerMcp(
+      world,
+      { mcpServers: { registry: mcpServer() }, projects: { [workdir]: {} } },
+      { [workdir]: { mcpServers: { committed: mcpServer() } } }
+    )
     api = createWorkspace({ locator: world.locator, platform: process.platform })
   })
   afterEach(async () => {
@@ -70,23 +82,38 @@ describe('privacy boundary (ADR-0002)', () => {
     await api.journalList()
     await api.trashSize()
 
+    // The mcp kind is the one listing that reaches outside a `.claude`
+    // directory, so it runs inside the same recorded window. It has no API
+    // method yet (entry 026 gives it one), so the registry is called direct.
+    const c = collector()
+    const inventory = (await scanSessionInventory(world.locator, process.platform)).data
+    const servers = await kinds.mcp.discover(
+      createKindContext({
+        locator: world.locator,
+        c,
+        now: Date.now(),
+        inventory: async () => inventory,
+        projects: async () => [{ dirName: flattenPath(workdir), absPath: workdir }]
+      })
+    )
+    expect(servers?.map((server) => server.name).sort()).toEqual(['committed', 'registry'])
+
     const claudeDir = path.join(workdir, '.claude')
-    const allowed = (target: string): boolean => {
-      const inside = (root: string) => {
-        const rel = path.relative(root, target)
-        return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
-      }
-      return (
-        inside(world.userRoot) ||
-        inside(world.desktopRoot) ||
-        // Kondo's own footprint: the journal and the trash (ADR-0001).
-        inside(world.kondoDataRoot) ||
-        // Claude's own registry, beside the user store (ADR-0009).
-        target === world.locator.userConfigFile ||
-        inside(claudeDir) ||
-        target === workdir
-      )
+    const within = (root: string, target: string): boolean => {
+      const rel = path.relative(root, target)
+      return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
     }
+    const allowed = (target: string): boolean =>
+      within(world.userRoot, target) ||
+      within(world.desktopRoot, target) ||
+      // Kondo's own footprint: the journal and the trash (ADR-0001).
+      within(world.kondoDataRoot, target) ||
+      // Claude's own registry, beside the user store (ADR-0009).
+      target === world.locator.userConfigFile ||
+      within(claudeDir, target) ||
+      target === workdir ||
+      // The single ADR-0002 amendment: project-scope MCP servers.
+      target === path.join(workdir, '.mcp.json')
 
     const touched = spies
       .flatMap((spy) => spy.mock.calls)
@@ -97,5 +124,19 @@ describe('privacy boundary (ADR-0002)', () => {
       expect(allowed(target), `escaped the boundary: ${target}`).toBe(true)
     }
     expect(touched.some((target) => target.includes(path.join(workdir, 'src')))).toBe(false)
+
+    // The pin. Everything touched outside a `.claude` directory and outside
+    // kondo's own roots is exactly this list, asserted as a literal: the
+    // project root (stat only), `~/.claude.json`, and `<project>/.mcp.json`.
+    // Widening the boundary fails here rather than passing review — a new
+    // read of `CLAUDE.md`, `package.json` or `.mcp.local.json` shows up as an
+    // extra element and no amount of adding to `allowed` above hides it.
+    const stores = [world.userRoot, world.desktopRoot, world.kondoDataRoot, claudeDir]
+    const outside = [...new Set(touched)]
+      .filter((target) => !stores.some((root) => within(root, target)))
+      .sort()
+    expect(outside).toEqual(
+      [workdir, path.join(workdir, '.mcp.json'), world.locator.userConfigFile].sort()
+    )
   })
 })

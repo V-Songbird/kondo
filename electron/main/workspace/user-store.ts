@@ -2,6 +2,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
   HookInfo,
+  McpScope,
+  McpServerInfo,
   PluginInfo,
   PluginScopeState,
   SettingsLayerInfo,
@@ -19,6 +21,7 @@ import {
   type Collector
 } from './scan'
 import { capabilitiesFor } from './capabilities'
+import { flattenProjectPath } from './projects'
 import { readFrontmatter } from './frontmatter'
 import { tildify, truncate } from './display'
 
@@ -505,6 +508,175 @@ function insertMember(source: string, object: JsonObject, text: string): string 
   }
   const lead = source.slice(object.open + 1, first.keyStart)
   return `${source.slice(0, last.valueEnd)},${lead}${text}${source.slice(last.valueEnd)}`
+}
+
+// ---------------------------------------------------------------------------
+// MCP servers
+
+/** The file a team commits at the project root; the ADR-0002 exception. */
+const MCP_FILE = '.mcp.json'
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+/**
+ * The `mcpServers` members of a container, as name/declaration pairs. Any
+ * other shape — a missing key, an array, a string — is no servers rather
+ * than an error (ADR-0005).
+ */
+function mcpDeclarations(container: unknown): Array<[string, Record<string, unknown>]> {
+  const servers = asObject(asObject(container)?.['mcpServers'])
+  if (!servers) return []
+  return Object.entries(servers).map(([name, value]) => [name, asObject(value) ?? {}])
+}
+
+/** The string members of a disable list; anything else disables nothing. */
+function stringSet(value: unknown): ReadonlySet<string> {
+  if (!Array.isArray(value)) return new Set()
+  return new Set(value.filter((member): member is string => typeof member === 'string'))
+}
+
+/** `stdio` / `http` / `sse` as declared, inferred from a command, or unknown. */
+function transportOf(declaration: Record<string, unknown>): string {
+  const declared = declaration['type']
+  if (typeof declared === 'string' && declared !== '') return declared
+  return typeof declaration['command'] === 'string' ? 'stdio' : 'unknown'
+}
+
+interface McpEntry {
+  scope: McpScope
+  /** The part of the id after the scope (ADR-0008). */
+  key: string
+  project: string | null
+  /** Display path of the declaring file. */
+  source: string
+  name: string
+  declaration: Record<string, unknown>
+  disabled: ReadonlySet<string>
+  orphan: boolean
+}
+
+function toMcpServer(entry: McpEntry): McpServerInfo {
+  return {
+    id: `mcp:${entry.scope}:${entry.key}`,
+    kind: 'mcp',
+    capabilities: capabilitiesFor('mcp', entry.scope),
+    name: entry.name,
+    scope: entry.scope,
+    // Only the transport is taken off the declaration. `env` and `headers`
+    // hold API keys and bearer tokens in the wild (domain.md), so neither
+    // their values nor their names are ever built into an entity.
+    transport: transportOf(entry.declaration),
+    source: entry.source,
+    project: entry.project,
+    enabled: !entry.disabled.has(entry.name),
+    orphan: entry.orphan
+  }
+}
+
+/**
+ * Every MCP server declared in the three native places (domain.md): the
+ * `mcpServers` of `~/.claude.json`, the `mcpServers` of each of its
+ * `projects` entries, and the `mcpServers` of each verified project's
+ * `.mcp.json`.
+ *
+ * Tier-1 (ADR-0007): one parse of the registry, one stat per registry entry
+ * that actually declares a server, and one small read per verified project.
+ * Nothing walks a project tree — `.mcp.json` is opened by name, which is the
+ * single exception ADR-0002 grants outside a `.claude` directory.
+ *
+ * A registry entry whose path is gone still yields its servers, marked
+ * `orphan`: that is the whole point of listing them, and entry 031 is what
+ * will be able to remove one.
+ */
+export async function scanMcpServers(
+  locator: StoreLocator,
+  projects: VerifiedProject[],
+  c: Collector
+): Promise<McpServerInfo[]> {
+  const configDisplay = tildify(locator.userConfigFile, locator.home)
+  const config = asObject(await safeReadJson(locator.userConfigFile, configDisplay, c))
+  const servers: McpServerInfo[] = []
+  const nothingDisabled: ReadonlySet<string> = new Set()
+
+  for (const [name, declaration] of mcpDeclarations(config)) {
+    servers.push(
+      toMcpServer({
+        scope: 'user',
+        key: name,
+        project: null,
+        source: configDisplay,
+        name,
+        declaration,
+        disabled: nothingDisabled,
+        // The registry is the owning path, and it was just read.
+        orphan: false
+      })
+    )
+  }
+
+  // Flattened name → the registry entry it came from (ADR-0009). Claude
+  // writes some projects under both slash spellings, so the first spelling of
+  // a name wins here exactly as it does in the sessions index.
+  const registry = new Map<string, { absPath: string; entry: Record<string, unknown> }>()
+  for (const [absPath, value] of Object.entries(asObject(config?.['projects']) ?? {})) {
+    const flat = flattenProjectPath(absPath)
+    if (!registry.has(flat)) registry.set(flat, { absPath, entry: asObject(value) ?? {} })
+  }
+
+  for (const [flat, { absPath, entry }] of registry) {
+    const declarations = mcpDeclarations(entry)
+    // The stat is paid only by an entry that declares a server: a registry
+    // with thousands of projects costs as many stats as it has MCP users.
+    if (declarations.length === 0) continue
+    const disabled = stringSet(entry['disabledMcpServers'])
+    // ADR-0002 allows exactly this — an existence check on the project root,
+    // never a listing and never a read of what is inside it.
+    const orphan = (await safeStat(absPath, tildify(absPath, locator.home), c)) === null
+    for (const [name, declaration] of declarations) {
+      servers.push(
+        toMcpServer({
+          scope: 'local',
+          key: `${flat}/${name}`,
+          project: flat,
+          source: configDisplay,
+          name,
+          declaration,
+          disabled,
+          orphan
+        })
+      )
+    }
+  }
+
+  for (const project of projects) {
+    const file = path.join(project.absPath, MCP_FILE)
+    const display = tildify(file, locator.home)
+    // Claude gates a committed server through the registry, not through the
+    // file it is declared in, so the disable list is the project's own.
+    const disabled = stringSet(registry.get(project.dirName)?.entry['disabledMcpjsonServers'])
+    for (const [name, declaration] of mcpDeclarations(await safeReadJson(file, display, c))) {
+      servers.push(
+        toMcpServer({
+          scope: 'project',
+          key: `${project.dirName}/${name}`,
+          project: project.dirName,
+          source: display,
+          name,
+          declaration,
+          disabled,
+          // The file was read from the project, so the project is there.
+          orphan: false
+        })
+      )
+    }
+  }
+
+  servers.sort((a, b) => a.id.localeCompare(b.id))
+  return servers
 }
 
 // ---------------------------------------------------------------------------

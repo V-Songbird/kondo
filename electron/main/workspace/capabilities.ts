@@ -44,6 +44,12 @@ const HOOK_HAS_NO_CONVENTION =
 const NOT_A_TOGGLE = 'A settings layer is a file, not a toggle.'
 const SESSIONS_ARE_SWEPT =
   'Sessions have no enabled state; they are swept through the kondo trash.'
+// ADR-0009: an MCP server is declared in `~/.claude.json` or in a project's
+// `.mcp.json`, and kondo can write neither safely yet — the registry is
+// rewritten by Claude mid-session, so a whole-file write would discard its
+// changes. Entry 031 brings the splice step that makes this row movable.
+const MCP_IS_READ_ONLY =
+  'kondo reads MCP servers but does not write ~/.claude.json or .mcp.json yet.'
 const STORE_IS_NOT_A_TOGGLE =
   'A store is not a toggle; the tidy sweep is the only thing that writes at this level.'
 
@@ -86,6 +92,13 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
   },
   project: {
     code: neither(SESSIONS_ARE_SWEPT)
+  },
+  // Read-only in every scope, and refused here rather than in a view, so an
+  // id from the listing cannot be mutated by whatever gets hold of one.
+  mcp: {
+    user: neither(MCP_IS_READ_ONLY),
+    local: neither(MCP_IS_READ_ONLY),
+    project: neither(MCP_IS_READ_ONLY)
   },
   // No listing produces a `store:` entity — this row exists so the sweep's
   // journal entry can name what it acted on truthfully, and so that anything
