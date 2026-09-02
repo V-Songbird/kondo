@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createLocator, type StoreLocator } from '../electron/main/workspace/locator'
+import { flattenProjectPath } from '../electron/main/workspace/projects'
 
 /**
  * Fixture-store builders (docs/testing.md): every test runs against a
@@ -22,8 +23,8 @@ export interface FixtureWorld {
 }
 
 export async function makeWorld(): Promise<FixtureWorld> {
-  // No hyphen in the prefix: several tests flatten/unflatten real fixture
-  // paths, and '-' is the one character the flattening cannot round-trip.
+  // No hyphen in the prefix: the suites that still rely on the fallback
+  // guess (rather than `registerProjects`) cannot round-trip one.
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'kondotest'))
   const home = path.join(base, 'home')
   const userRoot = path.join(home, '.claude')
@@ -66,10 +67,17 @@ export function writeJson(value: unknown): string {
 
 /** Flatten an absolute path the way Claude Code names project directories. */
 export function flattenPath(absPath: string): string {
-  if (process.platform === 'win32') {
-    return absPath.replace(/^([A-Za-z]):\\/, '$1--').replaceAll('\\', '-')
-  }
-  return absPath.replaceAll('/', '-')
+  return flattenProjectPath(absPath)
+}
+
+/**
+ * Register real paths in the fixture's `~/.claude.json`, the way Claude Code
+ * does for every directory it has run in (ADR-0009). With this, a project
+ * resolves whatever characters its path holds — no hyphen-free tmpdir needed.
+ */
+export async function registerProjects(world: FixtureWorld, paths: string[]): Promise<void> {
+  const projects = Object.fromEntries(paths.map((absPath) => [absPath, {}]))
+  await fs.writeFile(world.locator.userConfigFile, writeJson({ projects }), 'utf8')
 }
 
 export function skillManifest(name: string, description: string): string {

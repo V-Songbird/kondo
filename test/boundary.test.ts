@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fsp from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import type { KondoApi } from '../shared/contract'
 import { createWorkspace } from '../electron/main/workspace/workspace'
@@ -8,6 +7,7 @@ import {
   healthyTranscript,
   flattenPath,
   makeWorld,
+  registerProjects,
   skillManifest,
   UUID_A,
   writeFileTree,
@@ -24,10 +24,6 @@ import {
  * paths come from inventory records that are inside the user store by
  * construction.)
  */
-
-// Reconstructing a project path from its flattened name cannot round-trip
-// hyphens, so the verified-project half needs a hyphen-free tmpdir.
-const TMP_OK = !os.tmpdir().includes('-')
 
 describe('privacy boundary (ADR-0002)', () => {
   let world: FixtureWorld
@@ -48,6 +44,7 @@ describe('privacy boundary (ADR-0002)', () => {
       'src/secret.ts': 'export const apiKey = "never-read-me"',
       'README.md': 'project file, off-limits'
     })
+    await registerProjects(world, [workdir])
     api = createWorkspace({ locator: world.locator, platform: process.platform })
   })
   afterEach(async () => {
@@ -55,7 +52,7 @@ describe('privacy boundary (ADR-0002)', () => {
     await world.cleanup()
   })
 
-  it.runIf(TMP_OK)('no read API touches a path outside the stores and .claude', async () => {
+  it('no read API touches a path outside the stores, ~/.claude.json and .claude', async () => {
     const spies = (['readdir', 'stat', 'readFile'] as const).map((method) =>
       vi.spyOn(fsp, method)
     )
@@ -84,6 +81,8 @@ describe('privacy boundary (ADR-0002)', () => {
         inside(world.desktopRoot) ||
         // Kondo's own footprint: the journal and the trash (ADR-0001).
         inside(world.kondoDataRoot) ||
+        // Claude's own registry, beside the user store (ADR-0009).
+        target === world.locator.userConfigFile ||
         inside(claudeDir) ||
         target === workdir
       )

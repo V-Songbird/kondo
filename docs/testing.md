@@ -12,11 +12,13 @@ in temp directories by the builders in `test/helpers.ts`.
    partial data + itemized errors, never throw. (A permission-denied fixture
    is still missing — chmod-style unreadability has no reliable
    cross-platform recipe yet; add it when one exists.)
-2. **Unit — analysis.** Staleness, worked time, duplicates, orphans are pure
-   functions over scanned data. Table-driven tests with edge cases (clock
-   skew, single-message sessions, timestamp gaps).
-3. **Integration — the seam.** IPC handlers invoked directly against a fixture
+2. **Unit — analysis.** Staleness (`isStale`) and the project-path join
+   (`projects.ts`) are pure functions over scanned data, table-tested.
+   Worked time and duplicates will join them when they ship.
+3. **Integration — the seam.** Workspace methods — the functions the IPC
+   handlers delegate to one line each — invoked directly against a fixture
    store; asserts channel contracts (shape in, shape out, errors as values).
+   No test drives `registerIpc` itself.
 4. **Safety invariants.** The tests that must never be deleted, and where
    each lives today:
    - The scanner never touches a path outside the stores and `.claude`
@@ -42,7 +44,20 @@ in temp directories by the builders in `test/helpers.ts`.
      source, and — the one that matters most — a copy that does not verify
      leaving the source untouched).
 5. **End-to-end** (later): the built app driven against a fixture store via a
-   `KONDO_STORE_ROOT` override.
+   `KONDO_STORE_ROOT` override. Until then the `run-kondo` project skill
+   (`.claude/skills/run-kondo/`) launches the dev app against a fixture store
+   and drives it over the debugging port — the manual UI check, outside
+   `npm test` and CI.
+
+Two things to know about the suite as it stands:
+
+- Several mutation suites still gate verified-project cases on
+  `it.runIf(TMP_OK)` (a tmpdir with no hyphen) because they name the project
+  through the fallback guess. `registerProjects` in `test/helpers.ts` writes
+  the fixture's `~/.claude.json` (ADR-0009) and removes the need; the
+  boundary and workspace suites use it, the rest should follow. CI does not
+  assert that gated tests ran.
+- The renderer (`src/`) has no automated tests.
 
 ## Rules
 
@@ -67,16 +82,25 @@ npm run guards       # the jig checks (stdlib node only)
 
 ## The guards
 
-Four invariants are also enforced outside the suite, by checks under
-`.jig/checks/`, blocking at edit time and in CI:
+Six invariants are also enforced outside the suite, by checks under
+`.jig/checks/`:
 
-| Guard | Refuses |
-|---|---|
-| `renderer-reaches-past-the-bridge` | `node:` / `electron` imports and `require()` under `src/` |
-| `outbound-network-call` | `fetch`, `WebSocket`, `XMLHttpRequest`, `node:http(s)` anywhere shipped |
-| `raw-path-across-the-seam` | a path-shaped parameter in `electron/preload/` or `ipc.ts` (ADR-0008) |
-| `test-touches-a-real-store` | `homedir()`, home-ish env vars, or a hard-coded store path in `test/` |
+| Guard | Refuses | Lanes |
+|---|---|---|
+| `renderer-reaches-past-the-bridge` | `node:` / `electron` imports and `require()` under `src/` | session (observe), pre-commit, CI |
+| `outbound-network-call` | `fetch`, `WebSocket`, `XMLHttpRequest`, `node:http(s)` anywhere shipped | session, pre-commit, CI |
+| `raw-path-across-the-seam` | a path-shaped parameter in `electron/preload/` or `ipc.ts` (ADR-0008) | session, pre-commit, CI |
+| `test-touches-a-real-store` | `homedir()`, home-ish env vars, or a hard-coded store path in `test/` | session (observe), pre-commit, CI |
+| `workspace-adapter-outruns-domain-doc` | a commit touching `electron/main/workspace/` without `docs/domain.md` staged | pre-commit only |
+| `seam-contract-outruns-its-adr` | a commit touching `shared/contract.ts` without an ADR staged | pre-commit only |
 
-Each carries a violation/near-miss fixture pair inline and proves itself with
-`node .jig/checks/run.mjs --selftest`. The driver is standard-library node,
-so it runs with nothing installed. `/jig:review` shows what they have caught.
+The session lane (a Claude Code `PostToolUse` hook) ignores a guard's path
+scope, so two guards are held in *observe* there until jig honours it
+(ROADMAP entries 017, 021); the path-scoped guards also misfire on
+workspace-internal helpers in that lane — read the pre-commit result, not the
+session one. The two paired-change guards read the git index, so they run
+at pre-commit (`core.hooksPath=.jig/hooks`, per clone) and report themselves
+skipped in CI. Each check carries a violation/near-miss fixture pair inline
+and proves itself with `node .jig/checks/run.mjs --selftest`. The driver is
+standard-library node, so it runs with nothing installed. `/jig:review` shows
+what they have caught.

@@ -17,8 +17,9 @@ machine; nothing is ever sent anywhere.
 
 - **Sessions** — one inventory across every store: Claude Code's
   `~/.claude/projects` and the desktop app's session directories. See per
-  project how many sessions exist, how much time you have worked in them, how
-  large they are, which are stale, duplicated, empty, or orphaned.
+  project how many sessions exist, how large they are, which are stale,
+  empty, or orphaned. (Worked time and duplicate detection are on the
+  roadmap, not in the build.)
 - **Skills** — a single catalog of global and per-project skills. Enable or
   disable without deleting. Move a skill between scopes or from one project to
   another.
@@ -45,9 +46,13 @@ machine; nothing is ever sent anywhere.
 
 ## Status
 
-Pre-release. The current build is the **read-only core**: it scans and reports
-sessions, skills, plugins, hooks, and settings. Mutations (toggle, move, tidy)
-are designed but not yet shipped — see [ROADMAP.md](ROADMAP.md).
+Pre-release, v0.2 in progress. Kondo scans sessions, skills, plugins, hooks
+and settings; enables and disables skills and plugins; moves skills between
+global and project scope; and sweeps stale sessions and caches. Every change
+is journaled and undoable from the Journal tab, and nothing is deleted until
+you empty kondo's trash. What comes next — a project-first home, MCP servers
+and agents, and cleanup of dead projects and orphaned configuration — is in
+[ROADMAP.md](ROADMAP.md).
 
 ## Getting started
 

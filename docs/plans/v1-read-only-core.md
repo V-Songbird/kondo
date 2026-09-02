@@ -67,5 +67,6 @@ All of the above, plus what the scaffold review and the guard install added:
 - Four jig guards (`.jig/checks/`) covering renderer purity, outbound network
   calls, paths crossing the seam, and tests touching a real store.
 
-Deferred out of v0.1 and now on the roadmap: worked time, duplicate and
-empty-transcript detection, and a permission-denied adapter fixture.
+Deferred out of v0.1: worked time and duplicate detection (still on the
+roadmap), empty-transcript detection (shipped in the tidy sweep, plan 006),
+and a permission-denied adapter fixture (still missing).

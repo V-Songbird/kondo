@@ -2,8 +2,21 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Scan, SessionProject, SessionSummary } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
-import { collector, finish, mapPool, safeReaddir, safeStat, type Collector } from './scan'
-import { guessOriginalPath, type ExistsFn } from './projects'
+import {
+  collector,
+  finish,
+  mapPool,
+  safeReaddir,
+  safeReadJson,
+  safeStat,
+  type Collector
+} from './scan'
+import {
+  guessOriginalPath,
+  projectIndex,
+  registeredProjectPaths,
+  type ExistsFn
+} from './projects'
 import { capabilitiesFor } from './capabilities'
 import { isStale } from './analysis'
 import { tildify } from './display'
@@ -66,8 +79,18 @@ export async function scanSessionInventory(
   const entries = await safeReaddir(root, rootDisplay, c)
   const projectDirs = entries.filter((entry) => entry.isDirectory())
 
+  // Claude's own reverse map (ADR-0009): one parse, and only the keys of
+  // `projects` are kept — the per-project entries carry prompts and cost
+  // figures kondo has no business surfacing.
+  const config = await safeReadJson(
+    locator.userConfigFile,
+    tildify(locator.userConfigFile, locator.home),
+    c
+  )
+  const registered = projectIndex(registeredProjectPaths(config))
+
   const projects = await mapPool(projectDirs, 16, async (dir) =>
-    scanProject(root, dir.name, rootDisplay, platform, exists, c)
+    scanProject(root, dir.name, rootDisplay, platform, exists, registered, c)
   )
 
   projects.sort((a, b) => a.dirName.localeCompare(b.dirName))
@@ -81,6 +104,7 @@ async function scanProject(
   rootDisplay: string,
   platform: NodeJS.Platform,
   exists: ExistsFn,
+  registered: ReadonlyMap<string, string>,
   c: Collector
 ): Promise<ProjectRecord> {
   const absPath = path.join(root, dirName)
@@ -124,7 +148,7 @@ async function scanProject(
     (name) => !transcriptUuids.has(name.toLowerCase())
   )
 
-  const guessedPath = await guessOriginalPath(dirName, platform, exists)
+  const guessedPath = await guessOriginalPath(dirName, platform, exists, registered)
   sessions.sort((a, b) => b.mtimeMs - a.mtimeMs)
   return { dirName, absPath, guessedPath, sessions, orphanDirs }
 }

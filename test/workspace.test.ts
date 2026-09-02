@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import os from 'node:os'
 import path from 'node:path'
 import type { KondoApi } from '../shared/contract'
 import { createWorkspace } from '../electron/main/workspace/workspace'
@@ -7,6 +6,7 @@ import {
   healthyTranscript,
   flattenPath,
   makeWorld,
+  registerProjects,
   skillManifest,
   UUID_A,
   writeFileTree,
@@ -18,10 +18,6 @@ import {
  * Integration through the public KondoApi surface — the same calls the IPC
  * layer delegates to, run against a fixture world.
  */
-
-// Flatten/unflatten cannot round-trip hyphens; verified-project cases need a
-// hyphen-free tmpdir (true on Windows/Linux CI, not guaranteed on macOS).
-const TMP_OK = !os.tmpdir().includes('-')
 
 describe('workspace (KondoApi)', () => {
   let world: FixtureWorld
@@ -43,20 +39,16 @@ describe('workspace (KondoApi)', () => {
       '.claude/skills/delta-skill/SKILL.md': skillManifest('delta-skill', 'Project-scoped')
     })
 
-    api = createWorkspace({
-      locator: world.locator,
-      platform: process.platform,
-      // The flatten/unflatten round trip depends on hyphen-free real paths,
-      // which a temp dir cannot promise on every OS — so the existence probe
-      // is injected (foundations: injectable workspace).
-      guessExists: async (target) => target === workdir
-    })
+    // The registry names the project whatever the tmpdir looks like (ADR-0009),
+    // so the real stat does the verifying here — no injected probe.
+    await registerProjects(world, [workdir])
+    api = createWorkspace({ locator: world.locator, platform: process.platform })
   })
   afterEach(async () => {
     await world.cleanup()
   })
 
-  it.runIf(TMP_OK)('lists projects and sessions by id, and streams a session detail', async () => {
+  it('lists projects and sessions by id, and streams a session detail', async () => {
     const projects = await api.sessionProjects()
     expect(projects.data).toHaveLength(1)
     const project = projects.data[0]!
@@ -84,7 +76,7 @@ describe('workspace (KondoApi)', () => {
     expect(gone.errors[0]?.code).toBe('unknown-id')
   })
 
-  it.runIf(TMP_OK)('surfaces skills and settings from the verified project', async () => {
+  it('surfaces skills and settings from the verified project', async () => {
     const skills = await api.skillsList()
     const ids = skills.data.map((skill) => skill.id)
     expect(ids).toContain('skill:user:alpha-skill')

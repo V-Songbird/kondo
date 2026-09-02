@@ -1,7 +1,42 @@
 import { describe, expect, it } from 'vitest'
-import { candidateOriginalPaths, guessOriginalPath } from '../electron/main/workspace/projects'
+import path from 'node:path'
+import {
+  candidateOriginalPaths,
+  flattenProjectPath,
+  guessOriginalPath,
+  projectIndex,
+  registeredProjectPaths
+} from '../electron/main/workspace/projects'
 
-describe('candidateOriginalPaths', () => {
+describe('flattenProjectPath', () => {
+  it('turns every non-alphanumeric character into a dash, as Claude does', () => {
+    expect(flattenProjectPath('D:\\Projects\\my-app')).toBe('D--Projects-my-app')
+    expect(flattenProjectPath('D:/Projects/my-app')).toBe('D--Projects-my-app')
+    expect(flattenProjectPath('/home/x/snake_case.dir')).toBe('-home-x-snake-case-dir')
+    expect(flattenProjectPath('C:\\Users\\x\\.claude-jobs\\p')).toBe('C--Users-x--claude-jobs-p')
+  })
+})
+
+describe('projectIndex', () => {
+  it('indexes registry keys by flattened name and folds slash spellings', () => {
+    const index = projectIndex(['D:\\Projects\\my-app', 'D:/Projects/my-app', '/home/x/proj'])
+    expect(index.get('D--Projects-my-app')).toBeDefined()
+    expect(index.get('-home-x-proj')).toBe(path.normalize('/home/x/proj'))
+    expect(index.size).toBe(2)
+  })
+
+  it('reads only the projects keys and tolerates any other shape', () => {
+    expect(registeredProjectPaths({ projects: { '/a': { lastCost: 1 }, '/b': {} } })).toEqual([
+      '/a',
+      '/b'
+    ])
+    expect(registeredProjectPaths({ projects: [] })).toEqual([])
+    expect(registeredProjectPaths(null)).toEqual([])
+    expect(registeredProjectPaths('nope')).toEqual([])
+  })
+})
+
+describe('candidateOriginalPaths (fallback guess)', () => {
   it('maps a plain Windows flattened name', () => {
     expect(candidateOriginalPaths('D--Programs-cmder', 'win32')).toEqual([
       'D:\\Programs\\cmder'
@@ -31,8 +66,18 @@ describe('guessOriginalPath', () => {
     expect(guess).toBe('D:\\Programs\\cmder')
   })
 
-  it('returns null when no candidate verifies — the UI shows the raw name instead', async () => {
-    const guess = await guessOriginalPath('D--Projects-my-app', 'win32', async () => false)
+  it('resolves a hyphenated name through the registry, which the guess never could', async () => {
+    const registered = projectIndex(['D:\\Projects\\my-app'])
+    const exists = async (target: string): Promise<boolean> => target === 'D:\\Projects\\my-app'
+    expect(await guessOriginalPath('D--Projects-my-app', 'win32', exists, registered)).toBe(
+      'D:\\Projects\\my-app'
+    )
+    expect(await guessOriginalPath('D--Projects-my-app', 'win32', exists)).toBeNull()
+  })
+
+  it('returns null when nothing verifies — the UI shows the raw name instead', async () => {
+    const registered = projectIndex(['D:\\Projects\\my-app'])
+    const guess = await guessOriginalPath('D--Projects-my-app', 'win32', async () => false, registered)
     expect(guess).toBeNull()
   })
 })

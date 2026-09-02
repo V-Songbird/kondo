@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { scanSessionInventory, toSessionProjects, toSessionSummaries } from '../electron/main/workspace/sessions'
+import { flattenProjectPath } from '../electron/main/workspace/projects'
 import {
   healthyTranscript,
   makeWorld,
+  registerProjects,
   UUID_A,
   UUID_B,
   UUID_C,
@@ -69,6 +71,24 @@ describe('scanSessionInventory', () => {
     const stale = summaries.find((session) => session.uuid === UUID_A)
     expect(stale?.stale).toBe(true)
     expect(stale?.id).toBe(`session:code:D--Projects-app/${UUID_A}`)
+  })
+
+  it('names a hyphenated project through ~/.claude.json and stats only that path', async () => {
+    const workdir = path.join(world.base, 'work', 'my-app')
+    await fs.mkdir(workdir, { recursive: true })
+    await writeFileTree(path.join(world.userRoot, 'projects', flattenProjectPath(workdir)), {
+      [`${UUID_A}.jsonl`]: healthyTranscript(UUID_A)
+    })
+    await registerProjects(world, [workdir])
+
+    const probed: string[] = []
+    const scan = await scanSessionInventory(world.locator, process.platform, async (target) => {
+      probed.push(target)
+      return target === workdir
+    })
+    const project = scan.data.projects.find((p) => p.dirName === flattenProjectPath(workdir))
+    expect(project?.guessedPath).toBe(workdir)
+    expect(probed).toContain(workdir)
   })
 
   it('returns an empty inventory for a store with no projects directory', async () => {

@@ -12,9 +12,13 @@ Decision: scanning happens in two tiers.
 - **Tier 2 — detail (on demand):** for a session the user opens or an
   analysis that needs it, read the transcript's first and last lines to bound
   it in time, and stream lines (never `readFile` whole) for worked time,
-  message counts, and duplicate signatures. Results are cached in kondo's
-  data directory keyed by `(path, size, mtime)` — a changed file re-parses,
-  an unchanged one never does.
+  message counts, and duplicate signatures. Results *will be* cached in
+  kondo's data directory keyed by `(path, size, mtime)` — a changed file
+  re-parses, an unchanged one never does. As of v0.2 that cache does not
+  exist: tier-2 reads are recomputed on demand, and the only cache is the
+  process-lifetime tier-1 inventory in the workspace, dropped after any
+  sweep or undo. The persistent cache ships with the first analysis that
+  reads every transcript (duplicate signatures, entry 034).
 
 ## Considered options
 

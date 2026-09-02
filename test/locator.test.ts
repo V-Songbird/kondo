@@ -14,6 +14,7 @@ describe('createLocator', () => {
       env: {}
     })
     expect(locator.userRoot).toBe(path.join('C:', 'Users', 'x', '.claude'))
+    expect(locator.userConfigFile).toBe(path.join('C:', 'Users', 'x', '.claude.json'))
   })
 
   it('honors KONDO_STORE_ROOT and KONDO_DESKTOP_STORE_ROOT overrides', () => {
@@ -26,6 +27,8 @@ describe('createLocator', () => {
     })
     expect(locator.userRoot).toBe('/fixtures/user')
     expect(locator.desktopRoot).toBe('/fixtures/desk')
+    // The registry follows the override, so a fixture root carries its own.
+    expect(locator.userConfigFile).toBe(path.join('/fixtures', '.claude.json'))
   })
 
   it('resolves the desktop store per platform', () => {

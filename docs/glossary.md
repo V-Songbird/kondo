@@ -18,26 +18,45 @@ meanings.
   also own sibling directories (subagent output, memory).
 - **Project directory** — under `~/.claude/projects`, one directory per
   working directory Claude Code has been run in, named by flattening the
-  path (`D:\Projects\x` → `D--Projects-x`).
+  path: every character outside `[A-Za-z0-9]` becomes `-`
+  (`D:\Projects\my-app` → `D--Projects-my-app`). The real path comes from
+  the registry, `~/.claude.json` (ADR-0009).
+- **Project key** — that flattened name, the one spelling of a project
+  shared by its ids, its store name and its settings layers.
+- **Unlocated project** — a project directory whose real path kondo could
+  not find in the registry or by guessing. Not evidence the folder is gone.
+- **Dead project** — a project the registry names whose path no longer
+  exists on disk. Cleanup candidate (ROADMAP, entry 030); not yet computed.
 - **Stale session** — no activity for longer than the staleness threshold
-  (30 days in v0.1, the `STALE_AFTER_DAYS` constant; a user-configurable
-  threshold is planned).
-- **Empty session** — a transcript with no user or assistant message.
-- **Orphan** — session residue whose owner is gone: a sibling directory with
-  no transcript, or a transcript whose project directory no longer maps to an
-  existing working directory.
+  (30 days, the `STALE_AFTER_DAYS` constant).
+- **Empty session** — a zero-byte transcript, the tidy sweep's definition.
+  A transcript with lines but no user or assistant message is not yet
+  detected.
+- **Orphan** — a session's sibling directory whose transcript is gone.
 - **Duplicate** — two sessions judged to be the same work: identical session
-  id in two stores, or same project + near-identical opening prompt.
+  id in two stores, or same project + near-identical opening prompt. Defined,
+  not yet computed (ROADMAP, entry 034).
 - **Worked time** — the summed active spans inside a session's transcript
   (gaps above an idle threshold are not counted), not last-minus-first
-  timestamp.
+  timestamp. Defined, not yet computed (ROADMAP, Later).
 - **Skill** — a directory with a `SKILL.md` manifest. Lives in the user
   store, a plugin, or a project store.
 - **Plugin** — an installed package from a marketplace, recorded in
   `installed_plugins.json`, enabled via `enabledPlugins` in settings.
 - **Marketplace** — a source repository plugins are installed from.
 - **Hook** — a command Claude Code runs on an event, armed by a `hooks` entry
-  in some settings layer.
+  in some settings layer. A script file under a `hooks/` directory is not a
+  hook until a settings entry names it.
+- **MCP server** — a Model Context Protocol server declared for Claude: at
+  user scope in `~/.claude.json`, at project scope in `<project>/.mcp.json`,
+  or locally for one project in `~/.claude.json`'s `projects` map. Not yet
+  read by kondo (ROADMAP, entry 023).
+- **Agent / command / rule / output style** — the other things a scope can
+  hold beside skills: `agents/*.md`, `commands/*.md`, `rules/*.md`,
+  `output-styles/*.md` under `~/.claude` or `<project>/.claude`. Not yet read
+  by kondo (ROADMAP, entry 024).
+- **Registry** — `~/.claude.json`, Claude Code's own record of projects,
+  MCP servers and usage (ADR-0009).
 - **Bridge / seam** — the context-isolated preload API; the only door between
   renderer and disk.
 - **Journal** — kondo's append-only record of every mutation it performs,

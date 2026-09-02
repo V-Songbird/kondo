@@ -368,8 +368,9 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       // error: no journal entry, and not a byte touched.
       if (plan === null) return finish<JournalEntryInfo | null>(null, c)
 
-      const result = await mutations.mutate(plan)
-      if (result.data) dropInventory()
+      // Dropped whether or not the sweep finished: a step that failed part
+      // way has already moved transcripts the cached inventory still lists.
+      const result = await mutations.mutate(plan).finally(dropInventory)
       return {
         data: result.data,
         errors: [...c.errors, ...result.errors],
@@ -385,9 +386,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       if (typeof journalId !== 'string' || !journalId.startsWith('journal:')) {
         return badRequest(null, 'journalUndo expects a journal: id.')
       }
-      const result = await mutations.undo(journalId)
-      if (result.data) dropInventory()
-      return result
+      return mutations.undo(journalId).finally(dropInventory)
     },
 
     trashSize() {

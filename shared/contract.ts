@@ -49,8 +49,10 @@ export interface Scan<T> {
 /**
  * The entity kinds kondo manages — the first segment of every id (ADR-0008).
  * Each one is described by a definition in the main process rather than by
- * a hard-coded adapter call, and every kind supplies discover / read /
- * capabilities / enable / disable.
+ * a hard-coded adapter call. Every kind supplies discover / read /
+ * capabilities; enable and disable are seats a kind fills only where a
+ * native convention exists (ADR-0006), and a kind whose mutation has not
+ * shipped answers null from them.
  */
 export type EntityKind =
   | 'skill'

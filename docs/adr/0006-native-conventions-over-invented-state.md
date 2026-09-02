@@ -32,3 +32,11 @@ preferences, scan cache — never the truth about the user's Claude setup.
   unrecognized convention degrades per ADR-0005.
 - Some toggles have no native convention yet (e.g. disabling a single hook).
   Those ship only once a faithful mechanism exists, and get their own ADR.
+- Revisited 2026-09-02: Claude has *two* per-skill conventions, and kondo
+  speaks one. `skills.disabled/` was observed in the wild and is what the
+  toggle writes. `skillOverrides` in a settings layer (`'off'`,
+  `'user-invocable-only'`) is the documented one, reaches plugin-shipped
+  skills, and applies per layer — and kondo does not read it, so a skill
+  switched off that way shows as enabled. Reading it is entry 029; the same
+  entry decides which convention each scope writes and records the answer
+  here, so the two cannot diverge silently.

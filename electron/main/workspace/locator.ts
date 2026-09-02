@@ -26,6 +26,12 @@ export interface StoreLocator {
    * inside a Claude store, and no Claude truth is kept in it (ADR-0006).
    */
   kondoDataRoot: string
+  /**
+   * `~/.claude.json` — Claude Code's own registry, a sibling of the user
+   * store rather than inside it (ADR-0009). Kondo reads its `projects` keys
+   * to name the real directory behind each `projects/<flat>` entry.
+   */
+  userConfigFile: string
   home: string
 }
 
@@ -48,5 +54,8 @@ export function createLocator(environment: LocatorEnvironment): StoreLocator {
 
   const kondoDataRoot = env['KONDO_DATA_ROOT'] ?? userData
 
-  return { userRoot, desktopRoot, kondoDataRoot, home }
+  // Beside the user store, so a fixture root brings its own registry along.
+  const userConfigFile = path.join(path.dirname(userRoot), '.claude.json')
+
+  return { userRoot, desktopRoot, kondoDataRoot, userConfigFile, home }
 }

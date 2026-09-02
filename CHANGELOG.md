@@ -25,15 +25,13 @@ All notable changes to kondo are documented here. The format follows
   `<kondo-data>/journal.jsonl` written durably before any store byte moves, a
   kondo-owned trash at `<kondo-data>/trash/<journal-id>/` that keeps every
   displaced byte, and `undo` restoring a whole multi-step operation. Readable
-  across the seam as `journalList`, `journalUndo` and `trashSize`; no
-  mutation channel ships yet.
+  across the seam as `journalList`, `journalUndo` and `trashSize`.
 - The kind registry and the capability matrix: every entity kind (skill,
   plugin, hook, settings, session, project) is one registry entry supplying
   `discover`, `read`, `capabilities`, `enable` and `disable`, and write
   permission is a kind × scope × operation lookup instead of a flag. Every
   entity now crosses the seam carrying its `kind` and what may be done to
-  it, so the UI can say *why* something is read-only. No mutation is wired
-  into the registry yet.
+  it, so the UI can say *why* something is read-only.
 - Enable and disable a skill from the skills view — kondo's first mutation. The
   skill directory moves between `skills` and `skills.disabled` in its own scope
   (ADR-0006), through the journal, so every toggle is undoable. Project skills
@@ -77,6 +75,20 @@ All notable changes to kondo are documented here. The format follows
   the history stays readable after the bytes behind it are gone. Undo and
   empty both re-read the journal and the trash size rather than patching what
   is on screen.
+- A mutation that fails part way is marked as such in the journal by a
+  following line (the file stays append-only) and listed as *failed*; undo of
+  it puts back only what actually ran.
+- A plugin row opens to list the skills it ships, read from the plugin's own
+  install tree when the row is opened and not before.
+- Projects are named through Claude's own registry: `~/.claude.json` keeps
+  the real path of every directory Claude Code has run in, and flattening it
+  with Claude's rule (`[^A-Za-z0-9]` → `-`) is an exact match for the
+  `~/.claude/projects` directory name (ADR-0009). Before this, kondo guessed
+  the path by reading every `-` as a separator, which could never name a
+  project with a hyphen in its path — on one machine 7 of 9,171 directories
+  resolved; now 1,443 do, and the rest are directories Claude has forgotten.
+  Every per-project feature (project skills, settings layers, plugin chips,
+  skill move destinations) sees those projects for the first time.
 
 ### Changed
 
@@ -97,6 +109,12 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- The cached session inventory is now dropped after a tidy sweep or an undo
+  whether or not it finished: a sweep that failed part way had already moved
+  transcripts the cache still listed, so the next preview showed them and
+  the next sweep refused whole.
+- The sidebar footer states the undo promise, and the skill-move collision
+  message names the destination that already holds the name.
 - A trash directory could not be created for a project store on Windows: the
   store name `project:<dirName>` was used verbatim as a path segment, and no
   Windows segment may hold a colon. Displaced bytes for a project-scope write

@@ -14,6 +14,7 @@ re-asked. Numbered, never renumbered; a superseded ADR stays and gains a
 - [0006 — Native conventions over invented state](0006-native-conventions-over-invented-state.md)
 - [0007 — Stat-first, lazy scanning](0007-stat-first-lazy-scanning.md)
 - [0008 — Composite identity, ids across the seam](0008-composite-identity-ids-across-the-seam.md)
+- [0009 — Projects come from Claude's registry](0009-projects-come-from-claudes-registry.md)
 
 ## Template
 
