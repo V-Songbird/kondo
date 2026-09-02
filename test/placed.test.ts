@@ -145,10 +145,28 @@ describe('placed entries: agents, commands, rules, output styles', () => {
         expect(entry.capabilities).toEqual(capabilitiesFor(kind, entry.scope))
       }
     }
-    // The registry's seats stay unwired, so no plan can be built either.
+    // The one plan seat answers the same way, quoting the row above. It
+    // refuses before reading anything, so the context it is handed can be
+    // one that would throw on every source.
     const agent = (await scan('agent'))[0]!
-    expect(kinds.agent.enable(agent)).toBeNull()
-    expect(kinds.agent.disable(agent)).toBeNull()
+    const context = createKindContext({
+      locator: world.locator,
+      c: collector(),
+      now: Date.now(),
+      inventory: async () => {
+        throw new Error('a refusal reads nothing')
+      },
+      projects: async () => {
+        throw new Error('a refusal reads nothing')
+      }
+    })
+    for (const op of ['enable', 'disable', 'move'] as const) {
+      const planned = await kinds.agent.plan(agent, { op }, context)
+      expect(planned.ok, op).toBe(false)
+      expect(planned.ok === false && planned.message).toBe(
+        capabilitiesFor('agent', agent.scope)[op].reason
+      )
+    }
   })
 
   it('degrades on missing directories and malformed frontmatter (ADR-0005)', async () => {

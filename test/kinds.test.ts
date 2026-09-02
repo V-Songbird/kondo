@@ -1,8 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import path from 'node:path'
-import type { EntityKind, KondoApi } from '../shared/contract'
+import type {
+  EntityKind,
+  KondoApi,
+  MutateRequest,
+  ToggleOperation
+} from '../shared/contract'
 import { capabilitiesFor, scopesFor } from '../electron/main/workspace/capabilities'
-import { createKindContext, kinds, type KindContext } from '../electron/main/workspace/kinds'
+import {
+  createKindContext,
+  kinds,
+  listingFor,
+  listingForId,
+  listings,
+  type KindContext
+} from '../electron/main/workspace/kinds'
 import { collector } from '../electron/main/workspace/scan'
 import { scanSessionInventory } from '../electron/main/workspace/sessions'
 import { createWorkspace } from '../electron/main/workspace/workspace'
@@ -15,9 +27,11 @@ import {
 } from './helpers'
 
 /**
- * The kind registry and the capability matrix. Two things are under test:
- * every kind supplies the same five members, and write permission is a
- * lookup on kind × scope × operation that a single boolean could not hold.
+ * The kind registry and the capability matrix. Three things are under test:
+ * every kind supplies the same three members, write permission is a lookup on
+ * kind × scope × operation that a single boolean could not hold, and one
+ * generic channel reaches every kind by the prefix of its id (ADR-0008) while
+ * the shipped channels keep working as aliases over it (ADR-0004).
  */
 
 describe('kind registry and capability matrix', () => {
@@ -76,16 +90,23 @@ describe('kind registry and capability matrix', () => {
   // -------------------------------------------------------------------------
   // The registry
 
-  it('every kind supplies discover, read, capabilities, enable and disable', () => {
+  it('every kind supplies discover, read and one plan seat', () => {
     const entries = Object.entries(kinds)
     expect(entries.length).toBeGreaterThan(0)
     for (const [name, definition] of entries) {
       expect(typeof definition.discover, `${name}.discover`).toBe('function')
       expect(typeof definition.read, `${name}.read`).toBe('function')
-      expect(typeof definition.capabilities, `${name}.capabilities`).toBe('function')
-      expect(typeof definition.enable, `${name}.enable`).toBe('function')
-      expect(typeof definition.disable, `${name}.disable`).toBe('function')
-      expect(definition.scopes.length, `${name}.scopes`).toBeGreaterThan(0)
+      expect(typeof definition.plan, `${name}.plan`).toBe('function')
+    }
+  })
+
+  it('gives every registry entry a listing row, and every row a live entry', () => {
+    const registered = new Set<unknown>(Object.values(kinds))
+    // Same set both ways: an entry with no row is unreachable by id, and a
+    // row pointing at nothing would dispatch into the void.
+    expect(new Set<unknown>(listings.map((listing) => listing.definition))).toEqual(registered)
+    for (const listing of listings) {
+      expect(listing.idPrefix.startsWith(`${listing.kind}:`), listing.idPrefix).toBe(true)
     }
   })
 
@@ -107,19 +128,30 @@ describe('kind registry and capability matrix', () => {
     expect(await kinds.session.discover(await context())).toBeNull()
   })
 
-  it('builds a plan only where the matrix permits one', async () => {
-    const skills = (await kinds.skill.discover(await context())) ?? []
+  it('builds a plan only where the matrix permits one, and keeps its reason', async () => {
+    const shared = await context()
+    const skills = (await kinds.skill.discover(shared)) ?? []
     const benched = skills.find((skill) => skill.scope === 'user-disabled')!
     expect(benched.capabilities.enable.allowed).toBe(true)
-    expect(kinds.skill.enable(benched)?.steps).toEqual([
+
+    const enabled = await kinds.skill.plan(benched, { op: 'enable' }, shared)
+    expect(enabled.ok && enabled.plan.steps).toEqual([
       { type: 'move', store: 'user', from: 'skills.disabled/beta-skill', to: 'skills/beta-skill' }
     ])
-    // The same entity, the direction the matrix refuses: no plan at all.
-    expect(kinds.skill.disable(benched)).toBeNull()
 
-    // A kind whose mutation has not shipped keeps its unwired seat.
-    const layers = (await kinds.settings.discover(await context())) ?? []
-    expect(kinds.settings.disable(layers[0]!)).toBeNull()
+    // The same entity, the direction the matrix refuses: no plan, and the
+    // matrix's own words rather than a generic error (ADR-0006).
+    const refused = await kinds.skill.plan(benched, { op: 'disable' }, shared)
+    expect(refused.ok).toBe(false)
+    expect(refused.ok === false && refused.code).toBe('not-permitted')
+    expect(refused.ok === false && refused.message).toBe(
+      capabilitiesFor('skill', 'user-disabled').disable.reason
+    )
+
+    // A kind with no mechanism answers the same way, in its own row's words.
+    const layers = (await kinds.settings.discover(shared)) ?? []
+    const layer = await kinds.settings.plan(layers[0]!, { op: 'disable' }, shared)
+    expect(layer.ok === false && layer.message).toContain('not a toggle')
   })
 
   // -------------------------------------------------------------------------
@@ -205,5 +237,101 @@ describe('kind registry and capability matrix', () => {
       expect(entry.kind).toBe('session')
       expect(entry.capabilities).toEqual(capabilitiesFor('session', 'desktop'))
     }
+  })
+
+  // -------------------------------------------------------------------------
+  // Dispatch by the id's kind prefix (ADR-0008)
+
+  it('picks the registry entry from the id prefix, longest match winning', () => {
+    expect(listingForId('skill:user:alpha-skill')?.definition).toBe(kinds.skill)
+    // The longer prefix wins, so a plugin's own skill never reaches the
+    // user's listing — where it would look mutable.
+    expect(listingForId('skill:plugin/alpha@acme:gamma-skill')?.definition).toBe(
+      kinds.pluginSkill
+    )
+    expect(listingForId('session:code:X--work-proj/abc')?.definition).toBe(kinds.session)
+    expect(listingForId('session:desktop:device-1/account-1/a')?.definition).toBe(
+      kinds.desktopSession
+    )
+    expect(listingForId('plugin:alpha@acme')?.definition).toBe(kinds.plugin)
+    expect(listingForId('output-style:user:terse')?.definition).toBe(kinds.outputStyle)
+    // An id no kind claims dispatches nowhere rather than to a default.
+    expect(listingForId('nonesuch:user:thing')).toBeNull()
+  })
+
+  it('picks a listing by kind, and by the parent id when one is given', () => {
+    expect(listingFor('skill')?.definition).toBe(kinds.skill)
+    expect(listingFor('skill', 'plugin:alpha@acme')?.definition).toBe(kinds.pluginSkill)
+    expect(listingFor('session')?.definition).toBe(kinds.desktopSession)
+    expect(listingFor('session', 'project:code:X--work-proj')?.definition).toBe(kinds.session)
+    // A parent of the wrong shape has no listing rather than the wrong one.
+    expect(listingFor('session', 'plugin:alpha@acme')).toBeNull()
+    expect(listingFor('hook', 'plugin:alpha@acme')).toBeNull()
+  })
+
+  it('mutates through one channel, and refuses in the matrix words', async () => {
+    // The skill kind: the prefix picks it, and the plan is applied.
+    const enabled = await api.entityMutate('skill:user-disabled:beta-skill', { op: 'enable' })
+    expect(enabled.errors).toEqual([])
+    expect(enabled.data?.summary).toContain('Enable skill beta-skill')
+
+    // A different kind down the same channel, refused by its own row rather
+    // than by a branch in the workspace.
+    const layers = await api.settingsLayers()
+    const layer = await api.entityMutate(layers.data[0]!.id, { op: 'disable' })
+    expect(layer.data).toBeNull()
+    expect(layer.errors[0]?.code).toBe('not-permitted')
+    expect(layer.errors[0]?.message).toContain('not a toggle')
+
+    // An id whose kind nothing claims, and an op that is not one.
+    const nowhere = await api.entityMutate('nonesuch:user:thing', { op: 'enable' })
+    expect(nowhere.errors[0]?.code).toBe('bad-request')
+    const notAnOp = await api.entityMutate('skill:user:alpha-skill', {
+      op: 'clear'
+    } as unknown as MutateRequest)
+    expect(notAnOp.errors[0]?.code).toBe('bad-request')
+  })
+
+  // -------------------------------------------------------------------------
+  // The shipped channels, now aliases (ADR-0004)
+
+  it('answers the shipped listing channels with entityList', async () => {
+    expect((await api.skillsList()).data).toEqual((await api.entityList('skill')).data)
+    expect((await api.hooksList()).data).toEqual((await api.entityList('hook')).data)
+    expect((await api.settingsLayers()).data).toEqual((await api.entityList('settings')).data)
+    expect((await api.pluginsList()).data).toEqual((await api.entityList('plugin')).data)
+    expect((await api.desktopSessions()).data).toEqual((await api.entityList('session')).data)
+
+    const pluginId = (await api.pluginsList()).data[0]!.id
+    expect((await api.pluginSkills(pluginId)).data).toEqual(
+      (await api.entityList('skill', pluginId)).data
+    )
+    // The parentless guard the alias kept: its own message, not the generic
+    // listing's.
+    expect((await api.pluginSkills('skill:user:alpha-skill')).errors[0]?.message).toContain(
+      'expects a plugin: id'
+    )
+  })
+
+  it('answers the shipped mutation channels with entityMutate', async () => {
+    const layerId = (await api.settingsLayers()).data[0]!.id
+    // Same refusal from the alias and from the generic call — the plugin
+    // toggle's layer travels as targetId either way.
+    const viaAlias = await api.pluginToggle('plugin:alpha@acme', layerId, 'enable')
+    const viaGeneric = await api.entityMutate('plugin:alpha@acme', {
+      op: 'enable',
+      targetId: layerId
+    })
+    expect(viaAlias.errors).toEqual(viaGeneric.errors)
+    expect(viaAlias.data).toBeNull()
+
+    // `move` was never legal on skillToggle and still is not, even though
+    // entityMutate accepts it.
+    const sideways = await api.skillToggle(
+      'skill:user:alpha-skill',
+      'move' as unknown as ToggleOperation
+    )
+    expect(sideways.errors[0]?.code).toBe('bad-request')
+    expect(sideways.errors[0]?.message).toContain('enable or disable')
   })
 })
