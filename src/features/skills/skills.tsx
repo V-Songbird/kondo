@@ -42,13 +42,18 @@ interface Destination {
  * `user` and the project ids from the last scan are passed straight back —
  * and the current scope is not filtered out, because main is the one that
  * knows where the skill already lives and says so in its refusal.
+ *
+ * Filtered on `hasStore`: the project set holds every project Claude knows
+ * about, and one without a `.claude` directory is a real project that is not
+ * a store. Main refuses such a move by name anyway; leaving it out of the
+ * picker means the user never picks a dead end to find that out.
  */
 function destinationsFrom(projects: SessionProject[] | undefined): Destination[] {
   return [
     { id: 'user', label: 'global (~/.claude)' },
     ...(projects ?? [])
-      .filter((project) => project.guessedPath !== null)
-      .map((project) => ({ id: project.id, label: project.guessedPath as string }))
+      .filter((project) => project.hasStore)
+      .map((project) => ({ id: project.id, label: project.guessedPath ?? project.dirName }))
   ]
 }
 

@@ -76,7 +76,12 @@ only the parts named here (ADR-0009):
   (empty arrays here), `allowedTools`. The rest — `lastSessionFirstPrompt`,
   `lastCost`, token counts, `lastSessionId` — is session telemetry kondo
   never surfaces. 52 keys pointed at directories that no longer exist ✅:
-  that is the dead-project signal (entry 030).
+  that is the dead-project signal (entry 030). These keys are also **half of
+  the project set**: kondo lists the union of them and the `projects/`
+  directories below, joined on the flattened path, so a directory Claude has
+  registered but never kept a transcript for is still a project. Each member
+  carries `sources` (`registry`, `transcripts`, or both), `pathExists`, and
+  `hasStore` — the last being whether it holds a `.claude` at all.
 - `mcpServers` ✅ — user-scope MCP servers: `{ name → { type, command, args,
   env } | { type, url, headers } }`. `env` and `headers` can hold secrets.
 - `skillUsage` and `pluginUsage` ✅ — usage counters keyed by skill and
@@ -173,7 +178,11 @@ kondo does not read it.
   these as layers, and the plugins view resolves a plugin's state through
   them: the highest layer that states a value is the one that wins. Layers
   belonging to different projects share a rank — Claude resolves settings per
-  session, so across projects there is no ordering to have.
+  session, so across projects there is no ordering to have. That makes the
+  resolution **per project**, not global: `PluginInfo.effectiveIn` holds one
+  answer per project (its `local`, then its `project`, then the shared
+  `user` layer) plus one for the user scope on its own. A plugin no layer
+  mentions resolves nowhere and `effectiveIn` is empty.
 
 ## Desktop store
 
@@ -201,7 +210,18 @@ bulk size. The Claude-specific parts ✅:
   joined. `session-env/` held 5,213 directories against 11,686 transcripts ✅
   — the orphan-sweep candidate entry 033 names.
 - A project is joined across `~/.claude.json`, `~/.claude/projects/` and
-  `<project>/.claude` by its flattened path (ADR-0009).
+  `<project>/.claude` by its flattened path (ADR-0009). The project set is
+  the **union** of the first two, never just one of them, and each member
+  says which of them named it. A registry key whose directory is gone stays
+  in the set with `pathExists: false`; one whose directory has no `.claude`
+  stays with `hasStore: false`. Only a member with `hasStore` is a store, so
+  only one of those can take a skill — a move into any other is refused as a
+  `bad-request` naming the `.claude` directory that would have to exist.
+- Which project a thing belongs to travels as a field, never as a substring
+  of its id (ADR-0008): `SkillInfo`, `HookInfo`, `SettingsLayerInfo` and
+  `PluginScopeState` each carry `projectId`. The folder name beside it
+  (`PluginScopeState.projectLabel`) is for display only — two projects can
+  share one.
 - Timestamps are ISO-8601 strings in JSON files ✅; file mtimes are the
   fallback signal and are what staleness uses first (cheap).
 - All JSON/JSONL reads assume partial corruption is possible (interrupted

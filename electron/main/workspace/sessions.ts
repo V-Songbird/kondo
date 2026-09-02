@@ -1,6 +1,11 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { Scan, SessionProject, SessionSummary } from '../../../shared/contract'
+import type {
+  ProjectSource,
+  Scan,
+  SessionProject,
+  SessionSummary
+} from '../../../shared/contract'
 import type { StoreLocator } from './locator'
 import {
   collector,
@@ -47,10 +52,22 @@ export interface SessionRecord {
 
 export interface ProjectRecord {
   dirName: string
+  /** The `~/.claude/projects/<dirName>` directory — never the project itself. */
   absPath: string
+  /**
+   * The project's real directory: the registry's key when it has one
+   * (ADR-0009), otherwise the un-flattening guess, kept only when it
+   * verified. Null when neither names a path.
+   */
   guessedPath: string | null
   sessions: SessionRecord[]
   orphanDirs: string[]
+  /** Which of the two halves of the union named it; never empty. */
+  sources: ProjectSource[]
+  /** `guessedPath` is on disk — false for a registry key left behind. */
+  pathExists: boolean
+  /** It has a `.claude` directory, so it is a store kondo can write into. */
+  hasStore: boolean
 }
 
 export interface SessionInventory {
@@ -89,9 +106,21 @@ export async function scanSessionInventory(
   )
   const registered = projectIndex(registeredProjectPaths(config))
 
-  const projects = await mapPool(projectDirs, 16, async (dir) =>
-    scanProject(root, dir.name, rootDisplay, platform, exists, registered, c)
-  )
+  // The project set is the union of the two halves (domain.md), joined on the
+  // flattened path: a directory here means Claude kept transcripts, a registry
+  // key means Claude knows the path. A key with no transcripts is a project
+  // that has simply not been worked in yet — an omission, not a non-project.
+  const onDisk = new Set(projectDirs.map((dir) => dir.name))
+  const registryOnly = [...registered.keys()].filter((flat) => !onDisk.has(flat))
+
+  const projects = [
+    ...(await mapPool(projectDirs, 16, async (dir) =>
+      scanProject(root, dir.name, rootDisplay, locator.home, platform, exists, registered, c)
+    )),
+    ...(await mapPool(registryOnly, 16, async (flat) =>
+      registryProject(root, flat, registered.get(flat) as string, locator.home, exists, c)
+    ))
+  ]
 
   projects.sort((a, b) => a.dirName.localeCompare(b.dirName))
   const byDirName = new Map(projects.map((project) => [project.dirName, project]))
@@ -102,6 +131,7 @@ async function scanProject(
   root: string,
   dirName: string,
   rootDisplay: string,
+  home: string,
   platform: NodeJS.Platform,
   exists: ExistsFn,
   registered: ReadonlyMap<string, string>,
@@ -148,9 +178,76 @@ async function scanProject(
     (name) => !transcriptUuids.has(name.toLowerCase())
   )
 
-  const guessedPath = await guessOriginalPath(dirName, platform, exists, registered)
   sessions.sort((a, b) => b.mtimeMs - a.mtimeMs)
-  return { dirName, absPath, guessedPath, sessions, orphanDirs }
+  return {
+    dirName,
+    absPath,
+    ...(await locate(dirName, home, platform, exists, registered, c)),
+    sessions,
+    orphanDirs
+  }
+}
+
+/**
+ * A project the registry names and `projects/` does not: no transcripts, no
+ * orphans, and no directory under the user store to read. Its record exists so
+ * a listing can still show it, say where it is, and — when it has a `.claude`
+ * — offer it as a destination.
+ */
+async function registryProject(
+  root: string,
+  dirName: string,
+  absPath: string,
+  home: string,
+  exists: ExistsFn,
+  c: Collector
+): Promise<ProjectRecord> {
+  const pathExists = await exists(absPath)
+  return {
+    dirName,
+    absPath: path.join(root, dirName),
+    guessedPath: absPath,
+    sessions: [],
+    orphanDirs: [],
+    sources: ['registry'],
+    pathExists,
+    hasStore: pathExists && (await hasClaudeDir(absPath, home, c))
+  }
+}
+
+/** Where a project really is, whether it is still there, and whether it is a store. */
+async function locate(
+  dirName: string,
+  home: string,
+  platform: NodeJS.Platform,
+  exists: ExistsFn,
+  registered: ReadonlyMap<string, string>,
+  c: Collector
+): Promise<Pick<ProjectRecord, 'guessedPath' | 'sources' | 'pathExists' | 'hasStore'>> {
+  // The registry's key IS the path (ADR-0009), so it is kept even when the
+  // stat says the directory is gone — that is the dead-project signal, and a
+  // name the UI can show. The un-flattening guess only proposes a path, so it
+  // survives solely when it verified.
+  const known = registered.get(dirName) ?? null
+  const guessedPath = known ?? (await guessOriginalPath(dirName, platform, exists))
+  const pathExists = known === null ? guessedPath !== null : await exists(known)
+  return {
+    guessedPath,
+    sources: known === null ? ['transcripts'] : ['registry', 'transcripts'],
+    pathExists,
+    hasStore:
+      pathExists && guessedPath !== null && (await hasClaudeDir(guessedPath, home, c))
+  }
+}
+
+/**
+ * ADR-0002 allows exactly this much of a project: a stat on its `.claude`,
+ * never a listing of anything above it. A missing one is not an error — it is
+ * a project kondo has nothing to write into.
+ */
+async function hasClaudeDir(absPath: string, home: string, c: Collector): Promise<boolean> {
+  const dir = path.join(absPath, '.claude')
+  return (await safeStat(dir, tildify(dir, home), c))?.isDirectory() === true
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +272,9 @@ export function toSessionProjects(
     capabilities,
     dirName: project.dirName,
     guessedPath: project.guessedPath,
+    sources: project.sources,
+    pathExists: project.pathExists,
+    hasStore: project.hasStore,
     sessionCount: project.sessions.length,
     transcriptBytes: project.sessions.reduce((sum, s) => sum + s.bytes, 0),
     lastActivityMs: project.sessions.reduce((max, s) => Math.max(max, s.mtimeMs), 0),

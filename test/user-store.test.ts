@@ -88,6 +88,27 @@ describe('user store adapter', () => {
     expect(layers.find((layer) => layer.info.layer === 'local')!.info.exists).toBe(true)
   })
 
+  it('names the project every layer, hook and skill belongs to (ADR-0008)', async () => {
+    const c = collector()
+    const layers = await readSettingsLayers(world.locator, verified, c)
+    const owner = 'project:code:X--work-proj'
+
+    // Attribution is a field on the DTO. Nothing downstream has to split
+    // `settings:local:X--work-proj` to learn whose layer it is.
+    expect(layers.find((layer) => layer.info.layer === 'user')!.info.projectId).toBeNull()
+    expect(layers.find((layer) => layer.info.layer === 'project')!.info.projectId).toBe(owner)
+    expect(layers.find((layer) => layer.info.layer === 'local')!.info.projectId).toBe(owner)
+
+    // A hook takes the projectId of the layer that arms it.
+    for (const hook of hooksFromLayers(layers)) expect(hook.projectId).toBeNull()
+
+    const skills = await scanSkills(world.locator, verified, c)
+    const delta = skills.find((skill) => skill.name === 'delta-skill')!
+    expect(delta.projectId).toBe(owner)
+    expect(skills.find((skill) => skill.name === 'alpha-skill')!.projectId).toBeNull()
+    expect(skills.find((skill) => skill.name === 'beta-skill')!.projectId).toBeNull()
+  })
+
   it('extracts hooks with event, matcher, and source layer', async () => {
     const c = collector()
     const layers = await readSettingsLayers(world.locator, verified, c)

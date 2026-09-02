@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import type { KondoApi, PluginInfo, ToggleOperation } from '../shared/contract'
+import type {
+  KondoApi,
+  PluginInfo,
+  PluginScopeState,
+  ToggleOperation
+} from '../shared/contract'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   exists,
@@ -170,30 +175,51 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     ])
   })
 
-  it.runIf(TMP_OK)('names the project each layer belongs to', async () => {
+  it.runIf(TMP_OK)('names the project each layer belongs to, by id and by label', async () => {
     // Two layers per project all read "project" and "local"; the owning
-    // folder is the only thing that tells one project's pair from another's.
+    // project is the only thing that tells one project's pair from another's,
+    // and the id is what tells apart two projects sharing a folder name.
     const scopes = (await plugin(ALPHA)).scopes
-    expect(scopes.find((scope) => scope.layer === 'user')?.project).toBeNull()
-    expect(scopes.find((scope) => scope.layer === 'project')?.project).toBe('proj')
-    expect(scopes.find((scope) => scope.layer === 'local')?.project).toBe('proj')
+    const at = (layer: string): PluginScopeState =>
+      scopes.find((scope) => scope.layer === layer) as PluginScopeState
+    expect(at('user').projectId).toBeNull()
+    expect(at('user').projectLabel).toBeNull()
+    expect(at('project').projectId).toBe(`project:code:${dirName}`)
+    expect(at('local').projectId).toBe(`project:code:${dirName}`)
+    expect(at('project').projectLabel).toBe('proj')
+    expect(at('local').projectLabel).toBe('proj')
   })
 
-  it.runIf(TMP_OK)('lets the highest layer that states a value win', async () => {
-    // Only the user layer speaks about alpha to begin with.
-    expect((await plugin(ALPHA)).winningLayerId).toBe(USER_LAYER)
+  it.runIf(TMP_OK)('resolves the winning layer per project, local over project over user', async () => {
+    const owner = `project:code:${dirName}`
+    const at = (info: PluginInfo, projectId: string | null): string | undefined =>
+      info.effectiveIn.find((state) => state.projectId === projectId)?.layerId
+
+    // Only the user layer speaks about alpha to begin with, so it stands both
+    // for the user scope and, by falling through, inside the project.
+    const first = await plugin(ALPHA)
+    expect(at(first, null)).toBe(USER_LAYER)
+    expect(at(first, owner)).toBe(USER_LAYER)
 
     await api.pluginToggle(ALPHA, `settings:project:${dirName}`, 'disable')
     const withProject = await plugin(ALPHA)
-    expect(withProject.winningLayerId).toBe(`settings:project:${dirName}`)
+    // The project override wins inside that project and nowhere else: the
+    // user scope's own answer is untouched.
+    expect(at(withProject, owner)).toBe(`settings:project:${dirName}`)
+    expect(withProject.effectiveIn.find((state) => state.projectId === owner)?.enabled).toBe(
+      false
+    )
+    expect(at(withProject, null)).toBe(USER_LAYER)
     expect(withProject.scopes.find((scope) => scope.layer === 'user')?.enabled).toBe(true)
 
     await api.pluginToggle(ALPHA, `settings:local:${dirName}`, 'enable', true)
-    expect((await plugin(ALPHA)).winningLayerId).toBe(`settings:local:${dirName}`)
+    const withLocal = await plugin(ALPHA)
+    expect(at(withLocal, owner)).toBe(`settings:local:${dirName}`)
+    expect(withLocal.effectiveIn.find((state) => state.projectId === owner)?.enabled).toBe(true)
   })
 
   it('says no layer wins when none mentions the plugin', async () => {
-    expect((await plugin(GAMMA)).winningLayerId).toBeNull()
+    expect((await plugin(GAMMA)).effectiveIn).toEqual([])
     expect((await plugin(GAMMA)).enabledIn).toEqual([])
   })
 

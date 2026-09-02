@@ -48,5 +48,23 @@ Decision, two halves:
   settings layer shares — is Claude's flattened path (ADR-0009). Kinds still
   to come (`mcp`, `agent`, `command`, `rule`) take it unchanged.
 - Attribution travels as fields, never by parsing an id: when a view needs
-  to know which project an entity belongs to, the DTO carries `projectId`
-  (entry 025) — the renderer may not split an id to find out.
+  to know which project an entity belongs to, the DTO carries `projectId` —
+  the renderer may not split an id to find out. As built (entry 025) that is
+  `SkillInfo`, `HookInfo`, `SettingsLayerInfo` and `PluginScopeState`, each
+  holding a `project:code:<flat>` id or null for the user scope. A folder
+  name is not an id and never keys anything: `PluginScopeState.projectLabel`
+  exists only to be displayed, because two projects can both be called `app`.
+- A resolution that depends on the project resolves per project. A plugin's
+  winning settings layer was one global answer (`winningLayerId`) until it
+  had to serve a per-project page; it is now `PluginInfo.effectiveIn`, one
+  entry per project plus one for the user scope, each naming the layer whose
+  value stands there.
+- The project set is the union of Claude's two records of a project — the
+  `projects` keys of `~/.claude.json` and the directories under
+  `~/.claude/projects` — joined on the flattened path. `SessionProject`
+  therefore says which half named it (`sources`), whether its directory is
+  still on disk (`pathExists`), and whether it holds a `.claude` at all
+  (`hasStore`). A member with `hasStore: false` is a project kondo can name
+  and cannot write into; the skill-move picker filters on that field, and the
+  workspace refuses such a destination as `bad-request` naming the missing
+  directory rather than as an id it never heard of.

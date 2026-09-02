@@ -139,12 +139,37 @@ export interface StoresOverview {
 // ---------------------------------------------------------------------------
 // Sessions (Claude Code store)
 
+/**
+ * Where a project came from. The project set is the union of the two
+ * (domain.md): a directory under `~/.claude/projects` means Claude has kept
+ * transcripts there, a `~/.claude.json` key means Claude has the path on
+ * record. Most projects are both; either one alone is still a project.
+ */
+export type ProjectSource = 'registry' | 'transcripts'
+
 export interface SessionProject extends EntityIdentity {
   /** `project:code:<dirName>` */
   id: string
   dirName: string
-  /** Reconstructed original working directory, if a candidate verified. */
+  /**
+   * The project's real directory: exact when the registry names it
+   * (ADR-0009), otherwise the un-flattening guess, which is kept only when
+   * it verified. Null when neither names one.
+   */
   guessedPath: string | null
+  /** Which sources named this project; never empty. */
+  sources: ProjectSource[]
+  /**
+   * `guessedPath` is on disk. False for a registry key whose directory has
+   * been deleted — still a member of the set, with nothing behind it.
+   */
+  pathExists: boolean
+  /**
+   * It has a `.claude` directory, so it is a store kondo can write into
+   * (ADR-0002). A project without one is a real member of the set; it is
+   * simply not somewhere a skill can be moved.
+   */
+  hasStore: boolean
   sessionCount: number
   transcriptBytes: number
   lastActivityMs: number
@@ -203,6 +228,12 @@ export interface SkillInfo extends EntityIdentity {
   /** Display path of the skill directory (tildified). */
   origin: string
   enabled: boolean
+  /**
+   * The `project:code:<dirName>` id of the project this skill belongs to, or
+   * null for a user-scope or plugin-shipped one. Attribution travels as this
+   * field (ADR-0008) — the renderer joins on it and never splits an id.
+   */
+  projectId: string | null
 }
 
 /**
@@ -215,12 +246,16 @@ export interface PluginScopeState {
   layerId: string
   layer: 'user' | 'project' | 'local'
   /**
-   * The project this layer belongs to, by its directory name, or null for
-   * the user layer. Several projects each contribute a `project` and a
-   * `local` layer, so this is what tells two identically-labelled scopes
-   * apart.
+   * The `project:code:<dirName>` id of the project this layer belongs to, or
+   * null for the user layer. The join key (ADR-0008): two projects can share
+   * a folder name, so only this tells their layers apart.
    */
-  project: string | null
+  projectId: string | null
+  /**
+   * That project's folder name, for display. Not unique — two projects can
+   * both be called `app` — so it labels a row and never keys one.
+   */
+  projectLabel: string | null
   /** Display path of the settings file (tildified). */
   path: string
   exists: boolean
@@ -249,10 +284,22 @@ export interface PluginInfo extends EntityIdentity {
    */
   scopes: PluginScopeState[]
   /**
-   * The layer whose value Claude honours: the first in `scopes` that states
-   * one. Null when no layer mentions the plugin at all.
+   * What Claude actually honours, resolved once per project. Precedence is a
+   * per-project chain (domain.md) — that project's `local`, then its
+   * `project`, then the shared `user` layer — so one global winner cannot
+   * describe a machine with more than one project. Empty when no layer
+   * mentions the plugin at all.
    */
-  winningLayerId: string | null
+  effectiveIn: PluginEffectiveState[]
+}
+
+/** One project's answer for one plugin: which layer won, and what it said. */
+export interface PluginEffectiveState {
+  /** `project:code:<dirName>`, or null for the user scope's own answer. */
+  projectId: string | null
+  /** The `settings:<layer>:<key>` id of the layer whose value stands. */
+  layerId: string
+  enabled: boolean
 }
 
 /**
@@ -310,6 +357,11 @@ export interface HookInfo extends EntityIdentity {
   /** Display path of the settings file that arms it. */
   source: string
   layer: 'user' | 'project' | 'local'
+  /**
+   * The `project:code:<dirName>` id of the project whose settings arm it, or
+   * null for the user layer (ADR-0008).
+   */
+  projectId: string | null
 }
 
 export interface SettingsLayerInfo extends EntityIdentity {
@@ -321,6 +373,11 @@ export interface SettingsLayerInfo extends EntityIdentity {
   exists: boolean
   bytes: number
   keys: string[]
+  /**
+   * The `project:code:<dirName>` id of the project this layer belongs to, or
+   * null for the user layer (ADR-0008).
+   */
+  projectId: string | null
 }
 
 // ---------------------------------------------------------------------------

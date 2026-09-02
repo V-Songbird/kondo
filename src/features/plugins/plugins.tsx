@@ -11,24 +11,38 @@ const WITHIN_PROJECT: Record<PluginScopeState['layer'], number> = {
   local: 2
 }
 
+/** One project's chips: its id, the name to show, and its layers in order. */
+interface OwnerGroup {
+  key: string
+  label: string
+  scopes: PluginScopeState[]
+}
+
 /**
  * The layers grouped by the project they belong to, user layer first. Every
  * project contributes a `project` and a `local` layer, so ungrouped the
  * chips are a row of identical words — the owner is the only thing that
- * tells them apart.
+ * tells them apart. Grouped by `projectId` and not by the folder name, since
+ * two projects can share a name (ADR-0008).
  */
-function byOwner(scopes: PluginScopeState[]): Array<[string, PluginScopeState[]]> {
-  const groups = new Map<string, PluginScopeState[]>()
+function byOwner(scopes: PluginScopeState[]): OwnerGroup[] {
+  const groups = new Map<string, OwnerGroup>()
   for (const scope of scopes) {
-    const owner = scope.project ?? ''
-    groups.set(owner, [...(groups.get(owner) ?? []), scope])
+    const key = scope.projectId ?? ''
+    const group = groups.get(key) ?? {
+      key,
+      label: scope.projectLabel ?? 'global',
+      scopes: []
+    }
+    group.scopes.push(scope)
+    groups.set(key, group)
   }
-  return [...groups.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([owner, list]) => [
-      owner,
-      [...list].sort((a, b) => WITHIN_PROJECT[a.layer] - WITHIN_PROJECT[b.layer])
-    ])
+  return [...groups.values()]
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((group) => ({
+      ...group,
+      scopes: [...group.scopes].sort((a, b) => WITHIN_PROJECT[a.layer] - WITHIN_PROJECT[b.layer])
+    }))
 }
 
 /** What a click on this scope would do — a layer that is silent gets enabled. */
@@ -129,9 +143,15 @@ export function Plugins() {
     }
   }
 
-  const chip = (plugin: PluginInfo, scope: PluginScopeState): React.ReactElement => {
+  const chip = (
+    plugin: PluginInfo,
+    scope: PluginScopeState,
+    winners: ReadonlySet<string>
+  ): React.ReactElement => {
     const decision = scope.capabilities[operationFor(scope)]
-    const wins = scope.layerId === plugin.winningLayerId
+    // Precedence is per project (domain.md), so a layer can be the one that
+    // stands for its own project and say nothing about anyone else's.
+    const wins = winners.has(scope.layerId)
     return (
       <button
         key={scope.layerId}
@@ -189,7 +209,9 @@ export function Plugins() {
               </tr>
             </thead>
             <tbody>
-              {scan.data.map((plugin) => (
+              {scan.data.map((plugin) => {
+                const winners = new Set(plugin.effectiveIn.map((state) => state.layerId))
+                return (
                 <Fragment key={plugin.id}>
                   <tr>
                     <td className="font-mono">
@@ -215,18 +237,18 @@ export function Plugins() {
                     </td>
                     <td>
                       <div className="flex flex-col gap-1">
-                        {plugin.winningLayerId === null && (
+                        {plugin.effectiveIn.length === 0 && (
                           <span className="pill w-fit text-warn">enabled nowhere</span>
                         )}
-                        {byOwner(plugin.scopes).map(([owner, scopes]) => (
-                          <div key={owner} className="flex items-center gap-1">
+                        {byOwner(plugin.scopes).map((group) => (
+                          <div key={group.key} className="flex items-center gap-1">
                             <span
                               className="w-44 shrink-0 truncate text-right font-mono text-xs text-mut"
-                              title={owner === '' ? 'user settings' : owner}
+                              title={group.key === '' ? 'user settings' : group.key}
                             >
-                              {owner === '' ? 'global' : owner}
+                              {group.key === '' ? 'global' : group.label}
                             </span>
-                            {scopes.map((scope) => chip(plugin, scope))}
+                            {group.scopes.map((scope) => chip(plugin, scope, winners))}
                           </div>
                         ))}
                       </div>
@@ -240,7 +262,8 @@ export function Plugins() {
                     </tr>
                   )}
                 </Fragment>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         )}

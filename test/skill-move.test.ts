@@ -12,6 +12,7 @@ import {
   healthyTranscript,
   makeWorld,
   recordWrites,
+  registerProjects,
   skillManifest,
   UUID_A,
   UUID_B,
@@ -89,6 +90,33 @@ describe('skill move between scopes (ADR-0001)', () => {
     (await api.skillsList()).data.map((skill) => skill.id)
 
   const projectId = (dir: string): string => `project:code:${flattenPath(dir)}`
+
+  it('refuses a move into a project the registry names but has no .claude', async () => {
+    // A project Claude has run in that carries no store of its own. It is a
+    // real member of the project set — not an omission — and it is still not
+    // somewhere kondo can put a skill (ADR-0002).
+    const bare = path.join(world.base, 'work', 'bare')
+    await writeFileTree(bare, { 'README.md': 'known to Claude, no store inside' })
+    await registerProjects(world, [workdir, otherdir, bare])
+    const fresh = createWorkspace({ locator: world.locator, platform: process.platform })
+
+    const listed = (await fresh.sessionProjects()).data.find(
+      (project) => project.dirName === flattenPath(bare)
+    )!
+    expect(listed.sources).toEqual(['registry'])
+    expect(listed.pathExists).toBe(true)
+    expect(listed.hasStore).toBe(false)
+
+    const refusal = await fresh.skillMove('skill:user:alpha-skill', projectId(bare))
+    expect(refusal.data).toBeNull()
+    expect(refusal.errors[0]?.code).toBe('bad-request')
+    // The refusal names the directory that would have to exist first, rather
+    // than reporting an id nobody has heard of.
+    expect(refusal.errors[0]?.message).toContain(path.join(bare, '.claude'))
+    // Nothing was written, and the skill is where it was.
+    expect(await exists(path.join(world.userRoot, 'skills', 'alpha-skill'))).toBe(true)
+    expect(await exists(path.join(bare, '.claude'))).toBe(false)
+  })
 
   // ---------------------------------------------------------------------------
   // The three directions

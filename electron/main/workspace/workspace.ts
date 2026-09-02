@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
   JournalEntryInfo,
@@ -12,7 +11,7 @@ import type {
   ToggleOperation
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
-import { collector, describe, finish, mapPool, type Collector } from './scan'
+import { collector, describe, finish, type Collector } from './scan'
 import {
   createKindContext,
   kinds,
@@ -53,6 +52,9 @@ export interface WorkspaceOptions {
 /** The store-name prefix a project's `.claude` root answers to (ADR-0008). */
 const PROJECT_STORE = 'project:'
 
+/** The id prefix every project in the session store answers to (ADR-0008). */
+const PROJECT_ID_PREFIX = 'project:code:'
+
 interface InventoryState {
   scan: Scan<SessionInventory>
   verified: VerifiedProject[]
@@ -81,8 +83,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     if (!inventoryState || refresh) {
       inventoryState = (async () => {
         const scan = await scanSessionInventory(locator, platform, options.guessExists)
-        const verified = await verifyProjects(scan.data.projects)
-        return { scan, verified }
+        return { scan, verified: verifyProjects(scan.data.projects) }
       })()
     }
     return inventoryState
@@ -97,24 +98,18 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     inventoryState = null
   }
 
-  /** Projects whose reconstructed path exists AND has a .claude directory. */
-  const verifyProjects = async (projects: ProjectRecord[]): Promise<VerifiedProject[]> => {
-    const guessed = projects.filter(
-      (project): project is ProjectRecord & { guessedPath: string } =>
-        project.guessedPath !== null
-    )
-    const checked = await mapPool(guessed, 16, async (project) => {
-      try {
-        const info = await fs.stat(path.join(project.guessedPath, '.claude'))
-        return info.isDirectory()
-          ? { dirName: project.dirName, absPath: project.guessedPath }
-          : null
-      } catch {
-        return null
-      }
-    })
-    return checked.filter((project): project is VerifiedProject => project !== null)
-  }
+  /**
+   * Projects that are stores: the path resolved and holds a `.claude`. The
+   * inventory already stat'd for that (`hasStore`), so this is a filter over
+   * what it found rather than a second pass over the same directories.
+   */
+  const verifyProjects = (projects: ProjectRecord[]): VerifiedProject[] =>
+    projects
+      .filter((project) => project.hasStore && project.guessedPath !== null)
+      .map((project) => ({
+        dirName: project.dirName,
+        absPath: project.guessedPath as string
+      }))
 
   /**
    * One context per call: the kinds share this call's collector and read the
@@ -135,6 +130,20 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     errors: [{ code: 'bad-request', path: '(request)', message }],
     unknown: []
   })
+
+  /**
+   * The refusal message for a destination that names a project kondo knows
+   * about but cannot write into, or null when the destination is fine as far
+   * as this check goes.
+   */
+  const storelessDestination = async (destinationId: string): Promise<string | null> => {
+    if (!destinationId.startsWith(PROJECT_ID_PREFIX)) return null
+    const dirName = destinationId.slice(PROJECT_ID_PREFIX.length)
+    const record = (await inventory()).scan.data.byDirName.get(dirName)
+    if (!record || record.hasStore) return null
+    const where = record.guessedPath ?? record.dirName
+    return `${where} has no .claude directory; create ${path.join(where, '.claude')} before moving a skill there.`
+  }
 
   const unknownId = <T>(data: T, id: string): Scan<T> => ({
     data,
@@ -266,6 +275,13 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       if (typeof destinationId !== 'string' || destinationId === '') {
         return badRequest(null, 'skillMove expects a destination scope id.')
       }
+      // A project with no `.claude` is a real member of the project set and
+      // still not a store (ADR-0002), so it is refused by name rather than
+      // reported as an id nobody has heard of — the UI can say which
+      // directory would have to exist first.
+      const storeless = await storelessDestination(destinationId)
+      if (storeless !== null) return badRequest(null, storeless)
+
       const c = collector()
       const shared = context(c)
       // One listing, used twice: the skill being moved and the destination's

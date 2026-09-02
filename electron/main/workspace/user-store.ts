@@ -4,6 +4,7 @@ import type {
   HookInfo,
   McpScope,
   McpServerInfo,
+  PluginEffectiveState,
   PluginInfo,
   PluginScopeState,
   SettingsLayerInfo,
@@ -22,6 +23,7 @@ import {
 } from './scan'
 import { capabilitiesFor } from './capabilities'
 import { flattenProjectPath } from './projects'
+import { projectId } from './sessions'
 import { readFrontmatter } from './frontmatter'
 import { tildify, truncate } from './display'
 
@@ -102,7 +104,8 @@ export async function readSettingsLayers(
     root: string,
     store: string,
     relative: string,
-    owner: string | null
+    owner: string | null,
+    ownerId: string | null
   ): Promise<void> => {
     const file = path.join(root, relative)
     const display = tildify(file, locator.home)
@@ -112,7 +115,10 @@ export async function readSettingsLayers(
       kind: 'settings' as const,
       capabilities: capabilitiesFor('settings', layer),
       layer,
-      path: display
+      path: display,
+      // ADR-0008: which project a layer belongs to travels as a field, so no
+      // reader has to split `settings:local:<flat>` to find out.
+      projectId: ownerId
     }
     if (!stat) {
       layers.push({
@@ -159,7 +165,7 @@ export async function readSettingsLayers(
     })
   }
 
-  await read('settings:user:user', 'user', locator.userRoot, 'user', SETTINGS_FILE, null)
+  await read('settings:user:user', 'user', locator.userRoot, 'user', SETTINGS_FILE, null, null)
   for (const project of projects) {
     // ADR-0002: the project store is its .claude directory, and both of its
     // layers live directly inside it.
@@ -168,13 +174,15 @@ export async function readSettingsLayers(
     // The folder name, not the flattened one: this is what the UI shows to
     // tell one project's two layers from another's.
     const owner = path.basename(project.absPath)
+    const ownerId = projectId(project.dirName)
     await read(
       `settings:project:${project.dirName}`,
       'project',
       claudeDir,
       store,
       SETTINGS_FILE,
-      owner
+      owner,
+      ownerId
     )
     await read(
       `settings:local:${project.dirName}`,
@@ -182,7 +190,8 @@ export async function readSettingsLayers(
       claudeDir,
       store,
       SETTINGS_LOCAL_FILE,
-      owner
+      owner,
+      ownerId
     )
   }
   return layers
@@ -222,7 +231,8 @@ export function hooksFromLayers(layers: SettingsLayer[]): HookInfo[] {
             matcher,
             command: typeof command === 'string' ? truncate(command, 200) : '(not a command)',
             source: layer.info.path,
-            layer: layer.info.layer
+            layer: layer.info.layer,
+            projectId: layer.info.projectId
           })
         }
       }
@@ -250,11 +260,21 @@ export async function scanPlugins(
   const plugins = (json as Record<string, unknown>)['plugins']
   if (typeof plugins !== 'object' || plugins === null) return []
 
-  // Precedence order once, for every plugin: the first layer in it that
-  // states a value is the one Claude honours.
+  // Display order for the whole row, unchanged: local, project, user.
   const ordered = [...layers].sort(
     (a, b) => LAYER_RANK[a.info.layer] - LAYER_RANK[b.info.layer]
   )
+
+  // Precedence is a per-project chain (domain.md), not one global ranking:
+  // layers of different projects never order against each other, so each
+  // project resolves against its own two layers and then the shared user one.
+  const userLayer = layers.find((layer) => layer.info.layer === 'user') ?? null
+  const chains = new Map<string, SettingsLayer[]>()
+  for (const layer of ordered) {
+    const owner = layer.info.projectId
+    if (owner === null) continue
+    chains.set(owner, [...(chains.get(owner) ?? []), layer])
+  }
 
   const records: PluginRecord[] = []
   for (const [key, installs] of Object.entries(plugins)) {
@@ -287,12 +307,14 @@ export async function scanPlugins(
     const scopes: PluginScopeState[] = ordered.map((layer) => ({
       layerId: layer.info.id,
       layer: layer.info.layer,
-      project: layer.owner,
+      projectId: layer.info.projectId,
+      projectLabel: layer.owner,
       path: layer.info.path,
       exists: layer.info.exists,
       enabled: pluginStateIn(layer, key),
       capabilities: capabilitiesFor('plugin', layer.info.layer)
     }))
+    const effectiveIn = resolveEffective(key, userLayer, chains)
     records.push({
       info: {
         id: `plugin:${key}`,
@@ -311,13 +333,40 @@ export async function scanPlugins(
         installPath: declared ? tildify(declared, locator.home) : '(unknown)',
         enabledIn: scopes.filter((scope) => scope.enabled === true).map((scope) => scope.path),
         scopes,
-        winningLayerId: scopes.find((scope) => scope.enabled !== null)?.layerId ?? null
+        effectiveIn
       },
       installAbs
     })
   }
   records.sort((a, b) => a.info.id.localeCompare(b.info.id))
   return records
+}
+
+/**
+ * What Claude honours for one plugin, once per project plus once for the user
+ * scope. Each chain is walked highest precedence first and the first layer
+ * that states a value ends it; a project no layer speaks for is left out
+ * entirely, which is how "nothing mentions this plugin" stays sayable.
+ */
+function resolveEffective(
+  key: string,
+  userLayer: SettingsLayer | null,
+  chains: ReadonlyMap<string, SettingsLayer[]>
+): PluginEffectiveState[] {
+  const effective: PluginEffectiveState[] = []
+  const walk = (chain: SettingsLayer[], owner: string | null): void => {
+    for (const layer of chain) {
+      const enabled = pluginStateIn(layer, key)
+      if (enabled === null) continue
+      effective.push({ projectId: owner, layerId: layer.info.id, enabled })
+      return
+    }
+  }
+  if (userLayer) walk([userLayer], null)
+  for (const [owner, chain] of [...chains].sort(([a], [b]) => a.localeCompare(b))) {
+    walk(userLayer ? [...chain, userLayer] : chain, owner)
+  }
+  return effective
 }
 
 /** The key Claude's own plugin toggle lives under (ADR-0006). */
@@ -698,6 +747,7 @@ async function readSkillDir(
   scope: SkillInfo['scope'],
   keyPrefix: string,
   enabled: boolean,
+  owner: string | null,
   c: Collector
 ): Promise<SkillInfo[]> {
   const skills: SkillInfo[] = []
@@ -724,7 +774,10 @@ async function readSkillDir(
       description,
       scope,
       origin: tildify(dir, locator.home),
-      enabled
+      enabled,
+      // ADR-0008: the owning project travels as a field. The renderer joins
+      // on it rather than splitting `skill:project/<flat>:<name>` apart.
+      projectId: owner
     })
   }
   return skills
@@ -744,28 +797,36 @@ export async function scanSkills(
   projects: VerifiedProject[],
   c: Collector
 ): Promise<SkillInfo[]> {
-  const roots: Array<[string, SkillInfo['scope'], string, boolean]> = [
-    [path.join(locator.userRoot, 'skills'), 'user', 'user', true],
-    [path.join(locator.userRoot, 'skills.disabled'), 'user-disabled', 'user-disabled', false]
+  const roots: Array<[string, SkillInfo['scope'], string, boolean, string | null]> = [
+    [path.join(locator.userRoot, 'skills'), 'user', 'user', true, null],
+    [
+      path.join(locator.userRoot, 'skills.disabled'),
+      'user-disabled',
+      'user-disabled',
+      false,
+      null
+    ]
   ]
   for (const project of projects) {
     // ADR-0002: the project store is its .claude directory and nothing above
     // it. ADR-0006: skills.disabled is Claude's own convention, scoped.
     const claudeDir = path.join(project.absPath, '.claude')
+    const owner = projectId(project.dirName)
     roots.push(
-      [path.join(claudeDir, 'skills'), 'project', `project/${project.dirName}`, true],
+      [path.join(claudeDir, 'skills'), 'project', `project/${project.dirName}`, true, owner],
       [
         path.join(claudeDir, 'skills.disabled'),
         'project-disabled',
         `project-disabled/${project.dirName}`,
-        false
+        false,
+        owner
       ]
     )
   }
 
   const skills: SkillInfo[] = []
-  for (const [root, scope, keyPrefix, enabled] of roots) {
-    skills.push(...(await readSkillDir(locator, root, scope, keyPrefix, enabled, c)))
+  for (const [root, scope, keyPrefix, enabled, owner] of roots) {
+    skills.push(...(await readSkillDir(locator, root, scope, keyPrefix, enabled, owner, c)))
   }
   skills.sort((a, b) => a.id.localeCompare(b.id))
   return skills
@@ -801,6 +862,9 @@ export async function scanPluginSkills(
     // A plugin-shipped skill has no bench of its own: it is live exactly when
     // its plugin is, which the plugin's own row already says.
     true,
+    // A plugin belongs to no project: it is installed once and reaches every
+    // one of them, so the attribution field has nothing to say.
+    null,
     c
   )
   skills.sort((a, b) => a.id.localeCompare(b.id))
