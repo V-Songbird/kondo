@@ -38,6 +38,9 @@ const api: KondoApi = {
   tidyPreview: () => ipcRenderer.invoke(channels.tidyPreview),
   tidySweep: (categories: TidyCategory[]) =>
     ipcRenderer.invoke(channels.tidySweep, categories),
+  configOrphansPreview: () => ipcRenderer.invoke(channels.configOrphansPreview),
+  configOrphansRemove: (orphanIds: string[]) =>
+    ipcRenderer.invoke(channels.configOrphansRemove, orphanIds),
   journalList: () => ipcRenderer.invoke(channels.journalList),
   journalUndo: (journalId: string) => ipcRenderer.invoke(channels.journalUndo, journalId),
   trashSize: () => ipcRenderer.invoke(channels.trashSize),

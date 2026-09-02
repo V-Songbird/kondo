@@ -55,12 +55,13 @@ Decision, three parts:
 - Projects with hyphens in their names resolve; the `TMP_OK` gates in the
   suites can go once each fixture registers its paths (`registerProjects`).
 - `~/.claude.json` is a 2 MB file Claude rewrites during every session.
-  Reading it is tier-1 and safe. **Writing it is not yet:** the `write` step
-  replaces a whole file with bytes planned from a scan, and its undo restores
-  a whole snapshot — either would silently discard whatever Claude wrote in
-  between. No mutation may target this file until a splice step that
-  re-reads and checks the bytes it is about to change exists (entry 031,
-  its own ADR).
+  Reading it is tier-1 and safe. Writing it was not, at first: the `write`
+  step replaces a whole file with bytes planned from a scan, and its undo
+  restores a whole snapshot — either would silently discard whatever Claude
+  wrote in between. No mutation could target this file until a step that
+  re-reads and checks the bytes it is about to change existed, which
+  [ADR-0010](0010-splice-config-files-never-whole-file-writes.md) supplies:
+  the registry is written by splice, and only by splice.
 - The registry does not know a project that has a `.claude` directory but
   no Claude session yet, and `~/.claude/projects` does not know a project
   whose transcripts were swept. The project set kondo should show is the

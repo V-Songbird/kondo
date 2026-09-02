@@ -39,7 +39,7 @@ usage):
 | Entry | What it is |
 |---|---|
 | `projects/` | Session transcripts, one subdirectory per working directory. The heart of kondo's session features. |
-| `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'off' }` in the wild ✅ (Claude's docs name `'off'` and `'user-invocable-only'`); it is Claude's documented per-skill switch, reaches plugin-shipped skills, and kondo does not read it yet — entry 029 decides how it sits beside `skills.disabled`. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
+| `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'off' }` in the wild ✅ (Claude's docs name `'off'` and `'user-invocable-only'`); it is Claude's documented per-skill switch and reaches plugin-shipped skills. Kondo reads it for one thing only — a key naming a skill no scope ships is a configuration orphan it offers to splice out (ADR-0010). How the switch itself sits beside `skills.disabled` is still entry 029. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
 | `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo writes to disable; a key that is simply absent is silence, not a false. A legacy array form is read (a listed key is enabled) but never written. |
 | `skills/` | User-scope skills, one directory per skill with a `SKILL.md`. |
 | `skills.disabled/` | Claude's own disable convention: a skill moved here stops loading ✅. Kondo adopts this for enable/disable (ADR-0006). |
@@ -89,8 +89,11 @@ only the parts named here (ADR-0009):
 - Everything else (`oauthAccount`, `userID`, `machineID`, experiment caches)
   is identity or telemetry and is **read-never**.
 
-Writing this file is not yet safe for kondo: see ADR-0009's consequences and
-entry 031.
+Kondo writes this file by splice only — never whole (ADR-0010): a step names
+the bytes it changes and the digest they were read from, and refuses when
+Claude has written the file since. `configOrphansPreview` /
+`configOrphansRemove` are the first callers, taking out `projects` entries
+whose directory is gone and the `mcpServers` declared inside them.
 
 ### MCP servers — three scopes, two files
 

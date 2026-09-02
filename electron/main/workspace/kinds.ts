@@ -21,7 +21,7 @@ import type {
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
 import type { Collector } from './scan'
-import type { MutationPlan } from './mutations'
+import { applyEdits, digestSource, type MutationPlan, type PlannedStep, type SpliceEdit } from './mutations'
 import { capabilitiesFor, scopesFor } from './capabilities'
 import { tildify } from './display'
 import { desktopSessions } from './desktop-store'
@@ -30,6 +30,7 @@ import { toSessionProjects, toSessionSummaries, type SessionInventory } from './
 import {
   clearEnabledPlugin,
   editEnabledPlugins,
+  editMember,
   hooksFromLayers,
   newSettingsSource,
   pluginStateIn,
@@ -37,8 +38,10 @@ import {
   scanMcpServers,
   scanPlacedEntries,
   scanPluginSkills,
+  scanConfigOrphans,
   scanPlugins,
   scanSkills,
+  type ConfigOrphanRecord,
   type PluginRecord,
   type SettingsLayer,
   type VerifiedProject
@@ -695,6 +698,144 @@ export async function pluginClearPlan(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Configuration orphans (ADR-0010)
+
+/**
+ * Every configuration member nothing stands behind, gathered from one call's
+ * context. Both the preview and the removal go through here, so the set a
+ * user confirmed is the set a splice takes out.
+ *
+ * Tier-2 on purpose (ADR-0007). `skillOverrides` reaches plugin-shipped
+ * skills (domain.md), so a name is only an orphan once every installed
+ * plugin's own skills have been looked at — work an explicit preview pays
+ * for and no listing does.
+ */
+export async function configOrphans(context: KindContext): Promise<ConfigOrphanRecord[]> {
+  const [layers, plugins, projects, inventory] = await Promise.all([
+    context.layers(),
+    context.plugins(),
+    context.projects(),
+    context.inventory()
+  ])
+  const [own, shipped] = await Promise.all([
+    scanSkills(context.locator, projects, context.c),
+    Promise.all(plugins.map((record) => scanPluginSkills(context.locator, record, context.c)))
+  ])
+  return scanConfigOrphans(
+    context.locator,
+    {
+      layers,
+      plugins,
+      skillNames: new Set([...own, ...shipped.flat()].map((entry) => entry.name)),
+      // The inventory already stat'd every project (ADR-0009), so calling an
+      // entry dead costs nothing here.
+      pathExists: new Map(
+        [...inventory.byDirName].map(([dirName, record]) => [dirName, record.pathExists])
+      )
+    },
+    context.c
+  )
+}
+
+export type ConfigOrphansPlan =
+  | { ok: true; plan: MutationPlan | null }
+  | { ok: false; code: ScanErrorCode; message: string }
+
+/**
+ * The one entry removing configuration orphans is. Every chosen member of one
+ * file becomes an edit in that file's single `splice` step, and every file's
+ * step goes into one journal entry — so a single undo puts the whole removal
+ * back (ADR-0001), and only the spans holding those members ever differ
+ * (ADR-0010).
+ *
+ * Null when nothing is left to remove: an empty choice is the ordinary answer
+ * on a tidy machine, not an error, and it writes no journal entry.
+ */
+export function configOrphansPlan(
+  orphans: readonly ConfigOrphanRecord[],
+  chosen: readonly string[]
+): ConfigOrphansPlan {
+  const wanted = new Set(chosen)
+  const picked = orphans.filter((record) => wanted.has(record.info.id))
+  const found = new Set(picked.map((record) => record.info.id))
+  const missing = [...wanted].find((id) => !found.has(id))
+  if (missing !== undefined) {
+    return {
+      ok: false,
+      code: 'unknown-id',
+      message: `No configuration orphan with id "${missing}" in the current scan.`
+    }
+  }
+
+  // Removing a dead project entry removes the MCP servers declared inside it,
+  // so choosing both is choosing the entry: the wider member covers the
+  // narrower one rather than two edits reaching for the same bytes.
+  const covered = (record: ConfigOrphanRecord): boolean =>
+    picked.some(
+      (other) =>
+        other !== record &&
+        other.store === record.store &&
+        other.relative === record.relative &&
+        other.keyPath.length < record.keyPath.length &&
+        other.keyPath.every((segment, at) => record.keyPath[at] === segment)
+    )
+
+  const byFile = new Map<string, ConfigOrphanRecord[]>()
+  for (const record of picked) {
+    if (covered(record)) continue
+    const file = `${record.store}/${record.relative}`
+    byFile.set(file, [...(byFile.get(file) ?? []), record])
+  }
+  if (byFile.size === 0) return { ok: true, plan: null }
+
+  let count = 0
+  const steps: PlannedStep[] = []
+  for (const group of byFile.values()) {
+    const first = group[0] as ConfigOrphanRecord
+    let text = first.source
+    const edits: SpliceEdit[] = []
+    for (const record of group) {
+      // Measured against the text the edits before it produced, so two
+      // members that sat side by side both come out cleanly (ADR-0010).
+      const edit = editMember(text, record.keyPath, null)
+      const next = edit === null ? null : applyEdits(text, [edit])
+      if (edit === null || next === null) {
+        return {
+          ok: false,
+          code: 'bad-request',
+          message: `kondo cannot remove ${record.info.name} from ${record.info.source} without reformatting it.`
+        }
+      }
+      edits.push(edit)
+      text = next
+      count++
+    }
+    steps.push({
+      type: 'splice',
+      store: first.store,
+      at: first.relative,
+      expectDigest: digestSource(first.source),
+      edits
+    })
+  }
+
+  return {
+    ok: true,
+    plan: {
+      op: 'settings-edit',
+      // A removal spans the registry and any number of settings layers, so no
+      // single entity below the store is the thing it changed (ADR-0008).
+      kind: 'store',
+      entityId: 'store:user',
+      summary: `Remove ${count} configuration orphan${count === 1 ? '' : 's'} from ${
+        byFile.size
+      } file${byFile.size === 1 ? '' : 's'}`,
+      steps
+    }
+  }
+}
+
 /** domain.md's precedence order, so the highest-ranked layer comes first. */
 const SCOPE_ORDER: Record<PluginScopeState['layer'], number> = {
   local: 0,
@@ -725,6 +866,11 @@ export function projectPluginStates(
 ): ProjectPluginState[] {
   const states: ProjectPluginState[] = []
   for (const plugin of plugins) {
+    // A ghost row is a key with no plugin behind it, so it has no three-way
+    // control to offer: there is nothing to turn on. It stays in
+    // `pluginsList`, where it says what the layer states, and the way to act
+    // on it is `configOrphansPreview` (ADR-0010).
+    if (!plugin.installed) continue
     const mine = plugin.scopes
       .filter((scope) => scope.projectId === owner)
       .sort((a, b) => SCOPE_ORDER[a.layer] - SCOPE_ORDER[b.layer])

@@ -59,6 +59,10 @@ export function registerIpc(api: KondoApi): void {
   ipcMain.handle(channels.tidySweep, (_event, categories: unknown) =>
     api.tidySweep(categories as TidyCategory[])
   )
+  ipcMain.handle(channels.configOrphansPreview, () => api.configOrphansPreview())
+  ipcMain.handle(channels.configOrphansRemove, (_event, orphanIds: unknown) =>
+    api.configOrphansRemove(orphanIds as string[])
+  )
   ipcMain.handle(channels.journalList, () => api.journalList())
   ipcMain.handle(channels.journalUndo, (_event, journalId: unknown) =>
     api.journalUndo(String(journalId))

@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
+  ConfigOrphan,
+  ConfigOrphanKind,
   HookInfo,
   McpScope,
   McpServerInfo,
@@ -17,8 +19,10 @@ import type {
   StoreReport
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
+import { applyEdits, USER_CONFIG_STORE, type SpliceEdit } from './mutations'
 import {
   directorySize,
+  isEnoent,
   pathWithin,
   safeReaddir,
   safeReadJson,
@@ -269,6 +273,21 @@ export async function scanPlugins(
     (a, b) => LAYER_RANK[a.info.layer] - LAYER_RANK[b.info.layer]
   )
 
+  // A plugin's enabled state belongs to a settings layer, not to the plugin
+  // (ADR-0006), so every layer gets a row and its own matrix decision —
+  // permission is kind × layer × operation, never one flag.
+  const scopesOf = (key: string): PluginScopeState[] =>
+    ordered.map((layer) => ({
+      layerId: layer.info.id,
+      layer: layer.info.layer,
+      projectId: layer.info.projectId,
+      projectLabel: layer.owner,
+      path: layer.info.path,
+      exists: layer.info.exists,
+      enabled: pluginStateIn(layer, key),
+      capabilities: capabilitiesFor('plugin', layer.info.layer)
+    }))
+
   // Precedence is a per-project chain (domain.md), not one global ranking:
   // layers of different projects never order against each other, so each
   // project resolves against its own two layers and then the shared user one.
@@ -305,19 +324,7 @@ export async function scanPlugins(
       installAbs = null
     }
     const installScope = typeof install['scope'] === 'string' ? install['scope'] : 'user'
-    // A plugin's enabled state belongs to a settings layer, not to the
-    // plugin (ADR-0006), so every layer gets a row and its own matrix
-    // decision — permission is kind × layer × operation, never one flag.
-    const scopes: PluginScopeState[] = ordered.map((layer) => ({
-      layerId: layer.info.id,
-      layer: layer.info.layer,
-      projectId: layer.info.projectId,
-      projectLabel: layer.owner,
-      path: layer.info.path,
-      exists: layer.info.exists,
-      enabled: pluginStateIn(layer, key),
-      capabilities: capabilitiesFor('plugin', layer.info.layer)
-    }))
+    const scopes = scopesOf(key)
     const effectiveIn = resolveEffective(key, userLayer, chains)
     records.push({
       info: {
@@ -326,6 +333,7 @@ export async function scanPlugins(
         capabilities: capabilitiesFor('plugin', installScope),
         name,
         marketplace,
+        installed: true,
         version: typeof install['version'] === 'string' ? install['version'] : null,
         installScope,
         installedAt:
@@ -342,8 +350,59 @@ export async function scanPlugins(
       installAbs
     })
   }
+  // A key some layer states for a plugin nothing installed. Claude reads it
+  // and finds nothing there, so kondo lists it as a row of its own rather
+  // than hiding it — and the same key is an orphan `configOrphansPreview`
+  // offers to remove (ADR-0010).
+  const declared = new Set(Object.keys(plugins))
+  const ghosts = new Set<string>()
+  for (const layer of ordered) {
+    for (const key of statedPlugins(layer)) if (!declared.has(key)) ghosts.add(key)
+  }
+  for (const key of ghosts) {
+    const at = key.lastIndexOf('@')
+    records.push({
+      info: {
+        id: `plugin:${key}`,
+        kind: 'plugin',
+        // The user scope's row: nothing is installed, so there is no install
+        // scope to key on, and every operation is refused by the layer rows
+        // in `scopes` exactly as it is for an installed plugin.
+        capabilities: capabilitiesFor('plugin', 'user'),
+        name: at > 0 ? key.slice(0, at) : key,
+        marketplace: at > 0 ? key.slice(at + 1) : '',
+        installed: false,
+        version: null,
+        installScope: 'user',
+        installedAt: null,
+        lastUpdated: null,
+        installPath: '(not installed)',
+        enabledIn: scopesOf(key)
+          .filter((scope) => scope.enabled === true)
+          .map((scope) => scope.path),
+        scopes: scopesOf(key),
+        effectiveIn: resolveEffective(key, userLayer, chains)
+      },
+      installAbs: null
+    })
+  }
+
   records.sort((a, b) => a.info.id.localeCompare(b.info.id))
   return records
+}
+
+/**
+ * Every plugin key one layer states, in either shape `pluginStateIn` reads.
+ * The legacy array form enumerates what it enables, so its members are
+ * statements too.
+ */
+function statedPlugins(layer: SettingsLayer): string[] {
+  const enabled = layer.parsed?.[ENABLED_PLUGINS]
+  if (Array.isArray(enabled)) {
+    return enabled.filter((key): key is string => typeof key === 'string')
+  }
+  const object = asObject(enabled)
+  return object ? Object.keys(object) : []
 }
 
 /**
@@ -415,29 +474,78 @@ export function editEnabledPlugins(
   key: string,
   enabled: boolean
 ): string | null {
+  return spliceMember(source, [ENABLED_PLUGINS, key], enabled ? 'true' : 'false')
+}
+
+/** No member at that path, so nothing to take away — an edit that changes nothing. */
+const NO_EDIT: SpliceEdit = { at: 0, remove: 0, insert: '' }
+
+/** `literal` wrapped in an object per remaining path segment, outermost first. */
+function nestLiteral(rest: readonly string[], literal: string): string {
+  return rest.reduceRight((inner, key) => `{ ${JSON.stringify(key)}: ${inner} }`, literal)
+}
+
+/**
+ * The one splice that sets or removes the member at `keyPath` (ADR-0010).
+ * `literal` is the JSON text the member's value becomes, or null to take the
+ * member away — the direction a whole-file write cannot express at all.
+ *
+ * Setting creates whatever ancestors are missing on the way down, so
+ * `['enabledPlugins', key]` in a file that has none inserts the nested object
+ * whole. Removing a member under an ancestor that is not there is nothing to
+ * do rather than an error. Either way only the span this returns differs from
+ * `source`: every other key keeps its bytes, its order and its spacing.
+ *
+ * Null when the shape is one kondo cannot splice faithfully — a non-object
+ * root, an ancestor that is not an object (the legacy array form of
+ * `enabledPlugins` among them), or a truncated literal. The caller refuses
+ * rather than reformatting (ADR-0005).
+ */
+export function editMember(
+  source: string,
+  keyPath: readonly string[],
+  literal: string | null
+): SpliceEdit | null {
+  if (keyPath.length === 0) return null
   const rootOpen = skipWs(source, 0)
   if (source[rootOpen] !== '{') return null
-  const root = readObject(source, rootOpen)
-  if (!root) return null
+  let object = readObject(source, rootOpen)
+  if (!object) return null
 
-  const literal = enabled ? 'true' : 'false'
-  const member = root.members.find((candidate) => candidate.key === ENABLED_PLUGINS)
-  if (!member) {
-    return insertMember(
-      source,
-      root,
-      `${JSON.stringify(ENABLED_PLUGINS)}: { ${JSON.stringify(key)}: ${literal} }`
-    )
+  for (let depth = 0; depth < keyPath.length; depth++) {
+    const key = keyPath[depth] as string
+    const member = object.members.find((candidate) => candidate.key === key)
+    if (!member) {
+      if (literal === null) return NO_EDIT
+      const text = `${JSON.stringify(key)}: ${nestLiteral(keyPath.slice(depth + 1), literal)}`
+      return insertEdit(source, object, text)
+    }
+    if (depth === keyPath.length - 1) {
+      if (literal !== null) {
+        return {
+          at: member.valueStart,
+          remove: member.valueEnd - member.valueStart,
+          insert: literal
+        }
+      }
+      return removeEdit(object, member)
+    }
+    if (source[member.valueStart] !== '{') return null
+    const inner = readObject(source, member.valueStart)
+    if (!inner) return null
+    object = inner
   }
-  if (source[member.valueStart] !== '{') return null
-  const inner = readObject(source, member.valueStart)
-  if (!inner) return null
+  return null
+}
 
-  const entry = inner.members.find((candidate) => candidate.key === key)
-  if (entry) {
-    return source.slice(0, entry.valueStart) + literal + source.slice(entry.valueEnd)
-  }
-  return insertMember(source, inner, `${JSON.stringify(key)}: ${literal}`)
+/** `editMember` applied; null when it could not splice faithfully. */
+export function spliceMember(
+  source: string,
+  keyPath: readonly string[],
+  literal: string | null
+): string | null {
+  const edit = editMember(source, keyPath, literal)
+  return edit === null ? null : applyEdits(source, [edit])
 }
 
 /**
@@ -458,28 +566,7 @@ export function editEnabledPlugins(
  * nothing there to take away.
  */
 export function clearEnabledPlugin(source: string, key: string): string | null {
-  const rootOpen = skipWs(source, 0)
-  if (source[rootOpen] !== '{') return null
-  const root = readObject(source, rootOpen)
-  if (!root) return null
-
-  const member = root.members.find((candidate) => candidate.key === ENABLED_PLUGINS)
-  if (!member) return source
-  if (source[member.valueStart] !== '{') return null
-  const inner = readObject(source, member.valueStart)
-  if (!inner) return null
-
-  const at = inner.members.findIndex((candidate) => candidate.key === key)
-  if (at < 0) return source
-  const entry = inner.members[at] as JsonMember
-
-  // Take the comma that joined it to whichever neighbour it had, so the
-  // object left behind is still valid JSON with the file's own layout.
-  const next = inner.members[at + 1]
-  if (next) return source.slice(0, entry.keyStart) + source.slice(next.keyStart)
-  const previous = inner.members[at - 1]
-  if (previous) return source.slice(0, previous.valueEnd) + source.slice(entry.valueEnd)
-  return `${source.slice(0, inner.open + 1)}}${source.slice(inner.close + 1)}`
+  return spliceMember(source, [ENABLED_PLUGINS, key], null)
 }
 
 /** The whole of a settings file kondo creates for one plugin toggle. */
@@ -595,14 +682,34 @@ function readObject(source: string, open: number): JsonObject | null {
  * already separates the opening brace from the first member — so the
  * insertion picks up the file's own indentation instead of imposing one.
  */
-function insertMember(source: string, object: JsonObject, text: string): string {
+function insertEdit(source: string, object: JsonObject, text: string): SpliceEdit {
   const first = object.members[0]
   const last = object.members[object.members.length - 1]
   if (!first || !last) {
-    return `${source.slice(0, object.open + 1)} ${text} ${source.slice(object.close)}`
+    return { at: object.open + 1, remove: object.close - object.open - 1, insert: ` ${text} ` }
   }
   const lead = source.slice(object.open + 1, first.keyStart)
-  return `${source.slice(0, last.valueEnd)},${lead}${text}${source.slice(last.valueEnd)}`
+  return { at: last.valueEnd, remove: 0, insert: `,${lead}${text}` }
+}
+
+/**
+ * The member's span plus the one comma that joined it to whichever neighbour
+ * it had, so the object left behind is still valid JSON in the file's own
+ * layout. The sole member of an object leaves `{}` rather than taking the
+ * object with it: a key that holds nothing is a statement, and removing it
+ * too would be a second, unasked-for edit.
+ */
+function removeEdit(object: JsonObject, member: JsonMember): SpliceEdit {
+  const at = object.members.indexOf(member)
+  const next = object.members[at + 1]
+  if (next) {
+    return { at: member.keyStart, remove: next.keyStart - member.keyStart, insert: '' }
+  }
+  const previous = object.members[at - 1]
+  if (previous) {
+    return { at: previous.valueEnd, remove: member.valueEnd - previous.valueEnd, insert: '' }
+  }
+  return { at: object.open + 1, remove: object.close - object.open, insert: '}' }
 }
 
 // ---------------------------------------------------------------------------
@@ -772,6 +879,178 @@ export async function scanMcpServers(
 
   servers.sort((a, b) => a.id.localeCompare(b.id))
   return servers
+}
+
+// ---------------------------------------------------------------------------
+// Configuration orphans (ADR-0010)
+
+/** Claude's documented per-skill switch (domain.md); an object of names. */
+const SKILL_OVERRIDES = 'skillOverrides'
+
+/** One orphan, plus everything a splice needs to take it out. */
+export interface ConfigOrphanRecord {
+  info: ConfigOrphan
+  /** The mutation store the file lives in (`mutations.ts` names the roots). */
+  store: string
+  /** Its path inside that store, so no step ever carries an absolute one. */
+  relative: string
+  /** The file's text as kondo read it — what the splice is planned against. */
+  source: string
+  /** The member, from the file's root down. */
+  keyPath: string[]
+}
+
+export interface ConfigOrphanSources {
+  layers: SettingsLayer[]
+  plugins: PluginRecord[]
+  /** Every skill name on the machine, plugin-shipped ones included. */
+  skillNames: ReadonlySet<string>
+  /** Flattened project name → its directory is on disk (ADR-0009). */
+  pathExists: ReadonlyMap<string, boolean>
+}
+
+/**
+ * Every configuration member nothing stands behind any more. Reads only: the
+ * whole point of the preview is that this function produces it and it writes
+ * nothing, and the same function produces the removal's candidates so what a
+ * user confirmed is what a splice takes out.
+ *
+ * A registry entry is called dead only where the inventory has already
+ * proved its directory gone (ADR-0009) — no stat is paid here, and a key the
+ * inventory has never heard of is left alone rather than guessed at.
+ *
+ * Only the object form of `enabledPlugins` yields a row: a key inside the
+ * legacy array is a member kondo would have to reformat the array to remove,
+ * and it does not (ADR-0005). Nothing is read off an MCP declaration but its
+ * name — `env` and `headers` hold secrets (domain.md).
+ */
+export async function scanConfigOrphans(
+  locator: StoreLocator,
+  sources: ConfigOrphanSources,
+  c: Collector
+): Promise<ConfigOrphanRecord[]> {
+  const records: ConfigOrphanRecord[] = []
+  interface Holder {
+    /** The id's scope segment — a layer id, or the registry's store name. */
+    scope: string
+    store: string
+    relative: string
+    source: string
+    display: string
+  }
+  const add = (
+    holder: Holder,
+    kind: ConfigOrphanKind,
+    name: string,
+    reason: string,
+    keyPath: string[]
+  ): void => {
+    records.push({
+      info: {
+        id: `orphan:${kind}:${holder.scope}:${keyPath.map(encodeURIComponent).join('/')}`,
+        kind,
+        name,
+        source: holder.display,
+        reason
+      },
+      store: holder.store,
+      relative: holder.relative,
+      source: holder.source,
+      keyPath
+    })
+  }
+
+  // The registry: its own read, because a splice needs the exact bytes it
+  // will edit and `safeReadJson` keeps only the parse.
+  const display = tildify(locator.userConfigFile, locator.home)
+  let text: string | null = null
+  try {
+    text = await fs.readFile(locator.userConfigFile, 'utf8')
+  } catch (cause) {
+    // ADR-0005: no registry is no orphans, not a failure.
+    if (!isEnoent(cause)) c.fail('read-failed', display, cause)
+  }
+  let config: Record<string, unknown> | null = null
+  if (text !== null) {
+    try {
+      config = asObject(JSON.parse(text))
+    } catch (cause) {
+      c.fail('parse-failed', display, cause)
+    }
+  }
+  if (text !== null && config !== null) {
+    const registry: Holder = {
+      scope: USER_CONFIG_STORE,
+      store: USER_CONFIG_STORE,
+      relative: path.basename(locator.userConfigFile),
+      source: text,
+      display
+    }
+    for (const [absPath, value] of Object.entries(asObject(config['projects']) ?? {})) {
+      if (sources.pathExists.get(flattenProjectPath(absPath)) !== false) continue
+      const shown = tildify(absPath, locator.home)
+      const servers = mcpDeclarations(value).map(([name]) => name)
+      for (const name of servers) {
+        add(
+          registry,
+          'mcp-declaration',
+          name,
+          `Declared only for ${shown}, which is not on disk.`,
+          ['projects', absPath, 'mcpServers', name]
+        )
+      }
+      add(
+        registry,
+        'project-entry',
+        shown,
+        servers.length === 0
+          ? `${shown} is not on disk; the registry entry is left over.`
+          : `${shown} is not on disk; its entry also declares ${servers.length} MCP server${
+              servers.length === 1 ? '' : 's'
+            }.`,
+        ['projects', absPath]
+      )
+    }
+  }
+
+  const installed = new Set(
+    sources.plugins
+      .filter((record) => record.info.installed)
+      .map((record) => record.info.id.slice('plugin:'.length))
+  )
+  for (const layer of sources.layers) {
+    if (layer.source === null || layer.parsed === null) continue
+    const holder: Holder = {
+      scope: layer.info.id,
+      store: layer.store,
+      relative: layer.relative,
+      source: layer.source,
+      display: layer.info.path
+    }
+    for (const key of Object.keys(asObject(layer.parsed[ENABLED_PLUGINS]) ?? {})) {
+      if (installed.has(key)) continue
+      add(
+        holder,
+        'enabled-plugin',
+        key,
+        `${key} is not installed; this key states a plugin that is not there.`,
+        [ENABLED_PLUGINS, key]
+      )
+    }
+    for (const name of Object.keys(asObject(layer.parsed[SKILL_OVERRIDES]) ?? {})) {
+      if (sources.skillNames.has(name)) continue
+      add(
+        holder,
+        'skill-override',
+        name,
+        `No skill named ${name} in any scope, plugin-shipped ones included.`,
+        [SKILL_OVERRIDES, name]
+      )
+    }
+  }
+
+  records.sort((a, b) => a.info.id.localeCompare(b.info.id))
+  return records
 }
 
 // ---------------------------------------------------------------------------

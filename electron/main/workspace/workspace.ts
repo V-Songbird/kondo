@@ -1,5 +1,6 @@
 import path from 'node:path'
 import type {
+  ConfigOrphan,
   JournalEntryInfo,
   KondoApi,
   ProjectDetail,
@@ -16,6 +17,8 @@ import type {
 import type { StoreLocator } from './locator'
 import { collector, describe, finish, mapPool, type Collector } from './scan'
 import {
+  configOrphans,
+  configOrphansPlan,
   createKindContext,
   kinds,
   pluginClearPlan,
@@ -589,6 +592,42 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       // Dropped whether or not the sweep finished: a step that failed part
       // way has already moved transcripts the cached inventory still lists.
       const result = await mutations.mutate(plan).finally(dropInventory)
+      return {
+        data: result.data,
+        errors: [...c.errors, ...result.errors],
+        unknown: [...c.unknown, ...result.unknown]
+      }
+    },
+
+    async configOrphansPreview(): Promise<Scan<ConfigOrphan[]>> {
+      const c = collector()
+      const records = await configOrphans(context(c))
+      return finish(
+        records.map((record) => record.info),
+        c
+      )
+    },
+
+    async configOrphansRemove(orphanIds: string[]): Promise<Scan<JournalEntryInfo | null>> {
+      if (!Array.isArray(orphanIds) || orphanIds.some((id) => typeof id !== 'string')) {
+        return badRequest(null, 'configOrphansRemove expects an array of orphan ids.')
+      }
+      const c = collector()
+      // The same scan the plan is built from, so a member that changed since
+      // the preview refuses the whole removal rather than quietly splicing a
+      // different one — and the digest in each step refuses again at apply
+      // time if Claude wrote the file in between (ADR-0010).
+      const planned = configOrphansPlan(await configOrphans(context(c)), orphanIds)
+      if (!planned.ok) {
+        c.errors.push({ code: planned.code, path: '(request)', message: planned.message })
+        return finish(null, c)
+      }
+      if (planned.plan === null) return finish<JournalEntryInfo | null>(null, c)
+
+      // A registry entry is half the project set (ADR-0009), so removing one
+      // changes what the cached inventory describes — dropped whether or not
+      // the splice finished.
+      const result = await mutations.mutate(planned.plan).finally(dropInventory)
       return {
         data: result.data,
         errors: [...c.errors, ...result.errors],

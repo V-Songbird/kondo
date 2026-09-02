@@ -21,6 +21,12 @@ export type ScanErrorCode =
   | 'bad-request'
   /** A store manifest pointed outside the store; the pointer was not followed. */
   | 'out-of-store'
+  /**
+   * The file changed between the scan a mutation was planned from and the
+   * attempt to write it (ADR-0010). Nothing was written and nothing was
+   * lost. UI: say the file moved on, re-read, and offer the action again.
+   */
+  | 'stale-file'
   /** The capability matrix refuses the operation on this entity (ADR-0006). */
   | 'not-permitted'
   /**
@@ -315,6 +321,14 @@ export interface PluginInfo extends EntityIdentity {
   id: string
   name: string
   marketplace: string
+  /**
+   * `installed_plugins.json` lists it. False for a ghost row: a key in some
+   * layer's `enabledPlugins` naming a plugin nothing installed. Claude reads
+   * that key and finds nothing, so kondo lists it rather than hiding it —
+   * every other field below is then null or empty, and the same key is an
+   * orphan `configOrphansPreview` offers to remove.
+   */
+  installed: boolean
   version: string | null
   installScope: string
   installedAt: string | null
@@ -475,6 +489,44 @@ export interface TrashReport {
 }
 
 // ---------------------------------------------------------------------------
+// Configuration orphans (ADR-0010)
+
+/**
+ * What makes one member of a configuration file an orphan — a key Claude
+ * still reads and nothing stands behind any more.
+ */
+export type ConfigOrphanKind =
+  /** `projects[<path>]` of `~/.claude.json` whose directory is gone. */
+  | 'project-entry'
+  /** An `mcpServers` declaration inside one of those entries. */
+  | 'mcp-declaration'
+  /** An `enabledPlugins` key naming a plugin nothing installed. */
+  | 'enabled-plugin'
+  /** A `skillOverrides` key naming a skill no scope ships. */
+  | 'skill-override'
+
+/**
+ * One removable member. It carries no path and no key path: which bytes come
+ * out is the main process's business, and the renderer names the row by `id`
+ * exactly as it names every other entity (ADR-0008).
+ *
+ * Nothing here is copied out of an MCP declaration but its name — `env` and
+ * `headers` hold API keys and bearer tokens (domain.md), so neither their
+ * values nor their key names ever reach this shape.
+ */
+export interface ConfigOrphan {
+  /** `orphan:<kind>:<scope>:<member>`; opaque, and re-resolved per scan. */
+  id: string
+  kind: ConfigOrphanKind
+  /** The member as the user knows it: a path, a server name, a plugin key. */
+  name: string
+  /** Display path of the file holding it (tildified). */
+  source: string
+  /** Why kondo calls it an orphan, in one line. */
+  reason: string
+}
+
+// ---------------------------------------------------------------------------
 // The tidy sweep (ADR-0001)
 
 /**
@@ -589,7 +641,11 @@ export interface ProjectRow {
  */
 export type ProjectPluginChoice = 'on' | 'off' | 'inherit'
 
-/** One installed plugin as one scope sees it, and where a click would land. */
+/**
+ * One installed plugin as one scope sees it, and where a click would land. A
+ * ghost row never reaches here: a key with no plugin behind it has nothing to
+ * turn on, and `configOrphansPreview` is where it is acted on.
+ */
 export interface ProjectPluginState {
   /** `plugin:<name>@<marketplace>` (ADR-0008). */
   pluginId: string
@@ -767,6 +823,33 @@ export interface KondoApi {
    * built from, so callers re-read rather than patching.
    */
   tidySweep(categories: TidyCategory[]): Promise<Scan<JournalEntryInfo | null>>
+  /**
+   * Configuration members nothing stands behind any more: `~/.claude.json`
+   * project entries whose directory is gone and the MCP servers declared
+   * inside them, `enabledPlugins` keys for plugins nothing installed, and
+   * `skillOverrides` keys naming a skill no scope ships. A dry run — it
+   * reads and removes nothing.
+   *
+   * Tier-2 (ADR-0007): it opens every settings layer, the registry, and each
+   * installed plugin's skills, so it is paid when a user asks for it and
+   * never during a listing.
+   */
+  configOrphansPreview(): Promise<Scan<ConfigOrphan[]>>
+  /**
+   * Splice the chosen members out as ONE journal entry, so a single undo puts
+   * them all back (ADR-0001). Only the spans holding those members leave each
+   * file; every other key keeps its bytes and the file's own formatting
+   * (ADR-0010).
+   *
+   * `orphanIds` are ids from `configOrphansPreview`, re-resolved against a
+   * fresh scan. A file Claude has rewritten since that scan refuses the whole
+   * operation with `stale-file` and writes nothing — Claude's changes are
+   * never overwritten and never retried around. Choosing a dead project entry
+   * and an MCP server declared inside it is choosing the entry: the wider
+   * member covers the narrower one rather than editing the same bytes twice.
+   * Nothing to remove returns null and writes no journal entry.
+   */
+  configOrphansRemove(orphanIds: string[]): Promise<Scan<JournalEntryInfo | null>>
   /** Journal entries, newest first. */
   journalList(): Promise<Scan<JournalEntryInfo[]>>
   /** Reverse one entry; the undo is itself journaled and returned. */
@@ -807,6 +890,8 @@ export const channels = {
   settingsLayers: 'kondo:settings-layers',
   tidyPreview: 'kondo:tidy-preview',
   tidySweep: 'kondo:tidy-sweep',
+  configOrphansPreview: 'kondo:config-orphans-preview',
+  configOrphansRemove: 'kondo:config-orphans-remove',
   journalList: 'kondo:journal-list',
   journalUndo: 'kondo:journal-undo',
   trashSize: 'kondo:trash-size',

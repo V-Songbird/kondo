@@ -32,6 +32,12 @@ export interface StoreLocator {
    * to name the real directory behind each `projects/<flat>` entry.
    */
   userConfigFile: string
+  /**
+   * The directory `userConfigFile` sits in — the root the write path knows
+   * the registry by (ADR-0010). Only that one file name resolves inside it;
+   * this is a store of exactly one member, not the home directory.
+   */
+  userConfigRoot: string
   home: string
 }
 
@@ -57,5 +63,12 @@ export function createLocator(environment: LocatorEnvironment): StoreLocator {
   // Beside the user store, so a fixture root brings its own registry along.
   const userConfigFile = path.join(path.dirname(userRoot), '.claude.json')
 
-  return { userRoot, desktopRoot, kondoDataRoot, userConfigFile, home }
+  return {
+    userRoot,
+    desktopRoot,
+    kondoDataRoot,
+    userConfigFile,
+    userConfigRoot: path.dirname(userConfigFile),
+    home
+  }
 }

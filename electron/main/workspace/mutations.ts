@@ -29,6 +29,77 @@ import { tildify } from './display'
 /** Resolves a store name the locator does not fix; null when unknown. */
 export type ExtraRoot = (store: string) => Promise<string | null>
 
+/**
+ * The store name `~/.claude.json` answers to (ADR-0003, ADR-0010). Its root
+ * is the directory the file sits in, and a step in it may name that one file
+ * and nothing else — the home directory is not a store.
+ */
+export const USER_CONFIG_STORE = 'user-config'
+
+// ---------------------------------------------------------------------------
+// Byte edits (ADR-0010)
+
+/**
+ * One replacement inside a file's text: `remove` characters at `at` become
+ * `insert`. Offsets are relative to the result of every edit BEFORE this one
+ * in its list, so two edits that would have overlapped as absolute spans —
+ * removing adjacent members of the same JSON object — need no arithmetic
+ * between them and each stays as narrow as what it removes.
+ */
+export interface SpliceEdit {
+  at: number
+  remove: number
+  insert: string
+}
+
+/** The text after `edits`; null when one of them addresses outside it. */
+export function applyEdits(source: string, edits: readonly SpliceEdit[]): string | null {
+  let text = source
+  for (const edit of edits) {
+    if (
+      !Number.isInteger(edit.at) ||
+      !Number.isInteger(edit.remove) ||
+      edit.at < 0 ||
+      edit.remove < 0 ||
+      edit.at + edit.remove > text.length
+    ) {
+      return null
+    }
+    text = text.slice(0, edit.at) + edit.insert + text.slice(edit.at + edit.remove)
+  }
+  return text
+}
+
+/**
+ * The edits that put `source` back, given the same list that changed it.
+ * Each one is captured against the text as it stood when its forward edit
+ * ran, and the list is reversed — so applying it to the spliced bytes is the
+ * inverse splice ADR-0010 undoes by.
+ */
+export function invertEdits(
+  source: string,
+  edits: readonly SpliceEdit[]
+): SpliceEdit[] | null {
+  const inverse: SpliceEdit[] = []
+  let text = source
+  for (const edit of edits) {
+    const applied = applyEdits(text, [edit])
+    if (applied === null) return null
+    inverse.push({
+      at: edit.at,
+      remove: edit.insert.length,
+      insert: text.slice(edit.at, edit.at + edit.remove)
+    })
+    text = applied
+  }
+  return inverse.reverse()
+}
+
+/** The digest a `splice` names: sha256 of the file's text as kondo read it. */
+export function digestSource(source: string): string {
+  return createHash('sha256').update(source, 'utf8').digest('hex')
+}
+
 // ---------------------------------------------------------------------------
 // What a caller plans
 
@@ -47,6 +118,20 @@ export type PlannedStep =
   | { type: 'trash'; store: string; from: string }
   /** Write a file, keeping any bytes it displaces. */
   | { type: 'write'; store: string; at: string; content: string }
+  /**
+   * Change only the spans `edits` name, and only while the file still holds
+   * the bytes `expectDigest` was taken from (ADR-0010). A file Claude has
+   * rewritten since the plan was made refuses the step rather than losing
+   * what Claude wrote; the undo is the inverse of `edits`, applied to the
+   * file as it then stands rather than to a snapshot.
+   */
+  | {
+      type: 'splice'
+      store: string
+      at: string
+      expectDigest: string
+      edits: SpliceEdit[]
+    }
 
 export interface MutationPlan {
   op: JournalOp
@@ -62,7 +147,7 @@ export interface MutationPlan {
 // What the journal records
 
 interface JournalStep {
-  type: 'move' | 'copy' | 'trash' | 'write'
+  type: 'move' | 'copy' | 'trash' | 'write' | 'splice'
   /** Named store root of the source; the journal holds no absolute path. */
   store: string
   /** Source (`move`, `copy`, `trash`) or target (`write`), under `store`. */
@@ -75,6 +160,18 @@ interface JournalStep {
   displaced?: string
   /** Directories this step created under `createdIn`, deepest first. */
   created?: string[]
+  /** A `splice`'s edits, in the order they were applied (ADR-0010). */
+  edits?: SpliceEdit[]
+  /** The digest the file had before them; the step refuses without it. */
+  expectDigest?: string
+  /** The digest they produced; the undo refuses without it. */
+  resultDigest?: string
+  /**
+   * The inverse of `edits`, against the bytes they produced. Held here
+   * because the text they removed exists nowhere else: a splice displaces
+   * nothing into the trash, so this list IS what ADR-0001 reverses by.
+   */
+  undoEdits?: SpliceEdit[]
 }
 
 /** The store `created` is relative to — the destination for a `copy`. */
@@ -139,6 +236,12 @@ export function createMutations(
   const roots = new Map<string, string>([['user', locator.userRoot]])
   if (locator.desktopRoot) roots.set('desktop', locator.desktopRoot)
 
+  // The one file the `user-config` store may name (ADR-0010). Its root is a
+  // directory kondo never scans and writes nothing else into, so it is
+  // deliberately absent from `roots` above: it takes no part in the nested
+  // check below, where `<kondo-data>` under the same home is ordinary.
+  const userConfigName = path.basename(locator.userConfigFile)
+
   // ADR-0001 decision 6: kondo's trash inside a store would show up in
   // kondo's own scan, and a sweep could trash its own undo history.
   const nested = [...roots.values()].find(
@@ -149,6 +252,7 @@ export function createMutations(
   // Paths
 
   const rootOf = async (store: string): Promise<string> => {
+    if (store === USER_CONFIG_STORE) return locator.userConfigRoot
     const fixed = roots.get(store)
     if (fixed !== undefined) return fixed
     const dynamic = await extraRoot(store)
@@ -167,6 +271,13 @@ export function createMutations(
   }
 
   const resolveIn = async (store: string, relative: string): Promise<string> => {
+    if (store === USER_CONFIG_STORE && relative !== userConfigName) {
+      throw new Refused(
+        'out-of-store',
+        relative,
+        `The ${USER_CONFIG_STORE} store holds only ${userConfigName}.`
+      )
+    }
     const root = await rootOf(store)
     const target = path.resolve(root, relative)
     if (!pathWithin(target, root)) {
@@ -201,6 +312,62 @@ export function createMutations(
       current = path.dirname(current)
     }
     return made
+  }
+
+  /**
+   * The text of the file a `splice` names. A file that is not there is a
+   * refusal: a splice edits bytes that exist, and conjuring the file would
+   * be the whole-file write ADR-0010 exists to avoid.
+   */
+  const readForSplice = async (target: string, at: string): Promise<string> => {
+    try {
+      return await fs.readFile(target, 'utf8')
+    } catch (cause) {
+      if (isEnoent(cause)) {
+        throw new Refused('read-failed', at, 'Nothing to splice at that path.')
+      }
+      throw new Refused('read-failed', at, describe(cause))
+    }
+  }
+
+  /**
+   * ADR-0010's refusal. Whoever wrote last wrote something kondo has not
+   * seen, so the answer is to say so — never to re-plan against the new
+   * bytes, and never to write over them.
+   */
+  const requireDigest = (text: string, expected: string, at: string): void => {
+    if (digestSource(text) === expected) return
+    throw new Refused(
+      'stale-file',
+      at,
+      `${at} changed since kondo read it — nothing was written. Re-read and try again.`
+    )
+  }
+
+  /**
+   * Replace a file's contents through a temporary sibling, so a reader
+   * racing the write sees the old bytes or the new ones and never a torn
+   * file. Only the splice pays for this: it is the one step aimed at a file
+   * something else is writing (ADR-0010).
+   */
+  const replaceAtomically = async (target: string, text: string): Promise<void> => {
+    const temporary = `${target}.kondo-${randomUUID().slice(0, 8)}`
+    await fs.writeFile(temporary, text, 'utf8')
+    try {
+      await fs.rename(temporary, target)
+    } catch (cause) {
+      await fs.rm(temporary, { force: true })
+      throw cause
+    }
+  }
+
+  /** Apply an edit list, turning "outside the file" into a refusal. */
+  const spliced = (text: string, edits: SpliceEdit[], at: string): string => {
+    const next = applyEdits(text, edits)
+    if (next === null) {
+      throw new Refused('bad-request', at, 'A splice edit addressed outside the file.')
+    }
+    return next
   }
 
   /**
@@ -402,6 +569,13 @@ export function createMutations(
           await resolveIn(step.store, step.from),
           trashPath(journalId, step.displaced as string)
         )
+      } else if (step.type === 'splice') {
+        const target = await resolveIn(step.store, step.from)
+        // Re-read rather than reuse the plan's read: the journal entry is
+        // already on the platter, and this is the check that counts.
+        const text = await readForSplice(target, step.from)
+        requireDigest(text, step.expectDigest as string, step.from)
+        await replaceAtomically(target, spliced(text, step.edits as SpliceEdit[], step.from))
       } else {
         const target = await resolveIn(step.store, step.from)
         if (step.displaced) {
@@ -417,6 +591,29 @@ export function createMutations(
   const planSteps = async (journalId: string, planned: PlannedStep[]): Promise<JournalStep[]> => {
     const steps: JournalStep[] = []
     for (const step of planned) {
+      if (step.type === 'splice') {
+        const target = await resolveIn(step.store, step.at)
+        // Checked here as well as at apply time, so the ordinary case —
+        // Claude wrote the file between the scan and the click — refuses
+        // without leaving a journal entry for work that never happened.
+        const text = await readForSplice(target, step.at)
+        requireDigest(text, step.expectDigest, step.at)
+        const next = spliced(text, step.edits, step.at)
+        const undoEdits = invertEdits(text, step.edits)
+        if (undoEdits === null) {
+          throw new Refused('bad-request', step.at, 'A splice edit addressed outside the file.')
+        }
+        steps.push({
+          type: 'splice',
+          store: step.store,
+          from: step.at,
+          edits: step.edits,
+          expectDigest: step.expectDigest,
+          resultDigest: digestSource(next),
+          undoEdits
+        })
+        continue
+      }
       const relative = step.type === 'write' ? step.at : step.from
       const target = await resolveIn(step.store, relative)
       const root = await rootOf(step.store)
@@ -576,6 +773,8 @@ export function createMutations(
           const from = step.to as string
           return [{ type: 'trash' as const, store, from, displaced: `${store}/${from}` }]
         }
+        // A `splice` displaces nothing, so it adds nothing here: what it
+        // took out lives in its own `undoEdits` (ADR-0010).
         return []
       })
       const record: JournalRecord = {
@@ -609,6 +808,18 @@ export function createMutations(
             if (await exists(destination)) {
               await relocate(destination, trashPath(id, `${step.toStore}/${step.to}`))
             }
+          } else if (step.type === 'splice') {
+            const target = await resolveIn(step.store, step.from)
+            const text = await readForSplice(target, step.from)
+            // The file still holding the pre-splice bytes means the step
+            // never ran: the entry was journaled and then failed. Reversing
+            // that is a no-op, exactly as it is for a move.
+            if (digestSource(text) === step.expectDigest) continue
+            requireDigest(text, step.resultDigest as string, step.from)
+            await replaceAtomically(
+              target,
+              spliced(text, step.undoEdits as SpliceEdit[], step.from)
+            )
           } else if (step.type === 'trash') {
             const kept = trashPath(original.id, step.displaced as string)
             const source = await resolveIn(step.store, step.from)
@@ -648,6 +859,9 @@ export function createMutations(
             "The files this entry would put back are no longer in kondo's trash — it was emptied, and emptying is the one thing undo cannot survive."
           )
         }
+        // A splice that refuses carries its own reason and code — a stale
+        // file is not a read failure, and undo says so (ADR-0010).
+        if (cause instanceof Refused) return refuse(cause.code, cause.at, cause.message)
         return refuse('read-failed', journalId, describe(cause))
       }
       return { data: toInfo(record, null), errors: scan.errors, unknown: scan.unknown }
