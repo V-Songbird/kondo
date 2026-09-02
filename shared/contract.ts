@@ -55,10 +55,10 @@ export interface Scan<T> {
 /**
  * The entity kinds kondo manages — the first segment of every id (ADR-0008).
  * Each one is described by a definition in the main process rather than by
- * a hard-coded adapter call. Every kind supplies discover / read /
- * capabilities; enable and disable are seats a kind fills only where a
- * native convention exists (ADR-0006), and a kind whose mutation has not
- * shipped answers null from them.
+ * a hard-coded adapter call. Every kind supplies discover / read / plan, and
+ * `plan` answers every operation: a kind with no native convention for one
+ * (ADR-0006) refuses it in the capability matrix's own words rather than
+ * having a seat of its own left unwired.
  */
 export type EntityKind =
   | 'skill'
@@ -113,6 +113,27 @@ export interface CapabilityDecision {
  * read-only in another.
  */
 export type Capabilities = Record<CapabilityOperation, CapabilityDecision>
+
+/**
+ * What one mutation asks for. One shape for every kind and every operation,
+ * so growing the contract means adding an operation here rather than a
+ * method, a channel and a bridge line per kind (ADR-0004).
+ */
+export interface MutateRequest {
+  op: CapabilityOperation
+  /**
+   * Where the operation lands, as an id from a previous scan (ADR-0008) and
+   * never a path: the destination scope for a `move`, the settings layer for
+   * a plugin toggle. Absent where the kind needs no target.
+   */
+  targetId?: string
+  /**
+   * The user has confirmed a step that would bring a file into existence.
+   * Without it such a step is refused with `needs-confirmation` and nothing
+   * is written.
+   */
+  confirm?: boolean
+}
 
 /** What every entity carries across the seam. */
 export interface EntityIdentity {
@@ -706,7 +727,39 @@ export interface ProjectDetail {
 // ---------------------------------------------------------------------------
 // The API surface
 
+/**
+ * The seam's methods. `entityList` and `entityMutate` are the generic pair
+ * every kind is reached through; the per-kind listings and mutations below
+ * them are thin aliases over those two, kept so a shipped view keeps the
+ * call it was written against. New work takes the generic pair — the unit of
+ * growth here is the operation, not the kind (ADR-0004).
+ */
 export interface KondoApi {
+  /**
+   * Every entity of one kind, narrowed to `parentId` for the listings that
+   * take one — a plugin's own skills, a project's sessions. The generic
+   * listing: the kinds below it are the same call under an older name, kept
+   * so shipped views need not change.
+   *
+   * `kind` and `parentId` are validated in the main process; a kind with no
+   * listing, or a parent id of the wrong shape, is a `bad-request`.
+   */
+  entityList(kind: EntityKind, parentId?: string): Promise<Scan<EntityIdentity[]>>
+  /**
+   * The one mutating call: every kind, every operation. The entity's kind is
+   * read from its id prefix in the main process (ADR-0008) — the renderer
+   * hands back the id it was given and parses nothing.
+   *
+   * Planning stays separate from applying and what it plans stays reversible
+   * (ADR-0001). A refusal keeps the capability matrix's own reason (ADR-0006):
+   * `not-permitted` for an operation Claude's conventions do not allow,
+   * `needs-confirmation` for one that would create a file, `unknown-id` for
+   * an id the current scan no longer holds.
+   */
+  entityMutate(
+    entityId: string,
+    request: MutateRequest
+  ): Promise<Scan<JournalEntryInfo | null>>
   /**
    * The projects home: the global row first, then one row per project Claude
    * knows about, newest activity first. Tier-1 throughout (ADR-0007) — the
@@ -872,6 +925,8 @@ export interface KondoApi {
 
 /** Channel names, keyed by KondoApi method — written once, imported twice. */
 export const channels = {
+  entityList: 'kondo:entity-list',
+  entityMutate: 'kondo:entity-mutate',
   projectsList: 'kondo:projects-list',
   projectDetail: 'kondo:project-detail',
   storesOverview: 'kondo:stores-overview',

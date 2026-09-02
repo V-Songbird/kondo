@@ -1,14 +1,24 @@
 import path from 'node:path'
 import type {
   ConfigOrphan,
+  DesktopSession,
+  EntityIdentity,
+  EntityKind,
+  HookInfo,
   JournalEntryInfo,
   KondoApi,
+  MutateRequest,
+  PluginInfo,
   ProjectDetail,
   ProjectRow,
   ProjectRowCounts,
   Scan,
   ScanError,
   SessionDetail,
+  SessionProject,
+  SessionSummary,
+  SettingsLayerInfo,
+  SkillInfo,
   StoresOverview,
   TidyCategory,
   TidyPreview,
@@ -21,10 +31,10 @@ import {
   configOrphansPlan,
   createKindContext,
   kinds,
+  listingFor,
+  listingForId,
   pluginClearPlan,
-  pluginTogglePlan,
   projectPluginStates,
-  skillMovePlan,
   type KindContext
 } from './kinds'
 import {
@@ -61,8 +71,10 @@ export interface WorkspaceOptions {
 /** The store-name prefix a project's `.claude` root answers to (ADR-0008). */
 const PROJECT_STORE = 'project:'
 
-/** The id prefix every project in the session store answers to (ADR-0008). */
+/** The id prefixes the shipped channels check before they alias (ADR-0008). */
 const PROJECT_ID_PREFIX = 'project:code:'
+const SKILL_ID_PREFIX = 'skill:'
+const PLUGIN_ID_PREFIX = 'plugin:'
 
 interface InventoryState {
   scan: Scan<SessionInventory>
@@ -148,20 +160,6 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     unknown: []
   })
 
-  /**
-   * The refusal message for a destination that names a project kondo knows
-   * about but cannot write into, or null when the destination is fine as far
-   * as this check goes.
-   */
-  const storelessDestination = async (destinationId: string): Promise<string | null> => {
-    if (!destinationId.startsWith(PROJECT_ID_PREFIX)) return null
-    const dirName = destinationId.slice(PROJECT_ID_PREFIX.length)
-    const record = (await inventory()).scan.data.byDirName.get(dirName)
-    if (!record || record.hasStore) return null
-    const where = record.guessedPath ?? record.dirName
-    return `${where} has no .claude directory; create ${path.join(where, '.claude')} before moving a skill there.`
-  }
-
   const unknownId = <T>(data: T, id: string): Scan<T> => ({
     data,
     errors: [
@@ -241,7 +239,84 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // The generic pair every kind is reached through (ADR-0004)
+
+  /**
+   * Every entity of one kind, narrowed to `parentId` for the listings that
+   * take one. The registry's `listings` table picks the entry; nothing here
+   * branches on which kind was asked for.
+   */
+  const entityList = async (
+    kind: EntityKind,
+    parentId?: string
+  ): Promise<Scan<EntityIdentity[]>> => {
+    const listing = listingFor(kind, parentId)
+    if (listing === null) {
+      return badRequest(
+        [] as EntityIdentity[],
+        parentId === undefined
+          ? `entityList has no listing for kind "${kind}".`
+          : `entityList has no listing for kind "${kind}" under a parent like "${parentId}".`
+      )
+    }
+    const c = collector()
+    const entities = await listing.definition.discover(context(c, parentId))
+    if (!entities) return unknownId([] as EntityIdentity[], parentId ?? kind)
+    return finish(entities, c)
+  }
+
+  /**
+   * The one mutating entry. The id's kind prefix picks the registry entry in
+   * the main process (ADR-0008) — the renderer hands back the id it was given
+   * and parses nothing — and that entry plans the request. Planning stays
+   * separate from applying and what it plans is reversible (ADR-0001).
+   *
+   * A refusal arrives with the capability matrix's own reason and its own
+   * code (ADR-0006); nothing here flattens one into a generic error.
+   */
+  const entityMutate = async (
+    entityId: string,
+    request: MutateRequest
+  ): Promise<Scan<JournalEntryInfo | null>> => {
+    if (typeof entityId !== 'string' || entityId === '') {
+      return badRequest(null, 'entityMutate expects an entity id.')
+    }
+    const op = request === null || typeof request !== 'object' ? undefined : request.op
+    if (op !== 'enable' && op !== 'disable' && op !== 'move') {
+      return badRequest(null, 'entityMutate expects an op of enable, disable or move.')
+    }
+    const listing = listingForId(entityId)
+    if (listing === null) {
+      return badRequest(null, `entityMutate does not know the kind of id "${entityId}".`)
+    }
+
+    const c = collector()
+    // One context: the entity is read and the plan built from the same bytes,
+    // so nothing is re-scanned between deciding and describing.
+    const shared = context(c)
+    const entity = await listing.definition.read(entityId, shared)
+    if (entity === null || entity === undefined) return unknownId(null, entityId)
+
+    // The cast the erased view cannot make for us: `read` and `plan` here are
+    // the same registry entry's, so this is the type that entry planned for.
+    const planned = await listing.definition.plan(entity as never, request, shared)
+    if (!planned.ok) {
+      c.errors.push({ code: planned.code, path: entityId, message: planned.message })
+      return finish(null, c)
+    }
+    return mutations.mutate(planned.plan)
+  }
+
+  /** One listing under the older, kind-specific name a shipped view calls. */
+  const listAs = async <T extends EntityIdentity>(
+    kind: EntityKind,
+    parentId?: string
+  ): Promise<Scan<T[]>> => (await entityList(kind, parentId)) as Scan<T[]>
+
   return {
+    entityList,
+    entityMutate,
     storesOverview,
 
     async projectsList(refresh?: boolean): Promise<Scan<ProjectRow[]>> {
@@ -372,20 +447,19 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     async sessionProjects(refresh?: boolean) {
       const { scan } = await inventory(refresh === true)
       return {
-        data: (await kinds.project.discover(context(collector()))) ?? [],
+        data: (await listAs<SessionProject>('project')).data,
         errors: scan.errors,
         unknown: scan.unknown
       }
     },
 
     async sessionList(projectId: string) {
-      if (typeof projectId !== 'string' || !projectId.startsWith('project:code:')) {
-        return badRequest([], 'sessionList expects a project:code: id.')
+      // Its own guard rather than the generic one's: this channel has always
+      // named the id shape it wants, and the message is what the UI shows.
+      if (typeof projectId !== 'string' || !projectId.startsWith(PROJECT_ID_PREFIX)) {
+        return badRequest([] as SessionSummary[], 'sessionList expects a project:code: id.')
       }
-      const c = collector()
-      const sessions = await kinds.session.discover(context(c, projectId))
-      if (!sessions) return unknownId([], projectId)
-      return finish(sessions, c)
+      return listAs<SessionSummary>('session', projectId)
     },
 
     async sessionDetail(sessionId: string): Promise<Scan<SessionDetail | null>> {
@@ -406,92 +480,51 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       }
     },
 
-    async desktopSessions() {
-      const c = collector()
-      return finish((await kinds.desktopSession.discover(context(c))) ?? [], c)
+    desktopSessions() {
+      return listAs<DesktopSession>('session')
     },
 
-    async skillsList() {
-      const c = collector()
-      return finish((await kinds.skill.discover(context(c))) ?? [], c)
+    skillsList() {
+      return listAs<SkillInfo>('skill')
     },
 
     async skillToggle(
       skillId: string,
       operation: ToggleOperation
     ): Promise<Scan<JournalEntryInfo | null>> {
-      if (typeof skillId !== 'string' || !skillId.startsWith('skill:')) {
+      if (typeof skillId !== 'string' || !skillId.startsWith(SKILL_ID_PREFIX)) {
         return badRequest(null, 'skillToggle expects a skill: id.')
       }
+      // `move` is a legal op for `entityMutate` and never was for this
+      // channel, so the older, narrower guard stays.
       if (operation !== 'enable' && operation !== 'disable') {
         return badRequest(null, 'skillToggle expects enable or disable.')
       }
-      const c = collector()
-      const entity = await kinds.skill.read(skillId, context(c))
-      if (!entity) return unknownId(null, skillId)
-
-      const plan =
-        operation === 'enable' ? kinds.skill.enable(entity) : kinds.skill.disable(entity)
-      if (!plan) {
-        // The matrix refused, not the UI — its reason is the whole answer.
-        c.errors.push({
-          code: 'not-permitted',
-          path: skillId,
-          message:
-            entity.capabilities[operation].reason ?? `kondo cannot ${operation} this skill.`
-        })
-        return finish(null, c)
-      }
-      return mutations.mutate(plan)
+      return entityMutate(skillId, { op: operation })
     },
 
     async skillMove(
       skillId: string,
       destinationId: string
     ): Promise<Scan<JournalEntryInfo | null>> {
-      if (typeof skillId !== 'string' || !skillId.startsWith('skill:')) {
+      if (typeof skillId !== 'string' || !skillId.startsWith(SKILL_ID_PREFIX)) {
         return badRequest(null, 'skillMove expects a skill: id.')
       }
       if (typeof destinationId !== 'string' || destinationId === '') {
         return badRequest(null, 'skillMove expects a destination scope id.')
       }
-      // A project with no `.claude` is a real member of the project set and
-      // still not a store (ADR-0002), so it is refused by name rather than
-      // reported as an id nobody has heard of — the UI can say which
-      // directory would have to exist first.
-      const storeless = await storelessDestination(destinationId)
-      if (storeless !== null) return badRequest(null, storeless)
-
-      const c = collector()
-      const shared = context(c)
-      // One listing, used twice: the skill being moved and the destination's
-      // own skills the collision check reads come from the same scan.
-      const all = (await kinds.skill.discover(shared)) ?? []
-      const entity = all.find((candidate) => candidate.id === skillId)
-      if (!entity) return unknownId(null, skillId)
-
-      const planned = await skillMovePlan({ entity, destinationId, all }, shared)
-      if (!planned.ok) {
-        // The matrix refused, not the UI — its reason is the whole answer.
-        c.errors.push({ code: planned.code, path: skillId, message: planned.message })
-        return finish(null, c)
-      }
-      return mutations.mutate(planned.plan)
+      return entityMutate(skillId, { op: 'move', targetId: destinationId })
     },
 
-    async pluginsList() {
-      const c = collector()
-      return finish((await kinds.plugin.discover(context(c))) ?? [], c)
+    pluginsList() {
+      return listAs<PluginInfo>('plugin')
     },
 
     async pluginSkills(pluginId: string) {
-      if (typeof pluginId !== 'string' || !pluginId.startsWith('plugin:')) {
-        return badRequest([], 'pluginSkills expects a plugin: id.')
+      if (typeof pluginId !== 'string' || !pluginId.startsWith(PLUGIN_ID_PREFIX)) {
+        return badRequest([] as SkillInfo[], 'pluginSkills expects a plugin: id.')
       }
-      const c = collector()
-      const skills = await kinds.pluginSkill.discover(context(c, pluginId))
-      if (!skills) return unknownId([], pluginId)
-      return finish(skills, c)
+      return listAs<SkillInfo>('skill', pluginId)
     },
 
     async pluginToggle(
@@ -500,7 +533,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       operation: ToggleOperation,
       createLayer?: boolean
     ): Promise<Scan<JournalEntryInfo | null>> {
-      if (typeof pluginId !== 'string' || !pluginId.startsWith('plugin:')) {
+      if (typeof pluginId !== 'string' || !pluginId.startsWith(PLUGIN_ID_PREFIX)) {
         return badRequest(null, 'pluginToggle expects a plugin: id.')
       }
       if (typeof layerId !== 'string' || !layerId.startsWith('settings:')) {
@@ -509,22 +542,11 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       if (operation !== 'enable' && operation !== 'disable') {
         return badRequest(null, 'pluginToggle expects enable or disable.')
       }
-      const c = collector()
-      // One context, so the plugin manifest and the settings layers are read
-      // once and the plan sees exactly the bytes the entity was built from.
-      const shared = context(c)
-      const entity = await kinds.plugin.read(pluginId, shared)
-      if (!entity) return unknownId(null, pluginId)
-
-      const planned = await pluginTogglePlan(
-        { entity, layerId, operation, createLayer: createLayer === true },
-        shared
-      )
-      if (!planned.ok) {
-        c.errors.push({ code: planned.code, path: layerId, message: planned.message })
-        return finish(null, c)
-      }
-      return mutations.mutate(planned.plan)
+      return entityMutate(pluginId, {
+        op: operation,
+        targetId: layerId,
+        confirm: createLayer === true
+      })
     },
 
     async pluginClear(
@@ -552,14 +574,12 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       return mutations.mutate(planned.plan)
     },
 
-    async hooksList() {
-      const c = collector()
-      return finish((await kinds.hook.discover(context(c))) ?? [], c)
+    hooksList() {
+      return listAs<HookInfo>('hook')
     },
 
-    async settingsLayers() {
-      const c = collector()
-      return finish((await kinds.settings.discover(context(c))) ?? [], c)
+    settingsLayers() {
+      return listAs<SettingsLayerInfo>('settings')
     },
 
     async tidyPreview(): Promise<Scan<TidyPreview>> {

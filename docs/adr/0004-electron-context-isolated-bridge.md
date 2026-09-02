@@ -41,10 +41,45 @@ Its report card drove these; each was a real defect there:
    so the belt-and-suspenders is not optional.
 5. **Ids across the seam** from day one (ADR-0008), including for reads.
 
+## Amendment: the unit of growth is the operation, not the kind
+
+A channel per kind per operation does not scale with the kinds kondo
+manages. Two kinds with two operations were four methods, four handler lines
+and four bridge lines; the kinds the roadmap adds — `mcp`, `agent`,
+`command`, `rule`, `output-style` — with the same two operations plus `move`
+would have been around fifteen more, each one a place for the three sides to
+drift apart.
+
+So the seam grows by **operation**. Two generic channels carry every kind:
+
+- `entityList(kind, parentId?)` — every entity of one kind, narrowed to a
+  parent where a listing takes one.
+- `entityMutate(entityId, request)` — one request against one entity, where
+  `request` is `{ op, targetId?, confirm? }` and `op` is a
+  `CapabilityOperation`.
+
+The main process picks the registry entry from the id's kind prefix
+(ADR-0008); the renderer still hands back the id it was given and parses
+nothing. Adding a kind is a row in the registry and a row in the capability
+matrix — no method, no handler line, no bridge line. Adding an *operation* is
+where the contract genuinely grows, and it costs one value in
+`CapabilityOperation` plus a branch in the kinds that implement it.
+
+This narrows the seam rather than widening it. Everything still crosses a
+context-isolated bridge, everything is still validated in the main process,
+and the capability matrix is still the only thing that grants a write — a
+generic channel cannot reach anything a per-kind channel could not, because
+permission was never a property of the channel.
+
+Channels shipped before this amendment stay, as thin aliases over the two
+above, so views already written against them keep working. New work takes the
+generic pair.
+
 ## Consequences
 
 - Electron's disk/memory footprint; accepted for a tool whose job is
   visualizing gigabytes of local state.
-- Every new capability costs a contract entry + handler + bridge line; that
-  friction is the security model working.
+- Every new *operation* costs a contract entry + handler + bridge line; that
+  friction is the security model working. A new *kind* costs a registry row
+  and a matrix row, and nothing at the seam — see the amendment above.
 - The preload bridge stays dumb: no logic, no state, one line per method.

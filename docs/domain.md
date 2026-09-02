@@ -112,12 +112,13 @@ the transport, and the file that declares it.
 `<flat>` is the flattened project path (ADR-0009), which is what joins a
 declaration to the project directory it belongs to. A `local` declaration
 whose registry path is no longer on disk is reported with `orphan: true` —
-the dead-project signal in its MCP form, and what entry 031 will remove.
-Discovery is tier-1 (ADR-0007): one registry parse, one `stat` per registry
-entry that actually declares a server, one `.mcp.json` read per verified
-project. The kind is read-only in all three scopes; the capability matrix
-refuses enable, disable and move until entry 031 ships a write path
-`~/.claude.json` can survive.
+the dead-project signal in its MCP form, and what `configOrphansPreview`
+offers to splice out (ADR-0010). Discovery is tier-1 (ADR-0007): one registry
+parse, one `stat` per registry entry that actually declares a server, one
+`.mcp.json` read per verified project. The kind is read-only in all three
+scopes; the capability matrix refuses enable, disable and move. Entry 031
+shipped the splice step `~/.claude.json` can survive, so the obstacle is no
+longer the write path — nothing has yet wired an MCP toggle to it.
 
 `~/.claude/.mcp.json` also exists inside the user store (empty `mcpServers`
 on the observed machine ✅) and is **not** one of the three scopes above;

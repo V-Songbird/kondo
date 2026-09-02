@@ -1,11 +1,12 @@
 import path from 'node:path'
 import type {
-  Capabilities,
+  CapabilityOperation,
   DesktopSession,
   EntityIdentity,
   EntityKind,
   HookInfo,
   McpServerInfo,
+  MutateRequest,
   PlacedEntryInfo,
   PlacedKind,
   PluginInfo,
@@ -22,7 +23,7 @@ import type {
 import type { StoreLocator } from './locator'
 import type { Collector } from './scan'
 import { applyEdits, digestSource, type MutationPlan, type PlannedStep, type SpliceEdit } from './mutations'
-import { capabilitiesFor, scopesFor } from './capabilities'
+import { capabilitiesFor } from './capabilities'
 import { tildify } from './display'
 import { desktopSessions } from './desktop-store'
 import { summarizeTranscript } from './jsonl'
@@ -50,9 +51,9 @@ import {
 /**
  * The kind registry. Every entity kind kondo manages is described here —
  * how it is discovered, how one of its entities is read back from an id
- * (ADR-0008), what the capability matrix permits for it, and where its
- * enable/disable mutations will plug in. Nothing outside this module names
- * a store adapter; the workspace reaches every kind through `kinds`.
+ * (ADR-0008), and how one request against it is planned. Nothing outside
+ * this module names a store adapter; the workspace reaches every kind
+ * through `kinds` and the `listings` table at the foot of the file.
  *
  * `kinds` has one entry per *listing*, which is not quite one per kind:
  * code and desktop sessions share the `session` kind but live in different
@@ -79,6 +80,12 @@ export interface KindContext {
   projects(): Promise<VerifiedProject[]>
   layers(): Promise<SettingsLayer[]>
   plugins(): Promise<PluginRecord[]>
+  /**
+   * Every skill of the user store and this call's projects, read at most
+   * once — so a move plans its collision check against exactly the listing
+   * the entity being moved came from.
+   */
+  skills(): Promise<SkillInfo[]>
   /** Narrows `discover` to one parent entity's children, or null for all. */
   parentId: string | null
 }
@@ -95,6 +102,7 @@ export interface KindContextSources {
 export function createKindContext(sources: KindContextSources): KindContext {
   let layers: Promise<SettingsLayer[]> | null = null
   let plugins: Promise<PluginRecord[]> | null = null
+  let skills: Promise<SkillInfo[]> | null = null
 
   const context: KindContext = {
     locator: sources.locator,
@@ -108,6 +116,9 @@ export function createKindContext(sources: KindContextSources): KindContext {
     plugins: () =>
       (plugins ??= (async () =>
         scanPlugins(sources.locator, await context.layers(), sources.c))()),
+    skills: () =>
+      (skills ??= (async () =>
+        scanSkills(sources.locator, await sources.projects(), sources.c))()),
     parentId: sources.parentId ?? null
   }
   return context
@@ -116,11 +127,26 @@ export function createKindContext(sources: KindContextSources): KindContext {
 // ---------------------------------------------------------------------------
 // What a kind is
 
+/**
+ * What one mutation asks for, as the registry sees it — the seam's own
+ * `MutateRequest`, unchanged, because nothing between the channel and the
+ * kind needs to reshape it.
+ */
+export type PlanRequest = MutateRequest
+
+/**
+ * The store change one request would make, or the refusal that stands in its
+ * place. A refusal keeps the reason the matrix gave it: nothing here
+ * flattens "already enabled" and "plugin-shipped skills follow their plugin"
+ * into one generic error (ADR-0006).
+ */
+export type PlanResult =
+  | { ok: true; plan: MutationPlan }
+  | { ok: false; code: ScanErrorCode; message: string }
+
 export interface EntityKindDefinition<T extends EntityIdentity, D = T> {
   /** The first segment of every id this entry produces (ADR-0008). */
   kind: EntityKind
-  /** The scopes the matrix is keyed on for this kind. */
-  scopes: readonly string[]
   /**
    * Every entity this entry lists, narrowed to `context.parentId` when the
    * entry takes one. Null means that parent id did not resolve — the caller
@@ -129,22 +155,38 @@ export interface EntityKindDefinition<T extends EntityIdentity, D = T> {
   discover(context: KindContext): Promise<T[] | null>
   /** One entity by its id; null when the id does not resolve. */
   read(id: string, context: KindContext): Promise<D | null>
-  /** The matrix row for one scope: permission, never a flag. */
-  capabilities(scope: string): Capabilities
   /**
-   * The store change that would enable (disable) one entity, or null when
-   * there is none to make. The matrix is the gate: a kind returns null for
-   * anything it refuses, so a refused operation never reaches a plan
-   * (ADR-0006). Kinds whose mutation has not shipped return null always.
+   * The one mutation seat. Every operation goes through here, so adding one
+   * costs a branch in the kinds that implement it and nothing at all in the
+   * kinds that do not — no new seat, no new channel (ADR-0004).
+   *
+   * Planning never writes (ADR-0001), and the matrix is the gate (ADR-0006):
+   * a kind refuses what Claude's conventions do not permit, in the matrix's
+   * own words, before any step exists to run.
    */
-  enable(entity: T): MutationPlan | null
-  disable(entity: T): MutationPlan | null
+  plan(entity: T, request: PlanRequest, context: KindContext): Promise<PlanResult>
 }
 
-/** A kind whose enable/disable has not shipped yet — the seat, unwired. */
-const noPlanYet = {
-  enable: (): MutationPlan | null => null,
-  disable: (): MutationPlan | null => null
+function refused(code: ScanErrorCode, message: string): PlanResult {
+  return { ok: false, code, message }
+}
+
+/**
+ * The answer a kind gives a request it has no mechanism for: the matrix's
+ * refusal, quoted. This is every kind whose mutation has not shipped and
+ * every kind Claude offers no convention for — the seat is filled, and what
+ * fills it is the reason.
+ */
+function matrixRefusal(
+  kind: EntityKind,
+  scope: string,
+  op: CapabilityOperation
+): PlanResult {
+  const decision = capabilitiesFor(kind, scope)[op]
+  return refused(
+    'not-permitted',
+    decision.reason ?? `kondo cannot ${op} this ${kind}.`
+  )
 }
 
 /** The ADR-0008 resolution every kind but `session` shares: find by id. */
@@ -193,52 +235,73 @@ function skillPlacement(entity: SkillInfo): { store: string; from: string; to: s
   }
 }
 
-function skillPlan(entity: SkillInfo, operation: ToggleOperation): MutationPlan | null {
-  if (!entity.capabilities[operation].allowed) return null
+function skillTogglePlan(entity: SkillInfo, operation: ToggleOperation): PlanResult {
+  const decision = entity.capabilities[operation]
+  if (!decision.allowed) {
+    return refused(
+      'not-permitted',
+      decision.reason ?? `kondo cannot ${operation} this skill.`
+    )
+  }
   const placement = skillPlacement(entity)
-  if (!placement) return null
+  if (!placement) {
+    return refused('not-permitted', `kondo cannot tell what store ${entity.name} lives in.`)
+  }
   return {
-    op: 'move',
-    kind: 'skill',
-    entityId: entity.id,
-    summary: `${operation === 'enable' ? 'Enable' : 'Disable'} skill ${entity.name} (${entity.scope})`,
-    steps: [{ type: 'move', ...placement }]
+    ok: true,
+    plan: {
+      op: 'move',
+      kind: 'skill',
+      entityId: entity.id,
+      summary: `${operation === 'enable' ? 'Enable' : 'Disable'} skill ${entity.name} (${entity.scope})`,
+      steps: [{ type: 'move', ...placement }]
+    }
   }
 }
 
 const skill: EntityKindDefinition<SkillInfo> = {
   kind: 'skill',
-  scopes: scopesFor('skill'),
-  async discover(context) {
-    // Only the user store and the verified projects: a skill shipped inside a
-    // plugin is the plugin's, not the user's, so the plugin manifest is not
-    // read here at all any more.
-    return scanSkills(context.locator, await context.projects(), context.c)
+  // Only the user store and the verified projects: a skill shipped inside a
+  // plugin is the plugin's, not the user's, so the plugin manifest is not
+  // read here at all any more.
+  discover(context) {
+    return context.skills()
   },
   read(id, context) {
     return findById(id, skill.discover(context))
   },
-  capabilities: (scope) => capabilitiesFor('skill', scope),
-  enable: (entity) => skillPlan(entity, 'enable'),
-  disable: (entity) => skillPlan(entity, 'disable')
+  async plan(entity, request, context) {
+    return request.op === 'move'
+      ? skillMovePlan(entity, request.targetId ?? '', context)
+      : skillTogglePlan(entity, request.op)
+  }
 }
 
 const PLUGIN_PREFIX = 'plugin:'
 
 const plugin: EntityKindDefinition<PluginInfo> = {
   kind: 'plugin',
-  scopes: scopesFor('plugin'),
   async discover(context) {
     return (await context.plugins()).map((record) => record.info)
   },
   read(id, context) {
     return findById(id, plugin.discover(context))
   },
-  capabilities: (scope) => capabilitiesFor('plugin', scope),
-  // A plugin is enabled or disabled *in a settings layer* (ADR-0006), so the
-  // entity-level seat has no target to act on and stays empty. The per-layer
-  // plan is `pluginTogglePlan` at the foot of this module.
-  ...noPlanYet
+  /**
+   * A plugin is enabled or disabled *in a settings layer* (ADR-0006), never
+   * on the plugin itself — which is exactly what `request.targetId` carries.
+   * The old entity-level seats had nowhere to put it and stayed empty.
+   */
+  async plan(entity, request, context) {
+    if (request.op === 'move') return matrixRefusal('plugin', entity.installScope, 'move')
+    return pluginTogglePlan(
+      entity,
+      request.op,
+      request.targetId ?? '',
+      request.confirm === true,
+      context
+    )
+  }
 }
 
 /**
@@ -254,8 +317,6 @@ const plugin: EntityKindDefinition<PluginInfo> = {
  */
 const pluginSkill: EntityKindDefinition<SkillInfo> = {
   kind: 'skill',
-  // The one scope `skill` above never produces; `scopesFor` holds both.
-  scopes: ['plugin'],
   /** Requires `context.parentId` — a `plugin:` id from a prior scan. */
   async discover(context) {
     const parentId = context.parentId
@@ -269,58 +330,58 @@ const pluginSkill: EntityKindDefinition<SkillInfo> = {
   read(id, context) {
     return findById(id, pluginSkill.discover(context))
   },
-  capabilities: (scope) => capabilitiesFor('skill', scope),
-  // Nothing to seat: the `plugin` scope's matrix row refuses every operation
-  // (ADR-0006), so no plan for one of these could ever be legitimate.
-  ...noPlanYet
+  // The `plugin` scope's matrix row refuses every operation (ADR-0006), so no
+  // plan for one of these could ever be legitimate.
+  async plan(_entity, request) {
+    return matrixRefusal('skill', 'plugin', request.op)
+  }
 }
 
 const hook: EntityKindDefinition<HookInfo> = {
   kind: 'hook',
-  scopes: scopesFor('hook'),
   async discover(context) {
     return hooksFromLayers(await context.layers())
   },
   read(id, context) {
     return findById(id, hook.discover(context))
   },
-  capabilities: (scope) => capabilitiesFor('hook', scope),
-  ...noPlanYet
+  async plan(entity, request) {
+    return matrixRefusal('hook', entity.layer, request.op)
+  }
 }
 
 const settings: EntityKindDefinition<SettingsLayerInfo> = {
   kind: 'settings',
-  scopes: scopesFor('settings'),
   async discover(context) {
     return (await context.layers()).map((layer) => layer.info)
   },
   read(id, context) {
     return findById(id, settings.discover(context))
   },
-  capabilities: (scope) => capabilitiesFor('settings', scope),
-  ...noPlanYet
+  async plan(entity, request) {
+    return matrixRefusal('settings', entity.layer, request.op)
+  }
 }
 
 const project: EntityKindDefinition<SessionProject> = {
   kind: 'project',
-  scopes: scopesFor('project'),
   async discover(context) {
     return toSessionProjects(await context.inventory(), context.now)
   },
   read(id, context) {
     return findById(id, project.discover(context))
   },
-  capabilities: (scope) => capabilitiesFor('project', scope),
-  ...noPlanYet
+  async plan(_entity, request) {
+    return matrixRefusal('project', 'code', request.op)
+  }
 }
 
 const PROJECT_PREFIX = 'project:code:'
 const SESSION_PREFIX = 'session:code:'
+const DESKTOP_SESSION_PREFIX = 'session:desktop:'
 
 const session: EntityKindDefinition<SessionSummary, SessionDetail> = {
   kind: 'session',
-  // One store per entry, so these two split what `scopesFor('session')` holds.
-  scopes: ['code'],
   /** Requires `context.parentId` — a `project:code:` id from a prior scan. */
   async discover(context) {
     const parentId = context.parentId
@@ -347,8 +408,12 @@ const session: EntityKindDefinition<SessionSummary, SessionDetail> = {
     if (!record) return null
     return { id, ...(await summarizeTranscript(record.file)) }
   },
-  capabilities: (scope) => capabilitiesFor('session', scope),
-  ...noPlanYet
+  // The one entry whose `read` answers a detail rather than the entity its
+  // `plan` takes — which costs nothing, because nothing about a session is
+  // mutable and this refuses without looking at what it was handed.
+  async plan(_entity, request) {
+    return matrixRefusal('session', 'code', request.op)
+  }
 }
 
 /**
@@ -360,15 +425,15 @@ const session: EntityKindDefinition<SessionSummary, SessionDetail> = {
  */
 const mcp: EntityKindDefinition<McpServerInfo> = {
   kind: 'mcp',
-  scopes: scopesFor('mcp'),
   async discover(context) {
     return scanMcpServers(context.locator, await context.projects(), context.c)
   },
   read(id, context) {
     return findById(id, mcp.discover(context))
   },
-  capabilities: (scope) => capabilitiesFor('mcp', scope),
-  ...noPlanYet
+  async plan(entity, request) {
+    return matrixRefusal('mcp', entity.scope, request.op)
+  }
 }
 
 /**
@@ -378,62 +443,44 @@ const mcp: EntityKindDefinition<McpServerInfo> = {
  * but for the kind they close over.
  *
  * Read-only in every scope. Claude loads these by presence and ships no
- * disable convention for them (ADR-0006), so the toggle seats stay unwired on
- * purpose; `move` waits on entry 028.
+ * disable convention for them (ADR-0006), so every operation is refused in
+ * the matrix's own words; `move` waits on entry 028.
  */
 function placedKind(kind: PlacedKind): EntityKindDefinition<PlacedEntryInfo> {
   const definition: EntityKindDefinition<PlacedEntryInfo> = {
     kind,
-    scopes: scopesFor(kind),
     async discover(context) {
       return scanPlacedEntries(context.locator, kind, await context.projects(), context.c)
     },
     read(id, context) {
       return findById(id, definition.discover(context))
     },
-    capabilities: (scope) => capabilitiesFor(kind, scope),
-    ...noPlanYet
+    async plan(entity, request) {
+      return matrixRefusal(kind, entity.scope, request.op)
+    }
   }
   return definition
 }
 
 const desktopSession: EntityKindDefinition<DesktopSession> = {
   kind: 'session',
-  scopes: ['desktop'],
   async discover(context) {
     return desktopSessions(context.locator, context.c)
   },
   read(id, context) {
     return findById(id, desktopSession.discover(context))
   },
-  capabilities: (scope) => capabilitiesFor('session', scope),
-  ...noPlanYet
+  async plan(_entity, request) {
+    return matrixRefusal('session', 'desktop', request.op)
+  }
 }
 
 
 // ---------------------------------------------------------------------------
 // Moving a skill into another scope
 
-/** Why a skill move produced no plan, in the seam's own vocabulary. */
-export type SkillMovePlan =
-  | { ok: true; plan: MutationPlan }
-  | { ok: false; code: ScanErrorCode; message: string }
-
-export interface SkillMoveRequest {
-  entity: SkillInfo
-  /** `'user'`, or a `project:code:<dirName>` id from a previous scan. */
-  destinationId: string
-  /**
-   * Every skill the same scan listed. The collision check reads this rather
-   * than the disk, so the plan is answered from exactly the bytes the entity
-   * was built from — and one scan covers both of a scope's directories.
-   */
-  all: SkillInfo[]
-}
-
 /** The user scope has no key, so it names itself (ADR-0008 has no id for it). */
 const USER_DESTINATION = 'user'
-const PROJECT_ID_PREFIX = 'project:code:'
 
 /** Where a move would land: the store to write into, and how to say it. */
 interface MoveTarget {
@@ -448,8 +495,8 @@ async function moveTarget(
   if (destinationId === USER_DESTINATION) {
     return { store: 'user', label: tildify(context.locator.userRoot, context.locator.home) }
   }
-  if (!destinationId.startsWith(PROJECT_ID_PREFIX)) return null
-  const dirName = destinationId.slice(PROJECT_ID_PREFIX.length)
+  if (!destinationId.startsWith(PROJECT_PREFIX)) return null
+  const dirName = destinationId.slice(PROJECT_PREFIX.length)
   // Only a *verified* project is a store: `mutations` resolves the same list,
   // so a destination that plans here always resolves when it runs (ADR-0002 —
   // the store is the project's `.claude`, never the project itself).
@@ -461,8 +508,28 @@ async function moveTarget(
   }
 }
 
-function moveRefused(code: ScanErrorCode, message: string): SkillMovePlan {
-  return { ok: false, code, message }
+/**
+ * The refusal for a destination that names a project kondo knows about and
+ * cannot write into, or null when the destination is fine as far as this
+ * check goes. A project with no `.claude` is a real member of the project set
+ * and still not a store (ADR-0002), so it is refused by name rather than
+ * reported as an id nobody has heard of — the UI can say which directory
+ * would have to exist first.
+ */
+async function storelessDestination(
+  destinationId: string,
+  context: KindContext
+): Promise<string | null> {
+  if (!destinationId.startsWith(PROJECT_PREFIX)) return null
+  const record = (await context.inventory()).byDirName.get(
+    destinationId.slice(PROJECT_PREFIX.length)
+  )
+  if (!record || record.hasStore) return null
+  const where = record.guessedPath ?? record.dirName
+  return `${where} has no .claude directory; create ${path.join(
+    where,
+    '.claude'
+  )} before moving a skill there.`
 }
 
 /**
@@ -474,40 +541,47 @@ function moveRefused(code: ScanErrorCode, message: string): SkillMovePlan {
  * The matrix is the gate (ADR-0006): a plugin-shipped skill is refused here,
  * not in the UI. A destination scope that already holds the name is refused
  * too — merging two skill directories would silently mix their files.
+ *
+ * `destinationId` is `'user'` or a `project:code:<dirName>` id from a
+ * previous scan. The collision check reads `context.skills()`, so the plan is
+ * answered from exactly the listing the entity was built from, and one scan
+ * covers both of a scope's directories.
  */
-export async function skillMovePlan(
-  request: SkillMoveRequest,
+async function skillMovePlan(
+  entity: SkillInfo,
+  destinationId: string,
   context: KindContext
-): Promise<SkillMovePlan> {
-  const { entity, destinationId, all } = request
-
+): Promise<PlanResult> {
   const decision = entity.capabilities.move
   if (!decision.allowed) {
-    return moveRefused('not-permitted', decision.reason ?? 'kondo cannot move this skill.')
+    return refused('not-permitted', decision.reason ?? 'kondo cannot move this skill.')
   }
   const placement = skillPlacement(entity)
   if (!placement) {
-    return moveRefused('not-permitted', `kondo cannot tell what store ${entity.name} lives in.`)
+    return refused('not-permitted', `kondo cannot tell what store ${entity.name} lives in.`)
   }
+  const storeless = await storelessDestination(destinationId, context)
+  if (storeless !== null) return refused('bad-request', storeless)
+
   const target = await moveTarget(destinationId, context)
   if (target === null) {
-    return moveRefused(
+    return refused(
       'unknown-id',
       `No scope with id "${destinationId}" in the current scan — rescan and retry.`
     )
   }
   if (target.store === placement.store) {
-    return moveRefused('bad-request', `${entity.name} is already in that scope.`)
+    return refused('bad-request', `${entity.name} is already in that scope.`)
   }
 
   // Both of the destination's directories count: a skill of this name sitting
   // in its `skills.disabled` is the same name arriving twice.
-  const clash = all.find(
+  const clash = (await context.skills()).find(
     (candidate) =>
       candidate.name === entity.name && skillPlacement(candidate)?.store === target.store
   )
   if (clash) {
-    return moveRefused(
+    return refused(
       'bad-request',
       `${target.label} already holds a skill named ${entity.name} (${clash.origin}); kondo will not merge the two.`
     )
@@ -534,38 +608,22 @@ export async function skillMovePlan(
 // ---------------------------------------------------------------------------
 // Toggling a plugin in one settings layer
 
-/** Why a plugin toggle produced no plan, in the seam's own vocabulary. */
-export type PluginTogglePlan =
-  | { ok: true; plan: MutationPlan }
-  | { ok: false; code: ScanErrorCode; message: string }
-
-export interface PluginToggleRequest {
-  entity: PluginInfo
-  /** `settings:<layer>:<key>` — the layer the user picked. */
-  layerId: string
-  operation: ToggleOperation
-  /** The user has confirmed creating a settings file that is not there yet. */
-  createLayer: boolean
-}
-
-function refused(code: ScanErrorCode, message: string): PluginTogglePlan {
-  return { ok: false, code, message }
-}
-
 /**
  * The store change that would enable or disable one plugin in one settings
  * layer. A plugin's enabled state is a key in a settings file rather than a
- * property of the plugin, so the entity-level `enable` / `disable` seats
- * cannot name a target — this takes the layer alongside the entity.
+ * property of the plugin, so the layer travels as `request.targetId` — the
+ * target the old entity-level seats had no room for.
  *
  * The matrix is still the gate (ADR-0006): permission is a lookup on the
  * layer the write would land in, never on the UI that offered the button.
  */
-export async function pluginTogglePlan(
-  request: PluginToggleRequest,
+async function pluginTogglePlan(
+  entity: PluginInfo,
+  operation: ToggleOperation,
+  layerId: string,
+  createLayer: boolean,
   context: KindContext
-): Promise<PluginTogglePlan> {
-  const { entity, layerId, operation, createLayer } = request
+): Promise<PlanResult> {
   const layer = (await context.layers()).find((candidate) => candidate.info.id === layerId)
   if (!layer) {
     return refused('unknown-id', `No settings layer with id "${layerId}" in the current scan.`)
@@ -588,7 +646,7 @@ export async function pluginTogglePlan(
     )
   }
 
-  const write = (content: string): PluginTogglePlan => ({
+  const write = (content: string): PlanResult => ({
     ok: true,
     plan: {
       op: 'settings-edit',
@@ -637,10 +695,11 @@ export interface PluginClearRequest {
 
 /**
  * The store change that takes one layer's statement about one plugin away,
- * leaving the layer above it to decide. It shares `PluginTogglePlan`'s answer
- * shape because it is the same edit to the same key, in the one direction the
- * toggle cannot express: writing `false` states a value, and only removing the
- * member withdraws one.
+ * leaving the layer above it to decide — the one direction the toggle cannot
+ * express: writing `false` states a value, and only removing the member
+ * withdraws one. It is not an `op` of `plan`, because `clear` is not one of
+ * the three the capability matrix answers; it keeps its own channel until
+ * the matrix grows a row for it.
  *
  * The matrix still gates it, on that layer's `disable` row: there is no
  * `clear` operation to look up, and unstating a plugin is a strictly smaller
@@ -651,7 +710,7 @@ export interface PluginClearRequest {
 export async function pluginClearPlan(
   request: PluginClearRequest,
   context: KindContext
-): Promise<PluginTogglePlan> {
+): Promise<PlanResult> {
   const { entity, layerId } = request
   const layer = (await context.layers()).find((candidate) => candidate.info.id === layerId)
   if (!layer) {
@@ -712,14 +771,13 @@ export async function pluginClearPlan(
  * for and no listing does.
  */
 export async function configOrphans(context: KindContext): Promise<ConfigOrphanRecord[]> {
-  const [layers, plugins, projects, inventory] = await Promise.all([
+  const [layers, plugins, inventory] = await Promise.all([
     context.layers(),
     context.plugins(),
-    context.projects(),
     context.inventory()
   ])
   const [own, shipped] = await Promise.all([
-    scanSkills(context.locator, projects, context.c),
+    context.skills(),
     Promise.all(plugins.map((record) => scanPluginSkills(context.locator, record, context.c)))
   ])
   return scanConfigOrphans(
@@ -894,8 +952,9 @@ export function projectPluginStates(
 }
 
 /**
- * The registry. Adding an entity kind means adding an entry here and a row
- * to the capability matrix — never a new branch in the workspace.
+ * The registry. Adding an entity kind means adding an entry here, a row in
+ * `listings` below, and a row in the capability matrix — never a new branch
+ * in the workspace, and never a new channel.
  */
 export const kinds = {
   skill,
@@ -912,3 +971,88 @@ export const kinds = {
   rule: placedKind('rule'),
   outputStyle: placedKind('output-style')
 } as const
+
+// ---------------------------------------------------------------------------
+// Dispatch: from one id, or one kind, to the entry that serves it
+
+/**
+ * A registry entry with the entity type erased, so a single dispatcher can
+ * serve every kind. `read` and `plan` on any one row are the *same* entry's,
+ * so what the first returns is what the second expects — the one fact this
+ * view cannot state, and the only reason its caller casts between them.
+ */
+export interface AnyKind {
+  kind: EntityKind
+  discover(context: KindContext): Promise<EntityIdentity[] | null>
+  read(id: string, context: KindContext): Promise<unknown>
+  plan(entity: never, request: PlanRequest, context: KindContext): Promise<PlanResult>
+}
+
+/**
+ * One row per *listing*, which is not quite one per kind: code and desktop
+ * sessions share the `session` kind but live in different stores (domain.md),
+ * and a plugin's own skills are a second `skill` listing keyed on the plugin.
+ * Each row carries the id prefix its entities answer to (ADR-0008) and the
+ * parent id its `discover` requires, or null when it takes none.
+ */
+export interface Listing {
+  idPrefix: string
+  kind: EntityKind
+  parent: string | null
+  definition: AnyKind
+}
+
+const SKILL_PREFIX = 'skill:'
+/** A plugin-shipped skill's id, by construction in `scanPluginSkills`. */
+const PLUGIN_SKILL_PREFIX = 'skill:plugin/'
+
+export const listings: readonly Listing[] = [
+  { idPrefix: PLUGIN_SKILL_PREFIX, kind: 'skill', parent: PLUGIN_PREFIX, definition: kinds.pluginSkill },
+  { idPrefix: SKILL_PREFIX, kind: 'skill', parent: null, definition: kinds.skill },
+  { idPrefix: PLUGIN_PREFIX, kind: 'plugin', parent: null, definition: kinds.plugin },
+  { idPrefix: 'hook:', kind: 'hook', parent: null, definition: kinds.hook },
+  { idPrefix: 'settings:', kind: 'settings', parent: null, definition: kinds.settings },
+  { idPrefix: PROJECT_PREFIX, kind: 'project', parent: null, definition: kinds.project },
+  { idPrefix: SESSION_PREFIX, kind: 'session', parent: PROJECT_PREFIX, definition: kinds.session },
+  { idPrefix: DESKTOP_SESSION_PREFIX, kind: 'session', parent: null, definition: kinds.desktopSession },
+  { idPrefix: 'mcp:', kind: 'mcp', parent: null, definition: kinds.mcp },
+  { idPrefix: 'agent:', kind: 'agent', parent: null, definition: kinds.agent },
+  { idPrefix: 'command:', kind: 'command', parent: null, definition: kinds.command },
+  { idPrefix: 'rule:', kind: 'rule', parent: null, definition: kinds.rule },
+  { idPrefix: 'output-style:', kind: 'output-style', parent: null, definition: kinds.outputStyle }
+]
+
+/**
+ * The listing that owns one id, by its longest matching prefix — so
+ * `skill:plugin/…` reaches the plugin's own listing and not the user's, and
+ * `session:desktop:…` reaches the desktop store. Reading a prefix is the main
+ * process's business; the renderer hands back the id it was given (ADR-0008).
+ *
+ * Null for an id no kind claims, which the caller reports as a bad request:
+ * it is a kondo bug, never something a store could produce.
+ */
+export function listingForId(entityId: string): Listing | null {
+  let best: Listing | null = null
+  for (const listing of listings) {
+    if (!entityId.startsWith(listing.idPrefix)) continue
+    if (best === null || listing.idPrefix.length > best.idPrefix.length) best = listing
+  }
+  return best
+}
+
+/**
+ * The listing for one kind: the child listing when a parent id of the right
+ * shape is given, the parentless one otherwise. Null when the kind has no
+ * listing, or when the parent id is not one this kind's children hang off.
+ */
+export function listingFor(kind: EntityKind, parentId?: string): Listing | null {
+  return (
+    listings.find(
+      (listing) =>
+        listing.kind === kind &&
+        (listing.parent === null
+          ? parentId === undefined
+          : parentId !== undefined && parentId.startsWith(listing.parent))
+    ) ?? null
+  )
+}

@@ -1,7 +1,9 @@
 import { ipcMain } from 'electron'
 import {
   channels,
+  type EntityKind,
   type KondoApi,
+  type MutateRequest,
   type TidyCategory,
   type ToggleOperation
 } from '../../shared/contract'
@@ -10,8 +12,21 @@ import {
  * Channel registration: one line per KondoApi method, argument types checked
  * again in the workspace (the seam is a trust boundary — renderer-supplied
  * values are validated there, ADR-0008).
+ *
+ * The two generic channels lead. Every kind-specific channel below them is
+ * an alias the workspace forwards, kept for the views already written
+ * against it; new work adds an operation, not a channel (ADR-0004).
  */
 export function registerIpc(api: KondoApi): void {
+  ipcMain.handle(channels.entityList, (_event, kind: unknown, parentId: unknown) =>
+    api.entityList(
+      kind as EntityKind,
+      parentId === undefined || parentId === null ? undefined : String(parentId)
+    )
+  )
+  ipcMain.handle(channels.entityMutate, (_event, entityId: unknown, request: unknown) =>
+    api.entityMutate(String(entityId), request as MutateRequest)
+  )
   ipcMain.handle(channels.projectsList, (_event, refresh: unknown) =>
     api.projectsList(refresh === true)
   )

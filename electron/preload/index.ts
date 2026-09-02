@@ -1,13 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import {
   channels,
+  type EntityKind,
   type KondoApi,
+  type MutateRequest,
   type TidyCategory,
   type ToggleOperation
 } from '../../shared/contract'
 
 /** The bridge stays dumb: one invoke per method, no logic, no state. */
 const api: KondoApi = {
+  entityList: (kind: EntityKind, parentId?: string) =>
+    ipcRenderer.invoke(channels.entityList, kind, parentId),
+  entityMutate: (entityId: string, request: MutateRequest) =>
+    ipcRenderer.invoke(channels.entityMutate, entityId, request),
   projectsList: (refresh?: boolean) =>
     ipcRenderer.invoke(channels.projectsList, refresh === true),
   projectDetail: (id: string) => ipcRenderer.invoke(channels.projectDetail, id),
