@@ -124,8 +124,26 @@ export async function registerMcp(
   }
 }
 
+/**
+ * The `SKILL.md` of a skill-directory entry — the first of the two shapes a
+ * hand-placed entry takes on disk (domain.md).
+ */
 export function skillManifest(name: string, description: string): string {
   return `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`
+}
+
+/**
+ * The body of a single-file entry — the other shape: one `<name>.md` whose
+ * own frontmatter describes it. Used for agents, commands, rules and output
+ * styles. The frontmatter `name` is deliberately settable apart from the
+ * filename, so a suite can prove the id keys on the file and not on it.
+ */
+export function placedManifest(
+  description: string,
+  frontmatterName: string | null = null
+): string {
+  const name = frontmatterName === null ? '' : `name: ${frontmatterName}\n`
+  return `---\n${name}description: ${description}\n---\n\nBody text.\n`
 }
 
 export function transcriptLine(event: Record<string, unknown>): string {

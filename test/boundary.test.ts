@@ -11,6 +11,7 @@ import {
   flattenPath,
   makeWorld,
   mcpServer,
+  placedManifest,
   registerMcp,
   skillManifest,
   UUID_A,
@@ -40,16 +41,26 @@ describe('privacy boundary (ADR-0002)', () => {
     await writeFileTree(world.userRoot, {
       [`projects/${flattenPath(workdir)}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
       'settings.json': writeJson({ enabledPlugins: {} }),
-      'skills/alpha-skill/SKILL.md': skillManifest('alpha-skill', 'First skill')
+      'skills/alpha-skill/SKILL.md': skillManifest('alpha-skill', 'First skill'),
+      'agents/reviewer.md': placedManifest('User agent'),
+      'commands/ship.md': placedManifest('User command'),
+      'rules/house-style.md': placedManifest('User rule'),
+      'output-styles/terse.md': placedManifest('User output style')
     })
     await writeFileTree(workdir, {
       '.claude/settings.json': writeJson({ outputStyle: 'quiet' }),
       '.claude/skills/delta-skill/SKILL.md': skillManifest('delta-skill', 'Project-scoped'),
+      '.claude/agents/scout.md': placedManifest('Project agent'),
+      '.claude/commands/deploy.md': placedManifest('Project command'),
+      '.claude/rules/no-any.md': placedManifest('Project rule'),
       'src/secret.ts': 'export const apiKey = "never-read-me"',
       'README.md': 'project file, off-limits',
       // Decoys at the project root: near-misses for the one file the
-      // amendment names, and the instructions ADR-0002 keeps invisible.
+      // amendment names, the directories the placed kinds read *inside*
+      // `.claude`, and the instructions ADR-0002 keeps invisible.
       'CLAUDE.md': 'project instructions, off-limits',
+      'agents/impostor.md': placedManifest('Outside .claude, off-limits'),
+      'rules/impostor.md': placedManifest('Outside .claude, off-limits'),
       '.mcp.local.json': writeJson({ mcpServers: { sneaky: mcpServer() } })
     })
     await registerMcp(
@@ -82,21 +93,29 @@ describe('privacy boundary (ADR-0002)', () => {
     await api.journalList()
     await api.trashSize()
 
-    // The mcp kind is the one listing that reaches outside a `.claude`
-    // directory, so it runs inside the same recorded window. It has no API
-    // method yet (entry 026 gives it one), so the registry is called direct.
+    // The kinds with no API method yet run inside the same recorded window,
+    // called straight off the registry: `mcp` because it is the one listing
+    // that reaches outside a `.claude` directory at all (entry 026 gives it a
+    // method), and the four placed kinds because they read four more
+    // directories per project store (entry 026 likewise).
     const c = collector()
     const inventory = (await scanSessionInventory(world.locator, process.platform)).data
-    const servers = await kinds.mcp.discover(
-      createKindContext({
-        locator: world.locator,
-        c,
-        now: Date.now(),
-        inventory: async () => inventory,
-        projects: async () => [{ dirName: flattenPath(workdir), absPath: workdir }]
-      })
-    )
+    const context = createKindContext({
+      locator: world.locator,
+      c,
+      now: Date.now(),
+      inventory: async () => inventory,
+      projects: async () => [{ dirName: flattenPath(workdir), absPath: workdir }]
+    })
+    const servers = await kinds.mcp.discover(context)
     expect(servers?.map((server) => server.name).sort()).toEqual(['committed', 'registry'])
+
+    for (const kind of [kinds.agent, kinds.command, kinds.rule, kinds.outputStyle]) {
+      const entries = (await kind.discover(context)) ?? []
+      expect(entries.length, kind.kind).toBeGreaterThan(0)
+      // The decoys at the project root are never among them.
+      expect(entries.some((entry) => entry.name === 'impostor')).toBe(false)
+    }
 
     const claudeDir = path.join(workdir, '.claude')
     const within = (root: string, target: string): boolean => {
