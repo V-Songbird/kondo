@@ -66,3 +66,14 @@ Decision, three parts:
   no Claude session yet, and `~/.claude/projects` does not know a project
   whose transcripts were swept. The project set kondo should show is the
   union of both sources (entry 025); today it is still the directory list.
+- A failed stat means different things on the two halves, so the seam carries
+  three states and not a flag (`ProjectLocation` in `shared/contract.ts`).
+  Where the registry named the path, a failed stat is *evidence*: the path
+  was exact, so the directory is `gone` and the project is dead. Where only
+  the un-flattening guess proposed one, a failed stat says nothing — the
+  guess is lossy and usually wrong, so the project is `unlocated` and may
+  well be alive under a name kondo cannot reverse. Collapsing the two into
+  one boolean would let the sweep offer a live project for deletion on the
+  strength of a bad guess, which is why `pathExists` was replaced (entry
+  030). Only `gone` feeds the `dead-projects` tidy category and the dead
+  registry entries `configOrphans` reports.

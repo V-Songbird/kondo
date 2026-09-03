@@ -12,23 +12,30 @@ import { formatBytes, formatCount } from '../../lib/format'
  * restores it whole (ADR-0001).
  */
 
+/** Plain words for the row, not kondo's internal name for the category. */
 const LABEL: Record<TidyCategory, string> = {
-  'stale-sessions': 'Stale sessions',
-  'empty-transcripts': 'Empty transcripts',
-  'orphan-sidecars': 'Orphaned sidecars',
-  'reclaimable-caches': 'Reclaimable caches'
+  'scratch-projects': 'Throwaway folders',
+  'dead-projects': 'Projects that are gone',
+  'stale-sessions': 'Old conversations',
+  'empty-transcripts': 'Empty conversations',
+  'orphan-sidecars': 'Leftover session files',
+  'reclaimable-caches': 'Caches Claude rebuilds'
 }
 
 function hintFor(category: TidyCategory, staleAfterDays: number): string {
   switch (category) {
+    case 'scratch-projects':
+      return 'Work Claude did in a temp folder, a worktree or a job. The whole folder goes.'
+    case 'dead-projects':
+      return 'Claude still records these, but the folder is no longer on disk. The whole folder goes.'
     case 'stale-sessions':
-      return `Untouched for over ${staleAfterDays} days. Sidecar state goes with them.`
+      return `Nothing said in them for over ${staleAfterDays} days. Their side files go too.`
     case 'empty-transcripts':
-      return 'Transcripts that recorded nothing at all.'
+      return 'Conversations that recorded nothing at all.'
     case 'orphan-sidecars':
-      return 'Sidecar directories whose transcript is already gone.'
+      return 'Side files left behind after their conversation was removed.'
     case 'reclaimable-caches':
-      return 'Support directories Claude rebuilds on its next run.'
+      return 'Claude builds these again the next time it runs.'
   }
 }
 

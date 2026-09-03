@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
+  ProjectLocation,
   ProjectSource,
   Scan,
   SessionProject,
@@ -64,8 +65,11 @@ export interface ProjectRecord {
   orphanDirs: string[]
   /** Which of the two halves of the union named it; never empty. */
   sources: ProjectSource[]
-  /** `guessedPath` is on disk — false for a registry key left behind. */
-  pathExists: boolean
+  /**
+   * Whether `guessedPath` is on disk, is gone, or was never resolved at all.
+   * Only `gone` is evidence of deletion — see `ProjectLocation`.
+   */
+  location: ProjectLocation
   /** It has a `.claude` directory, so it is a store kondo can write into. */
   hasStore: boolean
 }
@@ -210,7 +214,8 @@ async function registryProject(
     sessions: [],
     orphanDirs: [],
     sources: ['registry'],
-    pathExists,
+    // The registry named it, so a failed stat is evidence and not ignorance.
+    location: pathExists ? 'here' : 'gone',
     hasStore: pathExists && (await hasClaudeDir(absPath, home, c))
   }
 }
@@ -223,20 +228,31 @@ async function locate(
   exists: ExistsFn,
   registered: ReadonlyMap<string, string>,
   c: Collector
-): Promise<Pick<ProjectRecord, 'guessedPath' | 'sources' | 'pathExists' | 'hasStore'>> {
+): Promise<Pick<ProjectRecord, 'guessedPath' | 'sources' | 'location' | 'hasStore'>> {
   // The registry's key IS the path (ADR-0009), so it is kept even when the
   // stat says the directory is gone — that is the dead-project signal, and a
   // name the UI can show. The un-flattening guess only proposes a path, so it
   // survives solely when it verified.
   const known = registered.get(dirName) ?? null
   const guessedPath = known ?? (await guessOriginalPath(dirName, platform, exists))
-  const pathExists = known === null ? guessedPath !== null : await exists(known)
+  // A registry key that fails its stat is `gone`; a guess that never verified
+  // is `unlocated`, which says nothing about whether the project still exists.
+  const location: ProjectLocation =
+    known !== null
+      ? (await exists(known))
+        ? 'here'
+        : 'gone'
+      : guessedPath !== null
+        ? 'here'
+        : 'unlocated'
   return {
     guessedPath,
     sources: known === null ? ['transcripts'] : ['registry', 'transcripts'],
-    pathExists,
+    location,
     hasStore:
-      pathExists && guessedPath !== null && (await hasClaudeDir(guessedPath, home, c))
+      location === 'here' &&
+      guessedPath !== null &&
+      (await hasClaudeDir(guessedPath, home, c))
   }
 }
 
@@ -273,7 +289,7 @@ export function toSessionProjects(
     dirName: project.dirName,
     guessedPath: project.guessedPath,
     sources: project.sources,
-    pathExists: project.pathExists,
+    location: project.location,
     hasStore: project.hasStore,
     sessionCount: project.sessions.length,
     transcriptBytes: project.sessions.reduce((sum, s) => sum + s.bytes, 0),

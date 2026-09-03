@@ -1,3 +1,4 @@
+import os from 'node:os'
 import path from 'node:path'
 import {
   tidyCategories,
@@ -7,7 +8,7 @@ import {
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
 import type { MutationPlan, PlannedStep } from './mutations'
-import { isStale, STALE_AFTER_DAYS } from './analysis'
+import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
 import { tildify } from './display'
 import { directorySize, mapPool, safeReaddir, type Collector } from './scan'
 import type { SessionInventory } from './sessions'
@@ -72,14 +73,44 @@ export async function scanTidyCandidates(
 ): Promise<TidyCandidates> {
   const root = locator.userRoot
   const candidates: TidyCandidates = {
+    'scratch-projects': [],
+    'dead-projects': [],
     'stale-sessions': [],
     'empty-transcripts': [],
     'orphan-sidecars': [],
     'reclaimable-caches': []
   }
 
+  // The two whole-tree categories go first and claim their directories, so
+  // the per-file pass below has only to skip what they took. That is the
+  // whole of the exclusivity rule: a transcript queued inside a directory
+  // that is itself moving would make the second trash step of the pair fail.
+  //
+  // Name and inventory only — no project tree is walked to decide a category
+  // (ADR-0007), which is what lets this answer for 9,171 directories.
+  const tmpRoot = os.tmpdir()
+  const trees = new Map<string, TidyCategory>()
+  for (const project of inventory.projects) {
+    // Only a directory under `projects/` can be trashed as a tree. A project
+    // the registry names and `projects/` does not has nothing here to move,
+    // however dead its path is.
+    if (!project.sources.includes('transcripts')) continue
+    if (isScratchProjectName(project.dirName, tmpRoot) || project.sessions.length === 0) {
+      // Transcript-less covers the memory-only directory too: whatever else
+      // is in there, no conversation was ever recorded against it.
+      trees.set(project.dirName, 'scratch-projects')
+    } else if (project.location === 'gone') {
+      // `gone` and never `unlocated` — a name kondo could not reverse is not
+      // evidence of anything (ADR-0009).
+      trees.set(project.dirName, 'dead-projects')
+    }
+  }
+
   const orphans: string[] = []
   for (const project of inventory.projects) {
+    // Skipped whole: every path inside a claimed directory is already
+    // covered by the one step that moves the directory.
+    if (trees.has(project.dirName)) continue
     for (const session of project.sessions) {
       // The sidecar rides with its transcript. Leaving it behind would only
       // make it tomorrow's orphan, and it is state for a session that is
@@ -113,6 +144,23 @@ export async function scanTidyCandidates(
       display
     }
   })
+
+  // A project directory is offered whole, as one path — its size is the
+  // point of offering it, and one trash step over the tree is what makes the
+  // undo put it back in one (ADR-0001 decision 2).
+  const claimed = inventory.projects.filter((project) => trees.has(project.dirName))
+  const measured = await mapPool(claimed, 16, async (project) => {
+    const display = tildify(project.absPath, locator.home)
+    return {
+      category: trees.get(project.dirName) as TidyCategory,
+      candidate: {
+        paths: [relativeTo(root, project.absPath)],
+        bytes: await directorySize(project.absPath, display, c),
+        display
+      }
+    }
+  })
+  for (const entry of measured) candidates[entry.category].push(entry.candidate)
 
   const rootDisplay = tildify(root, locator.home)
   const present = new Set(
@@ -153,6 +201,8 @@ export function toTidyPreview(candidates: TidyCandidates): TidyPreview {
 
 /** Both forms spelled out — "cache directorys" is not a plural. */
 const LABEL: Record<TidyCategory, readonly [one: string, many: string]> = {
+  'scratch-projects': ['throwaway project folder', 'throwaway project folders'],
+  'dead-projects': ['deleted project', 'deleted projects'],
   'stale-sessions': ['stale session', 'stale sessions'],
   'empty-transcripts': ['empty transcript', 'empty transcripts'],
   'orphan-sidecars': ['orphaned sidecar', 'orphaned sidecars'],

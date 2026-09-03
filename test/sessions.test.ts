@@ -95,7 +95,9 @@ describe('scanSessionInventory', () => {
     const scan = await scanSessionInventory(world.locator, process.platform, async () => false)
     const project = scan.data.projects[0]!
     expect(project.sources).toEqual(['transcripts'])
-    expect(project.pathExists).toBe(false)
+    // Unlocated and not gone: no registry key named it and the guess never
+    // verified, which says nothing about whether the folder still exists.
+    expect(project.location).toBe('unlocated')
     expect(project.hasStore).toBe(false)
   })
 
@@ -148,7 +150,7 @@ describe('the project set is the union of the registry and projects/', () => {
     expect(registered.sources).toEqual(['registry'])
     expect(registered.sessions).toEqual([])
     expect(registered.guessedPath).toBe(path.normalize(withStore))
-    expect(registered.pathExists).toBe(true)
+    expect(registered.location).toBe('here')
     // A registry key with a `.claude` is a store kondo can write into, even
     // with no transcripts to its name.
     expect(registered.hasStore).toBe(true)
@@ -160,7 +162,7 @@ describe('the project set is the union of the registry and projects/', () => {
     // The key IS the path (ADR-0009), so it survives the missing directory —
     // that is the whole dead-project signal.
     expect(dead.guessedPath).toBe(path.normalize(deleted))
-    expect(dead.pathExists).toBe(false)
+    expect(dead.location).toBe('gone')
     expect(dead.hasStore).toBe(false)
     expect(dead.sources).toEqual(['registry'])
   })
@@ -191,7 +193,7 @@ describe('the project set is the union of the registry and projects/', () => {
     )!
     expect(registered.id).toBe(`project:code:${flattenProjectPath(withStore)}`)
     expect(registered.hasStore).toBe(true)
-    expect(registered.pathExists).toBe(true)
+    expect(registered.location).toBe('here')
     expect(registered.sources).toEqual(['registry'])
     expect(registered.sessionCount).toBe(0)
   })

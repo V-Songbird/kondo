@@ -24,9 +24,23 @@ meanings.
 - **Project key** — that flattened name, the one spelling of a project
   shared by its ids, its store name and its settings layers.
 - **Unlocated project** — a project directory whose real path kondo could
-  not find in the registry or by guessing. Not evidence the folder is gone.
+  not find in the registry or by guessing. Not evidence the folder is gone,
+  and never a cleanup candidate. `location: 'unlocated'`.
 - **Dead project** — a project the registry names whose path no longer
-  exists on disk. Cleanup candidate (ROADMAP, entry 030); not yet computed.
+  exists on disk. `location: 'gone'` — the failed stat is evidence, which is
+  why this and *unlocated project* are separate states and not one flag. The
+  tidy sweep offers its `projects/<key>` directory whole, under
+  `dead-projects`.
+- **Scratch project** — a project directory that was only ever throwaway:
+  its flattened name sits under the OS temp directory, or carries a
+  `.claude-worktrees` or `.claude-jobs` marker, or the directory holds no
+  transcript at all (a memory-only directory included). Offered whole under
+  the tidy sweep's `scratch-projects`. Judged from the name and the
+  inventory alone — no project tree is walked (ADR-0007).
+- **Category exclusivity** — no store path is offered under two tidy
+  categories. The whole-tree categories claim their `projects/<key>`
+  directory first and the per-file categories skip everything inside it;
+  `scratch-projects` wins over `dead-projects` on a directory that is both.
 - **Stale session** — no activity for longer than the staleness threshold
   (30 days, the `STALE_AFTER_DAYS` constant).
 - **Empty session** — a zero-byte transcript, the tidy sweep's definition.

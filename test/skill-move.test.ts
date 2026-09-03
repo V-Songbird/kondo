@@ -104,7 +104,7 @@ describe('skill move between scopes (ADR-0001)', () => {
       (project) => project.dirName === flattenPath(bare)
     )!
     expect(listed.sources).toEqual(['registry'])
-    expect(listed.pathExists).toBe(true)
+    expect(listed.location).toBe('here')
     expect(listed.hasStore).toBe(false)
 
     const refusal = await fresh.skillMove('skill:user:alpha-skill', projectId(bare))

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import type {
   KondoApi,
@@ -12,10 +13,12 @@ import { STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   exists,
+  flattenPath,
   hashTree,
   healthyTranscript,
   makeWorld,
   recordWrites,
+  registerProjects,
   UUID_A,
   UUID_B,
   UUID_C,
@@ -330,7 +333,7 @@ describe('the tidy sweep (ADR-0001)', () => {
       expect(preview.errors).toEqual([])
       expect(preview.data.totalCount).toBe(0)
       expect(preview.data.totalBytes).toBe(0)
-      expect(preview.data.categories.map((entry) => entry.count)).toEqual([0, 0, 0, 0])
+      expect(preview.data.categories.map((entry) => entry.count)).toEqual(ALL.map(() => 0))
 
       const before = await hashTree(tidy.userRoot)
       const swept = await clean.tidySweep(ALL)
@@ -344,5 +347,144 @@ describe('the tidy sweep (ADR-0001)', () => {
     } finally {
       await tidy.cleanup()
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+/**
+ * The two whole-tree categories (ROADMAP entry 030). A project directory is
+ * offered as one candidate and moved by one trash step, so the invariant a
+ * per-file sweep could never hold is the one under test here: no store path
+ * is ever offered under two categories.
+ */
+describe('dead and scratch project directories', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+
+  /** Named the way Claude Code names a run it did inside the OS temp root. */
+  const SCRATCH_TMP = flattenPath(path.join(os.tmpdir(), 'kondo-run-a1b2'))
+  /** A worktree and a job Claude checked out for itself. */
+  const SCRATCH_WORKTREE = 'D--Projects-app--claude-worktrees-feature'
+  const SCRATCH_JOBS = 'D--Projects-app--claude-jobs-run7'
+  /** Memory and nothing else: no conversation was ever recorded against it. */
+  const SCRATCH_EMPTY = 'D--Projects-notes'
+
+  const ROOT = path.parse(process.cwd()).root
+  /** Registered, with transcripts, and no longer on disk. */
+  const DEAD_PATH = path.join(ROOT, 'Projects', 'deletedapp')
+  const DEAD = flattenPath(DEAD_PATH)
+  /** Registered and gone, but with no `projects/` directory to move. */
+  const DEAD_NO_TREE = path.join(ROOT, 'Projects', 'neverranhere')
+  /** Neither: kondo cannot reverse the name, which is not evidence of death. */
+  const LIVE = 'D--Projects-live'
+
+  const TREES = [SCRATCH_TMP, SCRATCH_WORKTREE, SCRATCH_JOBS, SCRATCH_EMPTY, DEAD]
+
+  const inStore = (relative: string): string =>
+    path.join(world.userRoot, ...relative.split('/'))
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    await registerProjects(world, [DEAD_PATH, DEAD_NO_TREE])
+    await writeFileTree(world.userRoot, {
+      [`projects/${SCRATCH_TMP}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
+      [`projects/${SCRATCH_WORKTREE}/${UUID_B}.jsonl`]: healthyTranscript(UUID_B),
+      [`projects/${SCRATCH_JOBS}/${UUID_C}.jsonl`]: healthyTranscript(UUID_C),
+      [`projects/${SCRATCH_EMPTY}/memory/notes.md`]: 'a note and no transcript',
+      // Stale, and carrying an orphan: both are inside a tree that is going
+      // anyway, so neither may be offered a second time on its own.
+      [`projects/${DEAD}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
+      [`projects/${DEAD}/${UUID_D}/state.json`]: '{"tool":"state"}',
+      [`projects/${LIVE}/${UUID_B}.jsonl`]: healthyTranscript(UUID_B),
+      'settings.json': '{}'
+    })
+    await fs.utimes(inStore(`projects/${DEAD}/${UUID_A}.jsonl`), LONG_AGO, LONG_AGO)
+    await fs.utimes(inStore(`projects/${LIVE}/${UUID_B}.jsonl`), FRESH, FRESH)
+
+    api = createWorkspace({
+      locator: world.locator,
+      platform: process.platform,
+      now: () => NOW,
+      // Every registered path fails its stat, so both keys read as gone.
+      guessExists: async () => false
+    })
+  })
+  afterEach(async () => {
+    await world.cleanup()
+  })
+
+  it('offers every throwaway project folder whole, and only those', async () => {
+    const found = byCategory((await api.tidyPreview()).data)
+    expect(found['scratch-projects'].count).toBe(4)
+    expect(found['scratch-projects'].examples.slice().sort()).toEqual(
+      [SCRATCH_TMP, SCRATCH_WORKTREE, SCRATCH_JOBS, SCRATCH_EMPTY]
+        .map((dir) => `~/.claude/projects/${dir}`)
+        .sort()
+    )
+    // The one path is the directory itself, so what it reclaims is the tree.
+    expect(found['scratch-projects'].bytes).toBeGreaterThan(0)
+  })
+
+  it('offers a project the registry names and the disk has lost', async () => {
+    const found = byCategory((await api.tidyPreview()).data)
+    expect(found['dead-projects'].count).toBe(1)
+    expect(found['dead-projects'].examples).toEqual([`~/.claude/projects/${DEAD}`])
+  })
+
+  it('leaves an unlocated project alone, since an unreversed name is not a death', async () => {
+    const preview = await api.tidyPreview()
+    const named = preview.data.categories.flatMap((entry) => entry.examples)
+    expect(named).not.toContain(`~/.claude/projects/${LIVE}`)
+
+    expect((await api.tidySweep(ALL)).errors).toEqual([])
+    expect(await exists(inStore(`projects/${LIVE}/${UUID_B}.jsonl`))).toBe(true)
+  })
+
+  it('offers nothing for a registered dead path with no directory to move', async () => {
+    const named = (await api.tidyPreview()).data.categories.flatMap((e) => e.examples)
+    expect(named).not.toContain(`~/.claude/projects/${flattenPath(DEAD_NO_TREE)}`)
+  })
+
+  it('never offers one path under two categories', async () => {
+    const found = byCategory((await api.tidyPreview()).data)
+    // The dead project's stale transcript and its orphan are inside the tree
+    // that is already moving, so neither category may claim them again.
+    expect(found['stale-sessions'].count).toBe(0)
+    expect(found['orphan-sidecars'].count).toBe(0)
+    // And a directory that is both temporary and gone is counted once, under
+    // the category that describes what it always was.
+    expect(found['scratch-projects'].count + found['dead-projects'].count).toBe(TREES.length)
+
+    // Nothing offered sits inside anything else offered, across every category.
+    const offered = (await api.tidyPreview()).data.categories.flatMap((e) => e.examples)
+    expect(new Set(offered).size).toBe(offered.length)
+    for (const outer of offered) {
+      for (const inner of offered) {
+        if (outer === inner) continue
+        expect(inner.startsWith(`${outer}/`), `${inner} sits inside ${outer}`).toBe(false)
+      }
+    }
+  })
+
+  it('moves each tree as a single step, and undo puts it back whole', async () => {
+    const before = await hashTree(world.userRoot)
+
+    const done = await api.tidySweep(['scratch-projects', 'dead-projects'])
+    expect(done.errors).toEqual([])
+    // One step per directory: five trees, five steps, children included.
+    expect(done.data?.stepCount).toBe(TREES.length)
+    expect(done.data?.summary).toContain('4 throwaway project folders')
+    expect(done.data?.summary).toContain('1 deleted project')
+
+    for (const dir of TREES) {
+      expect(await exists(inStore(`projects/${dir}`)), dir).toBe(false)
+    }
+    // The stale transcript and the orphan left with their tree, not alone.
+    expect(await exists(inStore(`projects/${DEAD}/${UUID_D}`))).toBe(false)
+
+    const undone = await api.journalUndo(done.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
   })
 })

@@ -1029,8 +1029,8 @@ export async function configOrphans(context: KindContext): Promise<ConfigOrphanR
       skillNames: new Set([...own, ...shipped.flat()].map((entry) => entry.name)),
       // The inventory already stat'd every project (ADR-0009), so calling an
       // entry dead costs nothing here.
-      pathExists: new Map(
-        [...inventory.byDirName].map(([dirName, record]) => [dirName, record.pathExists])
+      location: new Map(
+        [...inventory.byDirName].map(([dirName, record]) => [dirName, record.location])
       )
     },
     context.c

@@ -179,7 +179,11 @@ scan and a mutation can never disagree about where an entry lives.
   rule (ADR-0009). On the owner's machine that named 1,443 of 9,171
   directories, against 7 for the old un-flattening guess; the rest are
   scratch directories Claude has already forgotten. Kondo still stats the
-  path before claiming it.
+  path before claiming it, and records the outcome as three states, never one
+  flag: `here`, `gone` (the registry named the path and the stat says it is
+  no longer there — a *dead project*) and `unlocated` (no key, and the guess
+  never verified — which is not evidence of anything). Only `gone` makes a
+  cleanup candidate.
 - Scale is real: **9,171 project directories** observed on one machine ✅
   (9,031 of them under a temp directory — benchmark and scratchpad runs).
   Scanning must be stat-based and lazy; never parse every transcript up front
@@ -191,7 +195,8 @@ scan and a mutation can never disagree about where an entry lives.
     orphan.
   - `memory/` — the project's persistent memory files. 17 directories held
     only `memory/` and 23 held no transcript at all ✅ — leftovers of
-    projects no longer worked on (entry 030).
+    projects no longer worked on. A directory with no transcript at all is a
+    *scratch project* and the tidy sweep offers it whole (entry 030).
   - Occasional top-level `.json` files ◇ (five seen in one directory; not
     yet understood, reported as unknown).
 - Transcript lines are typed events. First line observed with keys `type`,

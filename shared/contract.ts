@@ -191,6 +191,17 @@ export interface StoresOverview {
  */
 export type ProjectSource = 'registry' | 'transcripts'
 
+/**
+ * Where a project's real directory stands. Three states and not a flag,
+ * because the two ways of not having a path mean opposite things: `gone` is
+ * evidence — the registry named the path (ADR-0009) and the stat says it is
+ * no longer there, which is what makes a project dead. `unlocated` is the
+ * absence of evidence — no registry key, and the lossy un-flattening guess
+ * did not verify, so kondo simply does not know where the project is and
+ * must not treat it as deleted.
+ */
+export type ProjectLocation = 'here' | 'gone' | 'unlocated'
+
 export interface SessionProject extends EntityIdentity {
   /** `project:code:<dirName>` */
   id: string
@@ -204,10 +215,12 @@ export interface SessionProject extends EntityIdentity {
   /** Which sources named this project; never empty. */
   sources: ProjectSource[]
   /**
-   * `guessedPath` is on disk. False for a registry key whose directory has
-   * been deleted — still a member of the set, with nothing behind it.
+   * Whether `guessedPath` is on disk, could not be resolved, or resolved and
+   * is gone. A `gone` project is still a member of the set, with nothing
+   * behind it; an `unlocated` one may well be alive under a name kondo
+   * cannot reverse.
    */
-  pathExists: boolean
+  location: ProjectLocation
   /**
    * It has a `.claude` directory, so it is a store kondo can write into
    * (ADR-0002). A project without one is a real member of the set; it is
@@ -606,8 +619,23 @@ export interface ConfigOrphan {
  *
  * A runtime array, not a bare union, because the renderer builds the preview
  * from it and the main process validates against it — one source of truth.
+ *
+ * The order is also the precedence that keeps categories exclusive: no path
+ * may sit under two of them, so where a whole-tree category claims a project
+ * directory the per-file categories skip everything inside it. Scratch comes
+ * before dead deliberately — a directory that was only ever temporary is
+ * better described by what it was than by the fact its path is now missing.
  */
 export const tidyCategories = [
+  /**
+   * Project directories that were only ever throwaway: the flattened name
+   * sits under the OS temp directory, or carries a `.claude-worktrees` /
+   * `.claude-jobs` marker, or the directory holds no transcript at all
+   * (memory-only included).
+   */
+  'scratch-projects',
+  /** Project directories the registry names whose path no longer stats. */
+  'dead-projects',
   /** Transcripts untouched past the stale threshold, sidecar state included. */
   'stale-sessions',
   /** Zero-byte transcripts — a session that recorded nothing at all. */
@@ -628,7 +656,9 @@ export interface TidyCategoryPreview {
    * What the store gets back. Transcript and directory bytes as the
    * inventory measured them — a session's sidecar directory rides along
    * uncounted, the same tier-1 limit the sessions view means by "transcript
-   * bytes" (ADR-0007).
+   * bytes" (ADR-0007). The whole-tree categories are the exception: a
+   * project directory is measured, because its size is the whole point of
+   * offering it.
    */
   bytes: number
   /** Display paths of the first few, so the count is inspectable. */

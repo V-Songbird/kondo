@@ -9,6 +9,7 @@ import type {
   PlacedEntryInfo,
   PlacedKind,
   PlacedScope,
+  ProjectLocation,
   ProjectRowCounts,
   PluginEffectiveState,
   PluginInfo,
@@ -984,8 +985,8 @@ export interface ConfigOrphanSources {
   plugins: PluginRecord[]
   /** Every skill name on the machine, plugin-shipped ones included. */
   skillNames: ReadonlySet<string>
-  /** Flattened project name → its directory is on disk (ADR-0009). */
-  pathExists: ReadonlyMap<string, boolean>
+  /** Flattened project name → where its directory stands (ADR-0009). */
+  location: ReadonlyMap<string, ProjectLocation>
 }
 
 /**
@@ -1066,7 +1067,9 @@ export async function scanConfigOrphans(
       display
     }
     for (const [absPath, value] of Object.entries(asObject(config['projects']) ?? {})) {
-      if (sources.pathExists.get(flattenProjectPath(absPath)) !== false) continue
+      // Only `gone` is evidence the directory was deleted; an unlocated
+      // project, or one the inventory never heard of, is left alone.
+      if (sources.location.get(flattenProjectPath(absPath)) !== 'gone') continue
       const shown = tildify(absPath, locator.home)
       const servers = mcpDeclarations(value).map(([name]) => name)
       for (const name of servers) {
