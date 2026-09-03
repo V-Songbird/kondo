@@ -92,8 +92,15 @@ rm -rf "X:/Temp/kondofix"
 
 The tree `fixture.mjs` builds is shaped to exercise the awkward cases: a
 global skill, a benched one, a project-scoped one, a second project that is
-empty but valid as a destination, and a skill shipped inside a plugin that
-must never appear in the skills list.
+empty but valid as a destination, and two plugins that ship skills
+differently — `foreman@acme` ships two, neither of which may appear in the
+skills list, and `hush@acme` ships none.
+
+`hush@acme` is there for that empty case alone. Its install root at
+`plugins/cache/acme/hush/1.0.0` holds a `commands/` file and **no `skills/`
+directory at all** — an absent directory is a different case from an empty
+one, and the absent one is what `pluginSkills` must answer with an empty
+list and no error. Do not add `skills/` there to tidy the tree up.
 
 Two things it has to get right, both of which cost an afternoon once:
 
