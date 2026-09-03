@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Dirent, Stats } from 'node:fs'
@@ -112,6 +113,39 @@ export async function mapPool<T, R>(
   })
   await Promise.all(workers)
   return results
+}
+
+/**
+ * A tree reduced to one hash: every relative name in sorted order, and the
+ * bytes of every file. Two trees with the same digest hold the same skill.
+ *
+ * The one read here that throws rather than reporting (ADR-0005's exception,
+ * and the reason it takes no collector): its callers ask a yes/no question
+ * about bytes, and a tree half-read has no honest answer. The copy verifier
+ * turns the throw into "nothing was removed"; the duplicate listing turns it
+ * into a member with no digest, which is never called a match.
+ */
+export async function digestTree(root: string): Promise<string> {
+  const hash = createHash('sha256')
+  if (!(await fs.stat(root)).isDirectory()) {
+    hash.update(await fs.readFile(root))
+    return hash.digest('hex')
+  }
+  const names = (await fs.readdir(root, { withFileTypes: true, recursive: true }))
+    .map((entry) => {
+      const relative = path
+        .relative(root, path.join(entry.parentPath, entry.name))
+        .split(path.sep)
+        .join('/')
+      return entry.isDirectory() ? `${relative}/` : relative
+    })
+    .sort()
+  for (const relative of names) {
+    hash.update(relative)
+    if (relative.endsWith('/')) continue
+    hash.update(await fs.readFile(path.join(root, ...relative.split('/'))))
+  }
+  return hash.digest('hex')
 }
 
 /** Recursive size of a directory tree; errors reported, never thrown. */

@@ -42,6 +42,9 @@ describe('privacy boundary (ADR-0002)', () => {
       [`projects/${flattenPath(workdir)}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
       'settings.json': writeJson({ enabledPlugins: {} }),
       'skills/alpha-skill/SKILL.md': skillManifest('alpha-skill', 'First skill'),
+      // Shares its name with the project's, so the duplicate listing below
+      // actually digests two trees inside this recorded window.
+      'skills/delta-skill/SKILL.md': skillManifest('delta-skill', 'User copy'),
       'agents/reviewer.md': placedManifest('User agent'),
       'commands/ship.md': placedManifest('User command'),
       'rules/house-style.md': placedManifest('User rule'),
@@ -87,6 +90,7 @@ describe('privacy boundary (ADR-0002)', () => {
     await api.storesOverview()
     await api.desktopSessions()
     await api.skillsList()
+    await api.skillDuplicates()
     await api.pluginsList()
     await api.hooksList()
     await api.settingsLayers()

@@ -16,12 +16,14 @@ import type {
   SessionProject,
   SessionSummary,
   SettingsLayerInfo,
+  SkillDuplicate,
+  SkillDuplicateGroup,
   SkillInfo,
   ScanErrorCode,
   ToggleOperation
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
-import type { Collector } from './scan'
+import { digestTree, mapPool, type Collector } from './scan'
 import { applyEdits, digestSource, type MutationPlan, type PlannedStep, type SpliceEdit } from './mutations'
 import { capabilitiesFor } from './capabilities'
 import { tildify } from './display'
@@ -43,6 +45,7 @@ import {
   scanConfigOrphans,
   scanPlugins,
   scanSkills,
+  scanSkillUsage,
   type ConfigOrphanRecord,
   type PluginRecord,
   type SettingsLayer,
@@ -87,6 +90,12 @@ export interface KindContext {
    * the entity being moved came from.
    */
   skills(): Promise<SkillInfo[]>
+  /**
+   * The skill names Claude's own `skillUsage` record has counted a use of,
+   * read at most once — a listing and a duplicate group both ask, and the
+   * registry is opened for the pair of them.
+   */
+  skillUsage(): Promise<ReadonlySet<string>>
   /** Narrows `discover` to one parent entity's children, or null for all. */
   parentId: string | null
 }
@@ -104,6 +113,7 @@ export function createKindContext(sources: KindContextSources): KindContext {
   let layers: Promise<SettingsLayer[]> | null = null
   let plugins: Promise<PluginRecord[]> | null = null
   let skills: Promise<SkillInfo[]> | null = null
+  let usage: Promise<ReadonlySet<string>> | null = null
 
   const context: KindContext = {
     locator: sources.locator,
@@ -127,8 +137,10 @@ export function createKindContext(sources: KindContextSources): KindContext {
           sources.locator,
           await sources.projects(),
           await context.layers(),
+          await context.skillUsage(),
           sources.c
         ))()),
+    skillUsage: () => (usage ??= scanSkillUsage(sources.locator, sources.c)),
     parentId: sources.parentId ?? null
   }
   return context
@@ -294,6 +306,42 @@ function skillTogglePlan(entity: SkillInfo, operation: ToggleOperation): PlanRes
   }
 }
 
+/**
+ * The store change that removes one skill: a single `trash` step, which is a
+ * displacement into `<kondo-data>/trash/<journal-id>/` and never an unlink
+ * (ADR-0001), so one undo puts the whole directory back.
+ *
+ * One step and not three. A move needs copy → verify → trash because it is
+ * about to release bytes it has just written elsewhere; here there is no
+ * destination to prove, and the kondo trash IS the copy.
+ *
+ * The matrix is the gate (ADR-0006): a plugin-shipped skill is refused with
+ * its own reason, because a plugin's files are the plugin's to remove.
+ * Whether a copy of this skill exists in another scope is not asked here —
+ * `skillDuplicates` answers that with digests, and a name alone was never
+ * grounds for calling one of them redundant.
+ */
+function skillTrashPlan(entity: SkillInfo): PlanResult {
+  const decision = entity.capabilities.trash
+  if (!decision.allowed) {
+    return refused('not-permitted', decision.reason ?? `kondo cannot trash this skill.`)
+  }
+  const placement = placementOf('skill', entity)
+  if (placement === null) {
+    return refused('not-permitted', `kondo cannot tell what store ${entity.name} lives in.`)
+  }
+  return {
+    ok: true,
+    plan: {
+      op: 'trash',
+      kind: 'skill',
+      entityId: entity.id,
+      summary: `Trash skill ${entity.name} (${entity.scope})`,
+      steps: [{ type: 'trash', store: placement.store, from: placement.at }]
+    }
+  }
+}
+
 const skill: EntityKindDefinition<SkillInfo> = {
   kind: 'skill',
   // Only the user store and the verified projects: a skill shipped inside a
@@ -306,9 +354,10 @@ const skill: EntityKindDefinition<SkillInfo> = {
     return findById(id, skill.discover(context))
   },
   async plan(entity, request, context) {
-    return request.op === 'move'
-      ? movePlan('skill', entity, request.targetId ?? '', context.skills(), context)
-      : skillTogglePlan(entity, request.op)
+    if (request.op === 'move') {
+      return movePlan('skill', entity, request.targetId ?? '', context.skills(), context)
+    }
+    return request.op === 'trash' ? skillTrashPlan(entity) : skillTogglePlan(entity, request.op)
   }
 }
 
@@ -328,6 +377,14 @@ const plugin: EntityKindDefinition<PluginInfo> = {
    * The old entity-level seats had nowhere to put it and stayed empty.
    */
   async plan(entity, request, context) {
+    // Uninstalling is Claude's, not kondo's: the matrix says so and this
+    // quotes it rather than inventing a refusal of its own (ADR-0006).
+    if (request.op === 'trash') {
+      return refused(
+        'not-permitted',
+        entity.capabilities.trash.reason ?? 'kondo cannot trash this plugin.'
+      )
+    }
     if (request.op === 'move') {
       return pluginMovePlan(
         entity,
@@ -368,7 +425,7 @@ const pluginSkill: EntityKindDefinition<SkillInfo> = {
       (candidate) => candidate.info.id === parentId
     )
     if (!record) return null
-    return scanPluginSkills(context.locator, record, context.c)
+    return scanPluginSkills(context.locator, record, await context.skillUsage(), context.c)
   },
   read(id, context) {
     return findById(id, pluginSkill.discover(context))
@@ -999,6 +1056,94 @@ export async function pluginClearPlan(
 }
 
 // ---------------------------------------------------------------------------
+// Duplicate skills across scopes
+
+/** The store-name prefix a project's `.claude` answers to (ADR-0003). */
+const PROJECT_STORE = 'project:'
+
+/**
+ * The absolute path behind one placement. `SkillInfo.origin` is tildified for
+ * display and is not a path to read from, so anything that needs the bytes an
+ * entity sits on resolves the store name here — the same two names the write
+ * path knows, resolved against the same verified project list (ADR-0002: a
+ * project store is its `.claude` and nothing above it).
+ *
+ * Null for a store this call's project list does not hold, which is how a
+ * project that stopped verifying between two reads becomes a member with no
+ * digest rather than a throw.
+ */
+async function absolutePathOf(
+  placement: Placement,
+  context: KindContext
+): Promise<string | null> {
+  const segments = placement.at.split('/')
+  if (placement.store === USER_DESTINATION) {
+    return path.join(context.locator.userRoot, ...segments)
+  }
+  if (!placement.store.startsWith(PROJECT_STORE)) return null
+  const dirName = placement.store.slice(PROJECT_STORE.length)
+  const project = (await context.projects()).find((candidate) => candidate.dirName === dirName)
+  return project === undefined
+    ? null
+    : path.join(project.absPath, '.claude', ...segments)
+}
+
+/**
+ * Skills carrying one name in more than one scope, with a digest per member.
+ *
+ * ADR-0007 decides the shape: the grouping is free — it is the listing
+ * `context.skills()` already built — and hashing is not, so only a name that
+ * actually repeats costs a tree read. A skill with a unique name is never
+ * digested, which on a real machine is nearly all of them.
+ *
+ * The digest is the whole point. Two skills can share a name and hold
+ * completely different work, so a group is a question and `identical` is the
+ * answer; a member kondo could not read carries a null digest and makes the
+ * group not identical, because "we could not tell" must never read as "safe
+ * to remove".
+ *
+ * Plugin-shipped skills are deliberately absent: they come from a different
+ * listing (`pluginSkill`), they are not the user's to remove, and a plugin
+ * shipping a skill the user also placed is not a duplicate of anything —
+ * it is the ordinary way an override works.
+ */
+export async function skillDuplicates(
+  context: KindContext
+): Promise<SkillDuplicateGroup[]> {
+  const byName = new Map<string, SkillInfo[]>()
+  for (const entity of await context.skills()) {
+    byName.set(entity.name, [...(byName.get(entity.name) ?? []), entity])
+  }
+
+  const repeated = [...byName]
+    .filter(([, members]) => members.length > 1)
+    .sort(([a], [b]) => a.localeCompare(b))
+
+  return mapPool(repeated, 4, async ([name, members]) => {
+    const digested = await mapPool(members, 4, async (entity): Promise<SkillDuplicate> => {
+      const placement = placementOf('skill', entity)
+      const target = placement === null ? null : await absolutePathOf(placement, context)
+      if (target === null) return { skill: entity, digest: null }
+      try {
+        return { skill: entity, digest: await digestTree(target) }
+      } catch (cause) {
+        // ADR-0005: an unreadable tree costs this member its digest and the
+        // group its verdict, and costs the listing nothing else.
+        context.c.fail('read-failed', entity.origin, cause)
+        return { skill: entity, digest: null }
+      }
+    })
+    const first = digested[0]?.digest ?? null
+    return {
+      name,
+      members: digested,
+      identical:
+        first !== null && digested.every((member) => member.digest === first)
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Configuration orphans (ADR-0010)
 
 /**
@@ -1019,7 +1164,11 @@ export async function configOrphans(context: KindContext): Promise<ConfigOrphanR
   ])
   const [own, shipped] = await Promise.all([
     context.skills(),
-    Promise.all(plugins.map((record) => scanPluginSkills(context.locator, record, context.c)))
+    Promise.all(
+      plugins.map(async (record) =>
+        scanPluginSkills(context.locator, record, await context.skillUsage(), context.c)
+      )
+    )
   ])
   return scanConfigOrphans(
     context.locator,

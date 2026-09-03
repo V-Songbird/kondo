@@ -544,6 +544,17 @@ function SkillTable({
               <td className="font-mono" title={skill.origin}>
                 {skill.name}
                 {!skill.enabled && <span className="pill ml-2 text-warn">disabled</span>}
+                {/* Claude's own skillUsage record, not a count kondo keeps.
+                    A hint about a skill worth a second look — never a claim
+                    that it should go. */}
+                {skill.neverUsed && (
+                  <span
+                    className="pill ml-2 text-mut"
+                    title="Claude has never recorded a use of this skill."
+                  >
+                    never used
+                  </span>
+                )}
               </td>
               <td className="max-w-md text-mut">{skill.description ?? '—'}</td>
               <td>

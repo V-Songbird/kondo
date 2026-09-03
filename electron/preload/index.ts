@@ -28,6 +28,7 @@ const api: KondoApi = {
     ipcRenderer.invoke(channels.skillToggle, skillId, operation),
   skillMove: (skillId: string, destinationId: string) =>
     ipcRenderer.invoke(channels.skillMove, skillId, destinationId),
+  skillDuplicates: () => ipcRenderer.invoke(channels.skillDuplicates),
   pluginsList: () => ipcRenderer.invoke(channels.pluginsList),
   pluginSkills: (pluginId: string) => ipcRenderer.invoke(channels.pluginSkills, pluginId),
   pluginToggle: (

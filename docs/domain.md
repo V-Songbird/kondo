@@ -84,8 +84,14 @@ only the parts named here (ADR-0009):
   `hasStore` — the last being whether it holds a `.claude` at all.
 - `mcpServers` ✅ — user-scope MCP servers: `{ name → { type, command, args,
   env } | { type, url, headers } }`. `env` and `headers` can hold secrets.
-- `skillUsage` and `pluginUsage` ✅ — usage counters keyed by skill and
-  plugin name; the "never used" signal for entry 032.
+- `skillUsage` and `pluginUsage` ✅ — usage counters, `{ name → {
+  usageCount, lastUsedAt } }` (127 skill keys observed). The key is the
+  skill's own **name**, bare for a user- or project-placed skill and
+  `<plugin>:<name>` for a plugin-shipped one. Read for the "never used"
+  badge (entry 032): a name with no key, or a key whose `usageCount` is 0,
+  has never been loaded. Only that boolean crosses the seam — the counts and
+  timestamps are how often and when a user works, and stay in the main
+  process.
 - Everything else (`oauthAccount`, `userID`, `machineID`, experiment caches)
   is identity or telemetry and is **read-never**.
 
@@ -160,6 +166,18 @@ journal entry, so ADR-0001's undo restores it or none of it. `output-style`
 is the exception, and only in one direction: a project store has no
 `output-styles` directory to read, so a project destination is refused for
 that kind rather than kondo creating the first one anybody has seen.
+
+A name can repeat across scopes, and that is the one thing kondo removes by
+hand (entry 032). `skillDuplicates` groups the skill listing by name and
+returns only groups of more than one, digesting each member's tree — the
+digest is what says whether the copies are actually the same skill, because
+two scopes can hold the same name over completely different work. A name that
+repeats nowhere is never hashed (ADR-0007), and a member whose tree could not
+be read carries no digest and makes its group not identical: "kondo could not
+tell" must never render as "safe to remove". Removal is a fourth capability
+operation, `trash`, allowed only in the four scopes a user placed a skill in
+by hand — a plugin-shipped skill follows its plugin, and a plugin's files are
+the plugin's to remove.
 
 Where each kind sits is one table, `PLACEMENTS` in
 `electron/main/workspace/user-store.ts` — directory, bench (`skills.disabled`

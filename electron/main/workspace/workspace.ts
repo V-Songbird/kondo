@@ -18,6 +18,7 @@ import type {
   SessionProject,
   SessionSummary,
   SettingsLayerInfo,
+  SkillDuplicateGroup,
   SkillInfo,
   StoresOverview,
   TidyCategory,
@@ -35,6 +36,7 @@ import {
   listingForId,
   pluginClearPlan,
   projectPluginStates,
+  skillDuplicates,
   type KindContext
 } from './kinds'
 import {
@@ -283,8 +285,8 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       return badRequest(null, 'entityMutate expects an entity id.')
     }
     const op = request === null || typeof request !== 'object' ? undefined : request.op
-    if (op !== 'enable' && op !== 'disable' && op !== 'move') {
-      return badRequest(null, 'entityMutate expects an op of enable, disable or move.')
+    if (op !== 'enable' && op !== 'disable' && op !== 'move' && op !== 'trash') {
+      return badRequest(null, 'entityMutate expects an op of enable, disable, move or trash.')
     }
     const listing = listingForId(entityId)
     if (listing === null) {
@@ -514,6 +516,11 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         return badRequest(null, 'skillMove expects a destination scope id.')
       }
       return entityMutate(skillId, { op: 'move', targetId: destinationId })
+    },
+
+    async skillDuplicates(): Promise<Scan<SkillDuplicateGroup[]>> {
+      const c = collector()
+      return finish(await skillDuplicates(context(c)), c)
     },
 
     pluginsList() {

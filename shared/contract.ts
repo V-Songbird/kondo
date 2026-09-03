@@ -95,10 +95,15 @@ export type ToggleOperation = 'enable' | 'disable'
 
 /**
  * What a mutation would do to an entity. `move` relocates the entity into
- * another scope; unlike the toggles it is not its own inverse, so the matrix
- * answers it separately.
+ * another scope and `trash` displaces it into kondo's trash; unlike the
+ * toggles neither is its own inverse, so the matrix answers each separately.
+ *
+ * `trash` is not a delete (ADR-0001): the bytes go to
+ * `<kondo-data>/trash/<journal-id>/` and undo puts them back. It is allowed
+ * only where the entry is the user's own to remove — a plugin-shipped skill
+ * follows its plugin and is refused.
  */
-export type CapabilityOperation = ToggleOperation | 'move'
+export type CapabilityOperation = ToggleOperation | 'move' | 'trash'
 
 export interface CapabilityDecision {
   allowed: boolean
@@ -149,6 +154,30 @@ export interface EntityIdentity {
   kind: EntityKind
   /** The matrix row for this entity's kind and scope. */
   capabilities: Capabilities
+}
+
+/**
+ * One member of a duplicate group: the skill, and the digest of the tree
+ * behind it. Null when that tree could not be read — a repeated name is
+ * never called a redundant copy on the strength of a digest kondo does not
+ * have.
+ */
+export interface SkillDuplicate {
+  skill: SkillInfo
+  digest: string | null
+}
+
+/**
+ * Skills sharing one name across scopes. The name is what makes a group; the
+ * digests are what say whether the copies are actually the same skill, which
+ * is the only thing that makes one of them redundant.
+ */
+export interface SkillDuplicateGroup {
+  name: string
+  /** Two or more, always: a unique name is not a group and is never digested. */
+  members: SkillDuplicate[]
+  /** True when every member digested and all the digests agree. */
+  identical: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +354,13 @@ export interface SkillInfo extends EntityIdentity {
    * `enabled`.
    */
   override: SkillOverrideState | null
+  /**
+   * True when Claude's own `skillUsage` record in `~/.claude.json` has never
+   * counted a use of this name (ADR-0006 — kondo reads Claude's record rather
+   * than keeping one of its own). Only whether the name appears crosses the
+   * seam; the counts and timestamps behind it stay in the main process.
+   */
+  neverUsed: boolean
   /**
    * The `project:code:<dirName>` id of the project this skill belongs to, or
    * null for a user-scope or plugin-shipped one. Attribution travels as this
@@ -888,6 +924,22 @@ export interface KondoApi {
    * across the move, which changes its id: callers re-read rather than patch.
    */
   skillMove(skillId: string, destinationId: string): Promise<Scan<JournalEntryInfo | null>>
+  /**
+   * Skills carrying the same name in more than one scope, with a digest per
+   * member so the caller can see whether the copies actually match. Groups of
+   * one are left out, and a skill whose name is unique is never hashed
+   * (ADR-0007) — the digest is paid for exactly the trees a duplicate name
+   * puts in question.
+   *
+   * A name that repeats is not on its own a reason to remove anything: two
+   * skills can share a name and hold different work. `identical` is the fact
+   * that matters, and it is false whenever any member could not be read.
+   *
+   * Removing one is `entityMutate(skillId, { op: 'trash' })` — one journaled
+   * step, reversible like every other (ADR-0001), and refused by the matrix
+   * for a plugin-shipped skill.
+   */
+  skillDuplicates(): Promise<Scan<SkillDuplicateGroup[]>>
   pluginsList(): Promise<Scan<PluginInfo[]>>
   /**
    * The skills one installed plugin ships, read from its own install root.
@@ -1045,6 +1097,7 @@ export const channels = {
   skillsList: 'kondo:skills-list',
   skillToggle: 'kondo:skill-toggle',
   skillMove: 'kondo:skill-move',
+  skillDuplicates: 'kondo:skill-duplicates',
   pluginsList: 'kondo:plugins-list',
   pluginSkills: 'kondo:plugin-skills',
   pluginToggle: 'kondo:plugin-toggle',

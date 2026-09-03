@@ -10,7 +10,15 @@ import type {
   TrashReport
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
-import { collector, describe, directorySize, finish, isEnoent, pathWithin } from './scan'
+import {
+  collector,
+  describe,
+  digestTree,
+  directorySize,
+  finish,
+  isEnoent,
+  pathWithin
+} from './scan'
 import { tildify } from './display'
 
 /**
@@ -368,33 +376,6 @@ export function createMutations(
       throw new Refused('bad-request', at, 'A splice edit addressed outside the file.')
     }
     return next
-  }
-
-  /**
-   * A tree reduced to one hash: every relative name in sorted order, and the
-   * bytes of every file. Two trees with the same digest hold the same skill.
-   */
-  const digestTree = async (root: string): Promise<string> => {
-    const hash = createHash('sha256')
-    if (!(await fs.stat(root)).isDirectory()) {
-      hash.update(await fs.readFile(root))
-      return hash.digest('hex')
-    }
-    const names = (await fs.readdir(root, { withFileTypes: true, recursive: true }))
-      .map((entry) => {
-        const relative = path
-          .relative(root, path.join(entry.parentPath, entry.name))
-          .split(path.sep)
-          .join('/')
-        return entry.isDirectory() ? `${relative}/` : relative
-      })
-      .sort()
-    for (const relative of names) {
-      hash.update(relative)
-      if (relative.endsWith('/')) continue
-      hash.update(await fs.readFile(path.join(root, ...relative.split('/'))))
-    }
-    return hash.digest('hex')
   }
 
   /**

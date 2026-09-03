@@ -63,7 +63,7 @@ describe('skillOverrides (entry 029)', () => {
     const c = collector()
     const verified: VerifiedProject[] = [{ dirName: flattenPath(workdir), absPath: workdir }]
     const layers = await readSettingsLayers(world.locator, verified, c)
-    return scanSkills(world.locator, verified, layers, c)
+    return scanSkills(world.locator, verified, layers, new Set(), c)
   }
 
   /** Write `skillOverrides` into one of the three layers. */
@@ -216,7 +216,7 @@ describe('skillOverrides (entry 029)', () => {
     const c = collector()
     const verified: VerifiedProject[] = [{ dirName: flattenPath(workdir), absPath: workdir }]
     const layers = await readSettingsLayers(world.locator, verified, c)
-    const skills = await scanSkills(world.locator, verified, layers, c)
+    const skills = await scanSkills(world.locator, verified, layers, new Set(), c)
 
     expect(byName(skills, 'alpha-skill').override).toBeNull()
     expect(byName(skills, 'alpha-skill').enabled).toBe(true)

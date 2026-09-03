@@ -1258,6 +1258,41 @@ async function readPlacedDir(
   return records
 }
 
+/** Claude's own per-skill usage record, in `~/.claude.json` (ADR-0009). */
+const SKILL_USAGE = 'skillUsage'
+
+/**
+ * The skill names Claude has counted a use of. Claude keys `skillUsage` by
+ * the skill's own name — `<plugin>:<name>` for a plugin-shipped one — and
+ * stores a count and a timestamp against each; kondo reads Claude's record
+ * rather than keeping one of its own (ADR-0006), and keeps only the names,
+ * so nothing about when or how often a user works crosses the seam.
+ *
+ * A registry that is missing, unreadable or malformed answers empty
+ * (ADR-0005), which reads as "nothing has been used" — the badge is a hint
+ * about a skill, never the grounds for touching one.
+ */
+export async function scanSkillUsage(
+  locator: StoreLocator,
+  c: Collector
+): Promise<ReadonlySet<string>> {
+  const raw = await safeReadJson(
+    locator.userConfigFile,
+    tildify(locator.userConfigFile, locator.home),
+    c
+  )
+  const usage = asObject(asObject(raw)?.[SKILL_USAGE] ?? null)
+  if (usage === null) return new Set()
+  return new Set(
+    Object.entries(usage)
+      .filter(([, record]) => {
+        const count = asObject(record)?.['usageCount']
+        return typeof count === 'number' && count > 0
+      })
+      .map(([name]) => name)
+  )
+}
+
 /** One skill directory to read, and everything its entries resolve against. */
 interface SkillDirRead {
   root: string
@@ -1268,6 +1303,10 @@ interface SkillDirRead {
   owner: string | null
   /** The layers that speak for this scope, highest precedence first. */
   chain: readonly SettingsLayer[]
+  /** The names `scanSkillUsage` found; read, never re-read, per listing. */
+  used: ReadonlySet<string>
+  /** What Claude prefixes this scope's names with there: `<plugin>:` or ''. */
+  usagePrefix: string
 }
 
 /**
@@ -1297,6 +1336,9 @@ async function readSkillDir(
       origin: tildify(record.target, locator.home),
       enabled: read.live && override?.value !== 'off',
       override,
+      // Claude's own record, read straight (ADR-0006): a name it has never
+      // counted is one nothing has ever loaded.
+      neverUsed: !read.used.has(`${read.usagePrefix}${record.name}`),
       // ADR-0008: the owning project travels as a field. The renderer joins
       // on it rather than splitting `skill:project/<flat>:<name>` apart.
       projectId: read.owner
@@ -1431,6 +1473,7 @@ export async function scanSkills(
   locator: StoreLocator,
   projects: VerifiedProject[],
   layers: SettingsLayer[],
+  used: ReadonlySet<string>,
   c: Collector
 ): Promise<SkillInfo[]> {
   // Both of Claude's skill directories come off the placement table, so the
@@ -1446,7 +1489,9 @@ export async function scanSkills(
       keyPrefix: 'user',
       live: true,
       owner: null,
-      chain: userChain
+      chain: userChain,
+      used,
+      usagePrefix: ''
     }
   ]
   if (benched !== null) {
@@ -1456,7 +1501,9 @@ export async function scanSkills(
       keyPrefix: 'user-disabled',
       live: false,
       owner: null,
-      chain: userChain
+      chain: userChain,
+      used,
+      usagePrefix: ''
     })
   }
   for (const project of projects) {
@@ -1472,7 +1519,9 @@ export async function scanSkills(
       keyPrefix: `project/${project.dirName}`,
       live: true,
       owner,
-      chain
+      chain,
+      used,
+      usagePrefix: ''
     })
     if (benched !== null) {
       reads.push({
@@ -1481,7 +1530,9 @@ export async function scanSkills(
         keyPrefix: `project-disabled/${project.dirName}`,
         live: false,
         owner,
-        chain
+        chain,
+        used,
+        usagePrefix: ''
       })
     }
   }
@@ -1514,6 +1565,7 @@ export async function scanSkills(
 export async function scanPluginSkills(
   locator: StoreLocator,
   record: PluginRecord,
+  used: ReadonlySet<string>,
   c: Collector
 ): Promise<SkillInfo[]> {
   if (record.installAbs === null) return []
@@ -1531,7 +1583,11 @@ export async function scanPluginSkills(
       // A plugin belongs to no project: it is installed once and reaches
       // every one of them, so the attribution field has nothing to say.
       owner: null,
-      chain: []
+      chain: [],
+      used,
+      // Claude keys a plugin's skills `<plugin>:<name>` in `skillUsage`, so
+      // the plugin's own name is what turns a listing name into that key.
+      usagePrefix: `${record.info.name}:`
     },
     c
   )

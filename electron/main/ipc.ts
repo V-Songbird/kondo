@@ -51,6 +51,7 @@ export function registerIpc(api: KondoApi): void {
   ipcMain.handle(channels.skillMove, (_event, skillId: unknown, destinationId: unknown) =>
     api.skillMove(String(skillId), String(destinationId))
   )
+  ipcMain.handle(channels.skillDuplicates, () => api.skillDuplicates())
   ipcMain.handle(channels.pluginsList, () => api.pluginsList())
   ipcMain.handle(channels.pluginSkills, (_event, pluginId: unknown) =>
     api.pluginSkills(String(pluginId))

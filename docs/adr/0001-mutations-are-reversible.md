@@ -47,6 +47,14 @@ Two pieces:
   have restored are gone.
 - Every new mutation feature starts by defining its journal entry and inverse
   — a feature that cannot state its inverse does not ship.
+- Removal is therefore a *capability*, not a special case. `trash` joins
+  `enable`, `disable` and `move` in `CapabilityOperation`, so whether kondo
+  may remove one entity is the same kind × scope × operation lookup as
+  whether it may disable one (ADR-0006), answered before a step exists. Its
+  plan is a single `trash` step and deliberately not the move's copy → verify
+  → trash: that recipe exists to protect bytes about to be released
+  somewhere else, and here the kondo trash *is* the copy. Entry 032 fills the
+  first such seat, for a skill the user placed by hand.
 - Journaling first means an entry can outlive the work it describes: a step
   that fails leaves an entry naming steps the store never got. The file is
   append-only, so the correction is a following marker line rather than an

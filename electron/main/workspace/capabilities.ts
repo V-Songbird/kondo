@@ -15,6 +15,10 @@ import type {
  * not the same as what kondo implements. `kinds.ts` holds the `enable` /
  * `disable` seats; a row saying `allowed` is the precondition for filling
  * one in, not a claim that it is filled.
+ *
+ * `trash` is the exception that proves it: Claude has no convention for
+ * removing anything, so that column says what kondo is willing to displace
+ * into its own trash (ADR-0001) rather than what Claude permits.
  */
 
 const ALLOW: CapabilityDecision = { allowed: true, reason: null }
@@ -29,14 +33,33 @@ function deny(reason: string): CapabilityDecision {
 // is a thing one scope can hand to another.
 const NOTHING_TO_HAND_OVER = 'This kind does not move between scopes.'
 
-/** No operation at all is permitted, all three for the same reason. */
+/**
+ * The one thing kondo removes on its own: a skill the user placed, once the
+ * duplicate listing has shown a copy of it somewhere else. Everything else
+ * here is either Claude's to install and uninstall or a fragment of a file,
+ * so the row denies `trash` rather than offering a displacement nobody asked
+ * for. This changes per kind the day one of them earns it, not before.
+ */
+const NOT_KONDOS_TO_REMOVE =
+  'kondo removes a redundant skill and nothing else; this stays where it is.'
+
+/** No operation at all is permitted, all four for the same reason. */
 function none(reason: string): Capabilities {
-  return { enable: deny(reason), disable: deny(reason), move: deny(reason) }
+  return {
+    enable: deny(reason),
+    disable: deny(reason),
+    move: deny(reason),
+    trash: deny(reason)
+  }
 }
 
 /** Neither toggle direction is permitted, and this kind does not relocate. */
 function neither(reason: string): Capabilities {
-  return { ...none(reason), move: deny(NOTHING_TO_HAND_OVER) }
+  return {
+    ...none(reason),
+    move: deny(NOTHING_TO_HAND_OVER),
+    trash: deny(NOT_KONDOS_TO_REMOVE)
+  }
 }
 
 const ALREADY_ENABLED = 'Already enabled.'
@@ -75,7 +98,8 @@ function placed(): Capabilities {
   return {
     enable: deny(PLACED_HAS_NO_CONVENTION),
     disable: deny(PLACED_HAS_NO_CONVENTION),
-    move: ALLOW
+    move: ALLOW,
+    trash: deny(NOT_KONDOS_TO_REMOVE)
   }
 }
 
@@ -93,20 +117,30 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
   // also hand it on, so `move` is allowed wherever the skill is the user's —
   // it is the one operation that reads the *source* row and writes elsewhere.
   skill: {
-    user: { enable: deny(ALREADY_ENABLED), disable: ALLOW, move: ALLOW },
-    'user-disabled': { enable: ALLOW, disable: deny(ALREADY_DISABLED), move: ALLOW },
+    user: { enable: deny(ALREADY_ENABLED), disable: ALLOW, move: ALLOW, trash: ALLOW },
+    'user-disabled': {
+      enable: ALLOW,
+      disable: deny(ALREADY_DISABLED),
+      move: ALLOW,
+      trash: ALLOW
+    },
     plugin: none(PLUGIN_OWNED),
-    project: { enable: deny(ALREADY_ENABLED), disable: ALLOW, move: ALLOW },
-    'project-disabled': { enable: ALLOW, disable: deny(ALREADY_DISABLED), move: ALLOW }
+    project: { enable: deny(ALREADY_ENABLED), disable: ALLOW, move: ALLOW, trash: ALLOW },
+    'project-disabled': {
+      enable: ALLOW,
+      disable: deny(ALREADY_DISABLED),
+      move: ALLOW,
+      trash: ALLOW
+    }
   },
   // `enabledPlugins` in the settings layer for the scope (domain.md). A
   // plugin moves as well, and moves nothing on disk while doing it: handing
   // one scope's plugin to another is a `false` here and a `true` there, which
   // is what Claude's own convention says (ADR-0006) and all it says.
   plugin: {
-    user: { enable: ALLOW, disable: ALLOW, move: ALLOW },
-    project: { enable: ALLOW, disable: ALLOW, move: ALLOW },
-    local: { enable: ALLOW, disable: ALLOW, move: ALLOW }
+    user: { enable: ALLOW, disable: ALLOW, move: ALLOW, trash: deny(NOT_KONDOS_TO_REMOVE) },
+    project: { enable: ALLOW, disable: ALLOW, move: ALLOW, trash: deny(NOT_KONDOS_TO_REMOVE) },
+    local: { enable: ALLOW, disable: ALLOW, move: ALLOW, trash: deny(NOT_KONDOS_TO_REMOVE) }
   },
   hook: {
     user: neither(HOOK_HAS_NO_CONVENTION),
