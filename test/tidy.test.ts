@@ -235,7 +235,7 @@ describe('the tidy sweep (ADR-0001)', () => {
     // Five previewed items, six steps — the stale session's sidecar rides
     // along, and it is a step of the same entry rather than one of its own.
     expect(done.data?.stepCount).toBe(6)
-    expect(done.data?.summary).toContain('1 stale session')
+    expect(done.data?.summary).toContain('1 untouched session')
     expect(done.data?.summary).toContain('2 cache directories')
 
     const journal = (await api.journalList()).data
@@ -640,7 +640,7 @@ describe('session-env snapshots and plugin residue', () => {
     expect(done.errors).toEqual([])
     // One step per candidate: two snapshots, two versions, two leftovers.
     expect(done.data?.stepCount).toBe(6)
-    expect(done.data?.summary).toContain('2 orphaned session snapshots')
+    expect(done.data?.summary).toContain('2 leftover session snapshots')
     expect(done.data?.summary).toContain('2 superseded plugin versions')
     expect(done.data?.summary).toContain('2 leftover plugin files')
 

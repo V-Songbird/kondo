@@ -137,7 +137,7 @@ describe('placed entries: agents, commands, rules, output styles', () => {
         const row = capabilitiesFor(kind, scope)
         expect(row.enable.allowed, `${kind}/${scope}`).toBe(false)
         expect(row.disable.allowed, `${kind}/${scope}`).toBe(false)
-        expect(row.enable.reason).toContain('no convention')
+        expect(row.enable.reason).toContain('no way to switch one of these off')
         // Relocating one is Claude's own convention — entry 028.
         expect(row.move.allowed, `${kind}/${scope}`).toBe(true)
         expect(row.move.reason).toBeNull()

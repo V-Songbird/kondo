@@ -15,6 +15,12 @@ marker:
 Adapters must treat all of it as best-effort: unknown files appear, schemas
 drift. Unknown ≠ error (see ADR-0005).
 
+The names below are Claude's and kondo's, not the user's. Where an adapter
+writes a string a person will read — a capability refusal, the summary a
+mutation plan carries into History — it uses the right-hand column of
+[glossary.md](glossary.md)'s UI-words table instead. A store fact keeps its
+spelling here; the screen never shows it.
+
 ## The three store kinds
 
 | Store | Location | Owner |

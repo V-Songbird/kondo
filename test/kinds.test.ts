@@ -188,7 +188,7 @@ describe('kind registry and capability matrix', () => {
   it('refuses both hook operations because Claude has no convention (ADR-0006)', () => {
     const row = capabilitiesFor('hook', 'user')
     expect(row.enable.allowed).toBe(false)
-    expect(row.disable.reason).toContain('no convention')
+    expect(row.disable.reason).toContain('no way to switch off one hook')
   })
 
   it('degrades to read-only on a scope it has not learned (ADR-0005)', () => {

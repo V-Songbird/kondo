@@ -720,7 +720,7 @@ export function createMutations(
             {
               code: 'unknown-id',
               path: journalId,
-              message: 'No journal entry with that id.'
+              message: 'No history entry with that id.'
             }
           ],
           unknown: scan.unknown

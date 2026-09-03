@@ -191,7 +191,7 @@ describe('promoting placed entries between scopes (entry 028)', () => {
       const result = await api.entityMutate('command:user:ship', { op })
       expect(result.data, op).toBeNull()
       expect(result.errors[0]?.code, op).toBe('not-permitted')
-      expect(result.errors[0]?.message, op).toContain('no convention')
+      expect(result.errors[0]?.message, op).toContain('no way to switch one of these off')
     }
     expect(await exists(path.join(world.userRoot, 'commands', 'ship.md'))).toBe(true)
   })

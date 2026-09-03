@@ -402,18 +402,23 @@ export function toTidyPreview(candidates: TidyCandidates): TidyPreview {
   }
 }
 
-/** Both forms spelled out — "cache directorys" is not a plural. */
+/**
+ * How each category reads in the History row this sweep writes. Both forms
+ * spelled out — "cache directorys" is not a plural — and both in the UI
+ * column of docs/glossary.md, because this string is read on screen by
+ * someone who has never heard of a sidecar or an orphan.
+ */
 const LABEL: Record<TidyCategory, readonly [one: string, many: string]> = {
   'scratch-projects': ['throwaway project folder', 'throwaway project folders'],
   'dead-projects': ['deleted project', 'deleted projects'],
-  'stale-sessions': ['stale session', 'stale sessions'],
+  'stale-sessions': ['untouched session', 'untouched sessions'],
   'empty-transcripts': ['empty transcript', 'empty transcripts'],
-  'orphan-sidecars': ['orphaned sidecar', 'orphaned sidecars'],
-  'orphan-session-env': ['orphaned session snapshot', 'orphaned session snapshots'],
+  'orphan-sidecars': ['leftover session folder', 'leftover session folders'],
+  'orphan-session-env': ['leftover session snapshot', 'leftover session snapshots'],
   'reclaimable-caches': ['cache directory', 'cache directories'],
   'superseded-plugin-versions': ['superseded plugin version', 'superseded plugin versions'],
   'orphan-plugin-residue': ['leftover plugin file', 'leftover plugin files'],
-  'unarmed-hook-scripts': ['unarmed hook script', 'unarmed hook scripts']
+  'unarmed-hook-scripts': ['hook script nothing runs', 'hook scripts nothing runs']
 }
 
 /**
@@ -446,7 +451,7 @@ export function tidyPlan(
     // single entity below the store is the thing it changed (ADR-0008).
     kind: 'store',
     entityId: 'store:user',
-    summary: `Tidy sweep: ${parts.join(', ')} into kondo's trash`,
+    summary: `Clean up: ${parts.join(', ')} into kondo's trash`,
     steps
   }
 }

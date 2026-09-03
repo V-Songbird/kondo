@@ -1,3 +1,15 @@
+import type { ScanError } from '../../shared/contract'
+
+/**
+ * Every message a result carries, not just the first. A mutation refuses per
+ * step (ADR-0005), so reading `errors[0]` and dropping the rest told the user
+ * one thing went wrong when four did — and the four were the finding.
+ */
+export function joinErrors(errors: readonly ScanError[]): string | null {
+  if (errors.length === 0) return null
+  return errors.map((error) => error.message).join(' · ')
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   const units = ['KB', 'MB', 'GB', 'TB']

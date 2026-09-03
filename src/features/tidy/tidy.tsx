@@ -3,13 +3,18 @@ import type { JournalEntryInfo, TidyCategory } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { LastChange } from '../../ui/last-change'
-import { formatBytes, formatCount } from '../../lib/format'
+import { formatBytes, formatCount, joinErrors } from '../../lib/format'
 
 /**
- * The tidy sweep, preview first. The table is a dry run — main computed it
- * without moving a byte — and nothing happens until a category is picked and
- * the confirmation answered. The sweep itself is one journal entry, so undo
- * restores it whole (ADR-0001).
+ * The tidy sweep, preview first. The table is computed by main without moving
+ * a byte, and nothing happens until a category is picked and the confirmation
+ * answered. The sweep itself is one journal entry, so undo restores it whole
+ * (ADR-0001).
+ *
+ * Every word on this screen is the UI column of docs/glossary.md — "clean
+ * up", "preview", "session folder" — while the categories keep their internal
+ * names in the contract. The two vocabularies do not have to match; the
+ * mapping does.
  */
 
 /** Plain words for the row, not kondo's internal name for the category. */
@@ -18,7 +23,7 @@ const LABEL: Record<TidyCategory, string> = {
   'dead-projects': 'Projects that are gone',
   'stale-sessions': 'Old conversations',
   'empty-transcripts': 'Empty conversations',
-  'orphan-sidecars': 'Leftover session files',
+  'orphan-sidecars': 'Leftover session folders',
   'orphan-session-env': 'Leftover session snapshots',
   'reclaimable-caches': 'Caches Claude rebuilds',
   'superseded-plugin-versions': 'Old plugin versions',
@@ -33,11 +38,11 @@ function hintFor(category: TidyCategory, staleAfterDays: number): string {
     case 'dead-projects':
       return 'Claude still records these, but the folder is no longer on disk. The whole folder goes.'
     case 'stale-sessions':
-      return `Nothing said in them for over ${staleAfterDays} days. Their side files go too.`
+      return `Untouched for over ${staleAfterDays} days. Their session folders go too.`
     case 'empty-transcripts':
       return 'Conversations that recorded nothing at all.'
     case 'orphan-sidecars':
-      return 'Side files left behind after their conversation was removed.'
+      return 'Session folders left behind after their conversation was removed.'
     case 'orphan-session-env':
       return 'Saved settings for conversations Claude no longer has a record of.'
     case 'reclaimable-caches':
@@ -80,13 +85,15 @@ export function Tidy() {
     setChange(null)
     try {
       const done = await api.tidySweep(selected)
-      setProblem(done.errors[0]?.message ?? null)
+      setProblem(joinErrors(done.errors))
       if (done.errors.length === 0) {
-        // A sweep that moved something is a change with a way back, so it
-        // goes to the banner; a tidy store has nothing to undo and just says
-        // so (ADR-0001 — the entry is what the undo hangs on).
+        // A clean-up that moved something is a change with a way back, so
+        // it goes to the banner; a tidy store has nothing to undo and just
+        // says so (ADR-0001 — the entry is what the undo hangs on).
         setChange(done.data)
-        if (done.data === null) setOutcome('Nothing left to sweep — the store is already tidy.')
+        if (done.data === null) {
+          setOutcome('Nothing left to clean up — everything here is already tidy.')
+        }
       }
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
@@ -119,11 +126,11 @@ export function Tidy() {
           return (
             <div className="space-y-4">
               <div className="card">
-                <h2 className="mb-1 font-semibold">Dry run — nothing has moved</h2>
+                <h2 className="mb-1 font-semibold">Preview — nothing has moved</h2>
                 <p className="max-w-2xl text-mut">
-                  These counts are a scan, not a change. Pick what to reclaim; the sweep
-                  displaces every chosen item into kondo&rsquo;s trash as a single journal
-                  entry, never a delete.
+                  These counts are a look, not a change. Pick what to reclaim; cleaning
+                  up moves every chosen item into kondo&rsquo;s trash in one step you can
+                  undo. Nothing is deleted.
                 </p>
               </div>
 
@@ -193,7 +200,7 @@ export function Tidy() {
                     className="cursor-pointer rounded-md border border-warn/60 px-3 py-1 text-warn hover:bg-inset"
                     onClick={() => void sweep()}
                   >
-                    Sweep
+                    Move to trash
                   </button>
                   <button
                     type="button"
@@ -211,8 +218,8 @@ export function Tidy() {
                   onClick={() => setConfirming(true)}
                 >
                   {count === 0
-                    ? 'Select what to sweep'
-                    : `Sweep ${formatCount(count, 'item')} · ${formatBytes(bytes)}`}
+                    ? 'Pick what to clean up'
+                    : `Clean up ${formatCount(count, 'item')} · ${formatBytes(bytes)}`}
                 </button>
               )}
             </div>

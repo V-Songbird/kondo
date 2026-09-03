@@ -346,7 +346,7 @@ function skillTrashPlan(entity: SkillInfo): PlanResult {
       op: 'trash',
       kind: 'skill',
       entityId: entity.id,
-      summary: `Trash skill ${entity.name} (${entity.scope})`,
+      summary: `Move skill ${entity.name} (${entity.scope}) to kondo's trash`,
       steps: [{ type: 'trash', store: placement.store, from: placement.at }]
     }
   }
@@ -1345,7 +1345,7 @@ export async function sessionTrashPlan(
       op: 'trash',
       kind: single ? 'session' : 'store',
       entityId: single ? (chosen[0] as string) : 'store:user',
-      summary: `Trash ${chosen.length} session${single ? '' : 's'} into kondo's trash`,
+      summary: `Move ${chosen.length} session${single ? '' : 's'} to kondo's trash`,
       steps
     }
   }

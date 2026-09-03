@@ -31,7 +31,7 @@ function deny(reason: string): CapabilityDecision {
 // fragment of a settings file, a session belongs to the project it was
 // recorded in, and a store is not somewhere else's to be — none of the three
 // is a thing one scope can hand to another.
-const NOTHING_TO_HAND_OVER = 'This kind does not move between scopes.'
+const NOTHING_TO_HAND_OVER = 'This is not something kondo can move somewhere else.'
 
 /**
  * The two things kondo removes on its own: a skill the user placed, once the
@@ -42,7 +42,7 @@ const NOTHING_TO_HAND_OVER = 'This kind does not move between scopes.'
  * changes per kind the day one of them earns it, not before.
  */
 const NOT_KONDOS_TO_REMOVE =
-  'kondo removes a redundant skill and a session you picked; this stays where it is.'
+  'Kondo moves a duplicate skill and a session you picked to its trash; this stays where it is.'
 
 /** No operation at all is permitted, all four for the same reason. */
 function none(reason: string): Capabilities {
@@ -70,7 +70,7 @@ const PLUGIN_OWNED =
 // ADR-0006: Claude has no per-hook disable convention, so kondo invents none.
 // This row changes the day a faithful mechanism exists, and not before.
 const HOOK_HAS_NO_CONVENTION =
-  'Claude has no convention for disabling one hook; edit the settings layer that arms it.'
+  'Claude has no way to switch off one hook; edit the settings file that runs it.'
 /**
  * Moving a hook is a different question from disabling one, and it gets a
  * different answer. A hook lives in the `hooks` object of one settings
@@ -87,7 +87,7 @@ const HOOK_HAS_NO_CONVENTION =
  * re-point the script at a different file.
  */
 const HOOK_MOVE_NOT_BUILT =
-  'Moving a hook between settings layers is two edits kondo has not built yet; edit both files by hand for now.'
+  'Moving a hook between settings files is two edits kondo has not built yet; edit both files by hand for now.'
 
 /** The row every hook gets, in every layer that can hold one. */
 function hook(): Capabilities {
@@ -98,9 +98,9 @@ function hook(): Capabilities {
     trash: deny(NOT_KONDOS_TO_REMOVE)
   }
 }
-const NOT_A_TOGGLE = 'A settings layer is a file, not a toggle.'
+const NOT_A_TOGGLE = 'A settings file is a file, not a toggle.'
 const SESSIONS_ARE_SWEPT =
-  'Sessions have no enabled state; they are swept through the kondo trash.'
+  'Sessions are not on or off; Clean up moves them to kondo’s trash.'
 // ADR-0009: an MCP server is declared in `~/.claude.json` or in a project's
 // `.mcp.json`, and kondo can write neither safely yet — the registry is
 // rewritten by Claude mid-session, so a whole-file write would discard its
@@ -112,7 +112,7 @@ const MCP_IS_READ_ONLY =
 // and no settings key that benches one, so kondo has no faithful mechanism
 // to offer and invents none. This row changes the day one exists.
 const PLACED_HAS_NO_CONVENTION =
-  'Claude has no convention for disabling one of these; move the file out of the directory instead.'
+  'Claude has no way to switch one of these off; move the file out of the folder instead.'
 
 /**
  * The row every placed kind gets, in every scope it has. Relocating one *is*
@@ -132,7 +132,7 @@ function placed(): Capabilities {
 }
 
 const STORE_IS_NOT_A_TOGGLE =
-  'A store is not a toggle; the tidy sweep is the only thing that writes at this level.'
+  'A store is not a toggle; Clean up is the only thing that writes at this level.'
 
 /**
  * The matrix itself. Second key is the entity's scope — the middle segment
@@ -224,7 +224,7 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
 export function capabilitiesFor(kind: EntityKind, scope: string): Capabilities {
   return (
     MATRIX[kind][scope] ??
-    none(`kondo does not recognize the ${kind} scope "${scope}"; refusing to write.`)
+    none(`Kondo does not recognize the ${kind} scope "${scope}", so it will not write here.`)
   )
 }
 
@@ -261,10 +261,10 @@ export function skillCapabilities(
   return {
     ...row,
     enable: deny(
-      `${override.layerPath} switches this skill off via skillOverrides; moving it back into skills/ would not turn it on.`
+      `${override.layerPath} switches this skill off with skillOverrides; moving it back into skills/ would not turn it on.`
     ),
     disable: deny(
-      `${override.layerPath} already switches this skill off via skillOverrides.`
+      `${override.layerPath} already switches this skill off with skillOverrides.`
     )
   }
 }

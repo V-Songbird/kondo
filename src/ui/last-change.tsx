@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { JournalEntryInfo } from '../../shared/contract'
+import { joinErrors } from '../lib/format'
 
 /**
  * What just changed, and the way back — offered where the change was made.
@@ -30,7 +31,7 @@ export function LastChange({
     setProblem(null)
     try {
       const done = await api.journalUndo(entry.id)
-      const failure = done.errors[0]?.message ?? null
+      const failure = joinErrors(done.errors)
       setProblem(failure)
       if (failure === null) setUndone(true)
     } catch (cause) {
@@ -53,7 +54,7 @@ export function LastChange({
       {entry.failed && (
         <span
           className="pill text-warn"
-          title="A step of this operation failed; the store never got all of it. Undo puts back whatever did happen."
+          title="A step of this change failed; the store never got all of it. Undo puts back whatever did happen."
         >
           partly applied
         </span>

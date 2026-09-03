@@ -1,7 +1,29 @@
 # Glossary
 
-Shared vocabulary. Code, docs, and UI use these words with exactly these
-meanings.
+Shared vocabulary. Code, docs, and the definitions below use these words with
+exactly these meanings.
+
+## What the UI says instead
+
+The definitions below are kondo's internal vocabulary. A first-time user did
+not choose any of them, so the screen shows the right-hand column and the
+code keeps the left. This table is the mapping layer between the two: types,
+IPC channel names and `shared/contract.ts` fields never move to the right-hand
+spelling, and no string a user can read is ever left on the left-hand one.
+
+| Internal term | What the UI shows |
+| --- | --- |
+| Journal | History |
+| Tidy sweep | Clean up |
+| Delete (kondo displacing a file) | Move to trash |
+| Dry run | Preview |
+| Sidecar | Session folder |
+| Stale session | Untouched 30+ days |
+| Orphan | Leftover |
+| Settings layer | Settings file |
+| Scope | Where it applies |
+| Winning / effective layer | In effect |
+| Unknown entries | Files kondo did not recognize |
 
 - **Store** — a root directory where a Claude product keeps its state. Kondo
   knows three kinds: the *user store* (`~/.claude`), *project stores*

@@ -3,7 +3,8 @@ import type { JournalEntryInfo, JournalOp } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { Problems } from '../../ui/problems'
-import { formatAgo, formatBytes, formatCount } from '../../lib/format'
+import { Refusal } from '../../ui/refusal'
+import { formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
 
 /**
  * The journal and kondo's trash, made visible. ADR-0001 promises every
@@ -64,7 +65,7 @@ export function Journal() {
     begin(entry.id)
     try {
       const done = await api.journalUndo(entry.id)
-      setProblem(done.errors[0]?.message ?? null)
+      setProblem(joinErrors(done.errors))
       if (done.errors.length === 0) setOutcome(done.data?.summary ?? 'Undone.')
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
@@ -80,7 +81,7 @@ export function Journal() {
     begin('trash')
     try {
       const done = await api.trashEmpty()
-      setProblem(done.errors[0]?.message ?? null)
+      setProblem(joinErrors(done.errors))
       if (done.errors.length === 0) {
         setOutcome(
           done.data.bytes === 0
@@ -137,8 +138,8 @@ export function Journal() {
               {formatCount(points, 'restore point')}?
             </div>
             <div className="text-mut">
-              The journal keeps its history, but the files those entries would put back
-              are gone. This is the one thing kondo cannot undo.
+              History keeps its record, but the files those entries would put back are
+              gone. This is the one thing kondo cannot undo.
             </div>
             <div className="flex flex-wrap gap-3">
               {/* Cancel comes first and takes the focus: the destructive
@@ -172,14 +173,12 @@ export function Journal() {
         )}
       </div>
 
-      <AsyncView state={journal}>
-        {(scan) =>
-          scan.data.length === 0 ? (
-            <div className="card text-mut">
-              Nothing yet. Kondo has not changed anything on this machine.
-            </div>
-          ) : (
-            <table className="tbl">
+      <AsyncView
+        state={journal}
+        empty="Nothing yet — kondo has not changed anything on this machine. Every change it makes is listed here, with a way to undo it."
+      >
+        {(scan) => (
+          <table className="tbl">
               <thead>
                 <tr>
                   <th>When</th>
@@ -220,7 +219,7 @@ export function Journal() {
                             {' '}
                             <span
                               className="pill text-warn"
-                              title="A step of this operation failed; the store never got all of it. Undo puts back whatever did happen."
+                              title="A step of this change failed; the store never got all of it. Undo puts back whatever did happen."
                             >
                               failed
                             </span>
@@ -232,20 +231,21 @@ export function Journal() {
                         <button
                           type="button"
                           disabled={blocked !== null || busy !== null}
-                          title={blocked ?? undefined}
                           className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
                           onClick={() => void undo(entry)}
                         >
                           {busy === entry.id ? 'Undoing…' : 'Undo'}
                         </button>
+                        {/* The reason is worth more than the dark button, so
+                            it is read rather than hovered for. */}
+                        <Refusal reason={blocked} />
                       </td>
                     </tr>
                   )
                 })}
               </tbody>
-            </table>
-          )
-        }
+          </table>
+        )}
       </AsyncView>
     </div>
   )

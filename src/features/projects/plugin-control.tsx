@@ -5,6 +5,7 @@ import type {
   PluginScopeState
 } from '../../../shared/contract'
 import type { Destination } from './projects'
+import { Refusal } from '../../ui/refusal'
 
 /**
  * One plugin's three-way control for one scope, plus the layer strip behind a
@@ -13,9 +14,13 @@ import type { Destination } from './projects'
  * The three positions are the whole vocabulary a user needs: on here, off
  * here, or follow whatever the global setting says. Which *file* that writes
  * is policy the main process chose (`targetLayerId`) — the strip below is
- * where the layers are still visible for anyone who wants them, and it is
- * closed by default because a row of near-identical chips is what made the
- * old plugins view unreadable.
+ * where the settings files are still visible for anyone who wants them, and
+ * it is closed by default because a row of near-identical chips is what made
+ * the old plugins view unreadable.
+ *
+ * Whatever refuses here says so in print. A dark three-way control with the
+ * reason hidden in a tooltip reads as a broken app, which is the one thing a
+ * refusal must never look like.
  */
 
 /** Nothing stated at this level is "follows global" in a project, and simply
@@ -33,7 +38,7 @@ function positions(global: boolean): Array<{ choice: ProjectPluginChoice; label:
 }
 
 function stateLabel(scope: PluginScopeState): string {
-  if (scope.enabled === null) return 'silent'
+  if (scope.enabled === null) return 'not set'
   return scope.enabled ? 'on' : 'off'
 }
 
@@ -48,7 +53,7 @@ function moveRefusal(state: ProjectPluginState): string | null {
   }
   return state.choice === 'on'
     ? null
-    : 'Only a scope that turns the plugin on has one to hand over.'
+    : 'Only a place that turns the plugin on has one to hand over.'
 }
 
 export function PluginControl({
@@ -85,7 +90,7 @@ export function PluginControl({
               title={
                 decision.allowed
                   ? `Writes ${target?.path ?? state.targetLayerId}`
-                  : (decision.reason ?? undefined)
+                  : undefined
               }
               className={`cursor-pointer rounded-md border px-2 py-0.5 text-xs disabled:cursor-not-allowed ${
                 here
@@ -105,8 +110,9 @@ export function PluginControl({
           value=""
           disabled={busy || refusal !== null || destinations.length === 0}
           title={
-            refusal ??
-            `Turns it off in ${target?.path ?? state.targetLayerId} and on where it lands`
+            refusal === null
+              ? `Turns it off in ${target?.path ?? state.targetLayerId} and on where it lands`
+              : undefined
           }
           className="max-w-[14rem] cursor-pointer rounded-md border border-edge bg-transparent px-2 py-0.5 text-xs text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
           onChange={(event) => {
@@ -130,13 +136,17 @@ export function PluginControl({
           </span>
         </span>
       </div>
+      {/* Both refusals, read rather than hovered for. The toggle's answer and
+          the move's answer are different questions, so both get printed. */}
+      <Refusal reason={decision.allowed ? null : decision.reason} />
+      <Refusal reason={refusal} />
       <button
         type="button"
         aria-expanded={open}
         className="cursor-pointer text-xs text-mut hover:text-ink"
         onClick={() => setOpen((value) => !value)}
       >
-        {open ? '▾' : '▸'} layers
+        {open ? '▾' : '▸'} where this is set
       </button>
       {open && (
         <div className="flex flex-col gap-0.5 border-l border-edge pl-2">
@@ -147,7 +157,7 @@ export function PluginControl({
                 {stateLabel(scope)}
               </span>
               {scope.layerId === state.effectiveLayerId && (
-                <span className="text-accent" title="The layer whose value stands here">
+                <span className="text-accent" title="This is the file in effect">
                   ★
                 </span>
               )}

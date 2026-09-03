@@ -221,11 +221,11 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
       const scope = kind === 'session' ? 'code' : 'user'
       const reason = capabilitiesFor(kind, scope).move.reason ?? ''
       expect(reason, kind).not.toContain('Only skills')
-      expect(reason, kind).toContain('does not move between scopes')
+      expect(reason, kind).toContain('not something kondo can move')
     }
     const hook = capabilitiesFor('hook', 'user').move.reason ?? ''
     expect(hook).not.toContain('Only skills')
-    expect(hook).not.toContain('does not move between scopes')
+    expect(hook).not.toContain('not something kondo can move')
   })
 
   // -------------------------------------------------------------------------
