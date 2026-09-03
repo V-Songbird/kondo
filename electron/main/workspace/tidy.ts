@@ -73,6 +73,9 @@ const RECLAIMABLE = [
 /** One directory per session id, keyed by that id (domain.md). */
 const SESSION_ENV = 'session-env'
 
+/** Where the user store keeps hook scripts (domain.md). */
+const HOOKS_DIR = 'hooks'
+
 /**
  * The shape `sessions.ts` matches a transcript filename by. `session-env/`
  * is joined to `projects/` on exactly this id, so a directory that is not
@@ -91,6 +94,12 @@ export async function scanTidyCandidates(
   locator: StoreLocator,
   inventory: SessionInventory,
   nowMs: number,
+  /**
+   * Every script inside the boundary some settings layer arms
+   * (`armedHookScripts`), keyed by `installKey`. Passed in rather than read
+   * here so the sweep and the preview subtract the same set.
+   */
+  armed: ReadonlySet<string>,
   c: Collector
 ): Promise<TidyCandidates> {
   const root = locator.userRoot
@@ -103,7 +112,8 @@ export async function scanTidyCandidates(
     'orphan-session-env': [],
     'reclaimable-caches': [],
     'superseded-plugin-versions': [],
-    'orphan-plugin-residue': []
+    'orphan-plugin-residue': [],
+    'unarmed-hook-scripts': []
   }
 
   // The two whole-tree categories go first and claim their directories, so
@@ -204,8 +214,44 @@ export async function scanTidyCandidates(
 
   await scanSessionEnv(locator, inventory, candidates, c)
   await scanPluginResidue(locator, candidates, c)
+  await scanUnarmedHookScripts(locator, armed, candidates, c)
 
   return candidates
+}
+
+/**
+ * Files in `~/.claude/hooks/` that no settings layer runs. A script on disk
+ * is not an armed hook (domain.md): the owner's store held two of them while
+ * `settings.json` carried `hooks: {}`, and nothing else in kondo said so.
+ *
+ * The user store only. A project's `.claude/hooks/` holds the same kind of
+ * script beside `__pycache__` and `*.test.js` noise, and a sweep step names
+ * a path relative to one store — offering another store's files here would
+ * be a step this plan cannot write.
+ *
+ * Files only: a directory under `hooks/` is somebody's helper tree, and a
+ * command pointing into it is armed by a path this scan reads as a file.
+ */
+async function scanUnarmedHookScripts(
+  locator: StoreLocator,
+  armed: ReadonlySet<string>,
+  candidates: TidyCandidates,
+  c: Collector
+): Promise<void> {
+  const root = path.join(locator.userRoot, HOOKS_DIR)
+  const rootDisplay = tildify(root, locator.home)
+  for (const entry of await safeReaddir(root, rootDisplay, c)) {
+    if (!entry.isFile()) continue
+    const absPath = path.join(root, entry.name)
+    if (armed.has(installKey(absPath))) continue
+    const display = `${rootDisplay}/${entry.name}`
+    const info = await safeStat(absPath, display, c)
+    candidates['unarmed-hook-scripts'].push({
+      paths: [`${HOOKS_DIR}/${entry.name}`],
+      bytes: info?.size ?? 0,
+      display
+    })
+  }
 }
 
 /**
@@ -366,7 +412,8 @@ const LABEL: Record<TidyCategory, readonly [one: string, many: string]> = {
   'orphan-session-env': ['orphaned session snapshot', 'orphaned session snapshots'],
   'reclaimable-caches': ['cache directory', 'cache directories'],
   'superseded-plugin-versions': ['superseded plugin version', 'superseded plugin versions'],
-  'orphan-plugin-residue': ['leftover plugin file', 'leftover plugin files']
+  'orphan-plugin-residue': ['leftover plugin file', 'leftover plugin files'],
+  'unarmed-hook-scripts': ['unarmed hook script', 'unarmed hook scripts']
 }
 
 /**

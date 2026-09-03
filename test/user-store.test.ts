@@ -100,7 +100,8 @@ describe('user store adapter', () => {
     expect(layers.find((layer) => layer.info.layer === 'local')!.info.projectId).toBe(owner)
 
     // A hook takes the projectId of the layer that arms it.
-    for (const hook of hooksFromLayers(layers)) expect(hook.projectId).toBeNull()
+    const hooks = await hooksFromLayers(layers, world.locator, verified, c)
+    for (const hook of hooks) expect(hook.projectId).toBeNull()
 
     const skills = await scanSkills(world.locator, verified, layers, new Set(), c)
     const delta = skills.find((skill) => skill.name === 'delta-skill')!
@@ -112,7 +113,7 @@ describe('user store adapter', () => {
   it('extracts hooks with event, matcher, and source layer', async () => {
     const c = collector()
     const layers = await readSettingsLayers(world.locator, verified, c)
-    const hooks = hooksFromLayers(layers)
+    const hooks = await hooksFromLayers(layers, world.locator, verified, c)
     expect(hooks).toHaveLength(2)
     const submit = hooks.find((hook) => hook.event === 'UserPromptSubmit')!
     expect(submit.matcher).toBe('*')

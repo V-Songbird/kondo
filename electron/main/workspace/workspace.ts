@@ -4,6 +4,7 @@ import type {
   DesktopSession,
   EntityIdentity,
   EntityKind,
+  HookGroup,
   HookInfo,
   JournalEntryInfo,
   KondoApi,
@@ -47,12 +48,24 @@ import {
   type ProjectRecord,
   type SessionInventory
 } from './sessions'
-import { countStoreEntries, userStoreReport, type VerifiedProject } from './user-store'
+import {
+  armedHookScripts,
+  countStoreEntries,
+  groupHooks,
+  userStoreReport,
+  type VerifiedProject
+} from './user-store'
 import { desktopStoreReport } from './desktop-store'
 import { tildify } from './display'
 import { isStale } from './analysis'
 import { createMutations } from './mutations'
-import { readCategories, scanTidyCandidates, tidyPlan, toTidyPreview } from './tidy'
+import {
+  readCategories,
+  scanTidyCandidates,
+  tidyPlan,
+  toTidyPreview,
+  type TidyCandidates
+} from './tidy'
 
 /**
  * The workspace: the server side of KondoApi. Owns the cached session
@@ -318,6 +331,21 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     kind: EntityKind,
     parentId?: string
   ): Promise<Scan<T[]>> => (await entityList(kind, parentId)) as Scan<T[]>
+
+  /**
+   * What a sweep would move, off the cached inventory (ADR-0007). The
+   * preview and the sweep both come through here, so both subtract the same
+   * armed-script set from `hooks/` and neither can offer a script the other
+   * would have kept.
+   */
+  const tidyCandidates = async (
+    c: Collector
+  ): Promise<{ scan: Scan<SessionInventory>; candidates: TidyCandidates }> => {
+    const { scan } = await inventory()
+    const shared = context(c)
+    const armed = armedHookScripts(await shared.layers(), locator, await shared.projects())
+    return { scan, candidates: await scanTidyCandidates(locator, scan.data, now(), armed, c) }
+  }
 
   return {
     entityList,
@@ -645,8 +673,9 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       return mutations.mutate(planned.plan)
     },
 
-    hooksList() {
-      return listAs<HookInfo>('hook')
+    async hooksList(): Promise<Scan<HookGroup[]>> {
+      const listing = await entityList('hook')
+      return { ...listing, data: groupHooks(listing.data as HookInfo[]) }
     },
 
     settingsLayers() {
@@ -655,8 +684,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
     async tidyPreview(): Promise<Scan<TidyPreview>> {
       const c = collector()
-      const { scan } = await inventory()
-      const candidates = await scanTidyCandidates(locator, scan.data, now(), c)
+      const { scan, candidates } = await tidyCandidates(c)
       return {
         data: toTidyPreview(candidates),
         errors: [...scan.errors, ...c.errors],
@@ -674,8 +702,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       // sweep moves the set the user confirmed rather than one rediscovered
       // a moment later. An item that vanished in between refuses the whole
       // plan in `mutate` — all of the preview or none of it.
-      const { scan } = await inventory()
-      const plan = tidyPlan(await scanTidyCandidates(locator, scan.data, now(), c), chosen)
+      const plan = tidyPlan((await tidyCandidates(c)).candidates, chosen)
       // Nothing to sweep is the ordinary answer on a tidy store, not an
       // error: no journal entry, and not a byte touched.
       if (plan === null) return finish<JournalEntryInfo | null>(null, c)

@@ -3,7 +3,9 @@ import path from 'node:path'
 import type {
   ConfigOrphan,
   ConfigOrphanKind,
+  HookGroup,
   HookInfo,
+  HookScript,
   McpScope,
   McpServerInfo,
   PlacedEntryInfo,
@@ -218,38 +220,217 @@ const LAYER_RANK: Record<'user' | 'project' | 'local', number> = {
 // ---------------------------------------------------------------------------
 // Hooks
 
-export function hooksFromLayers(layers: SettingsLayer[]): HookInfo[] {
-  const hooks: HookInfo[] = []
-  for (const layer of layers) {
-    const config = layer.parsed?.['hooks']
-    if (typeof config !== 'object' || config === null || Array.isArray(config)) continue
-    let index = 0
-    for (const [event, groups] of Object.entries(config)) {
-      if (!Array.isArray(groups)) continue
-      for (const group of groups) {
-        if (typeof group !== 'object' || group === null) continue
-        const record = group as Record<string, unknown>
-        const matcher = typeof record['matcher'] === 'string' ? record['matcher'] : null
-        const inner = Array.isArray(record['hooks']) ? record['hooks'] : []
-        for (const hook of inner) {
-          if (typeof hook !== 'object' || hook === null) continue
-          const command = (hook as Record<string, unknown>)['command']
-          hooks.push({
-            id: `hook:${layer.info.id}:${index++}`,
-            kind: 'hook',
-            capabilities: capabilitiesFor('hook', layer.info.layer),
-            event,
-            matcher,
-            command: typeof command === 'string' ? truncate(command, 200) : '(not a command)',
-            source: layer.info.path,
-            layer: layer.info.layer,
-            projectId: layer.info.projectId
-          })
-        }
+/** One `{ event, matcher, command }` of a layer's `hooks` object (domain.md). */
+interface RawHook {
+  event: string
+  matcher: string | null
+  /** Null when the entry carries no string command at all. */
+  command: string | null
+}
+
+/**
+ * A layer's `hooks` object, flattened in the order it is written. Both
+ * readers below walk it through here, so the index a hook id carries and the
+ * set of scripts the tidy sweep calls armed can never describe different
+ * hooks.
+ */
+function rawHooks(layer: SettingsLayer): RawHook[] {
+  const config = layer.parsed?.['hooks']
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) return []
+  const found: RawHook[] = []
+  for (const [event, groups] of Object.entries(config)) {
+    if (!Array.isArray(groups)) continue
+    for (const group of groups) {
+      if (typeof group !== 'object' || group === null) continue
+      const record = group as Record<string, unknown>
+      const matcher = typeof record['matcher'] === 'string' ? record['matcher'] : null
+      const inner = Array.isArray(record['hooks']) ? record['hooks'] : []
+      for (const hook of inner) {
+        if (typeof hook !== 'object' || hook === null) continue
+        const command = (hook as Record<string, unknown>)['command']
+        found.push({ event, matcher, command: typeof command === 'string' ? command : null })
       }
     }
   }
+  return found
+}
+
+/**
+ * The file extensions a hook's script is recognized by. A command is a shell
+ * line, so what follows is a recognizer and never a parser: the first token
+ * that looks like a script file is the one reported, and a command naming
+ * none reports null rather than a guess.
+ */
+const SCRIPT_EXTENSIONS = [
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.js',
+  '.cjs',
+  '.mjs',
+  '.ts',
+  '.py',
+  '.ps1',
+  '.rb',
+  '.pl'
+] as const
+
+/** A token under a `hooks/` directory, whatever its name ends in. */
+const HOOKS_SEGMENT = /(?:^|[\\/])hooks[\\/]/
+
+function scriptToken(command: string): string | null {
+  for (const raw of command.split(/\s+/)) {
+    // Shell punctuation a token picks up in a compound command; the path
+    // itself is what is left.
+    const token = raw.replace(/^['"]+/, '').replace(/['"&|;]+$/, '')
+    if (token === '') continue
+    if (SCRIPT_EXTENSIONS.some((ext) => token.toLowerCase().endsWith(ext))) return token
+    if (HOOKS_SEGMENT.test(token)) return token
+  }
+  return null
+}
+
+/**
+ * Where that token actually is, or null when kondo may not look (ADR-0002).
+ * Null covers three cases and the user gets one answer for all of them —
+ * `unverifiable`:
+ *
+ * - the token holds a shell variable kondo does not expand
+ *   (`$CLAUDE_PROJECT_DIR`, `$CLAUDE_PLUGIN_ROOT`, `%USERPROFILE%`);
+ * - it is relative and the layer is the user's, whose hooks run in whatever
+ *   directory Claude was started in — not kondo's to guess;
+ * - it resolves outside the user store and outside every verified `.claude`.
+ *
+ * Nothing here stats. The boundary is decided on the string alone, so a path
+ * beyond it is never probed, not even to find out that it is not there.
+ */
+function resolveScript(
+  token: string,
+  layer: SettingsLayer,
+  locator: StoreLocator,
+  projects: VerifiedProject[]
+): string | null {
+  if (token.includes('$') || token.includes('%')) return null
+  let candidate: string
+  if (token.startsWith('~/') || token.startsWith('~\\')) {
+    candidate = path.join(locator.home, token.slice(2))
+  } else if (path.isAbsolute(token)) {
+    candidate = token
+  } else {
+    const owner = projects.find(
+      (project) => projectId(project.dirName) === layer.info.projectId
+    )
+    if (owner === undefined) return null
+    candidate = path.join(owner.absPath, token)
+  }
+  const abs = path.resolve(candidate)
+  if (pathWithin(abs, locator.userRoot)) return abs
+  const inProject = projects.some((project) =>
+    pathWithin(abs, path.join(project.absPath, '.claude'))
+  )
+  return inProject ? abs : null
+}
+
+async function hookScript(
+  command: string,
+  layer: SettingsLayer,
+  locator: StoreLocator,
+  projects: VerifiedProject[],
+  c: Collector
+): Promise<HookScript | null> {
+  const token = scriptToken(command)
+  if (token === null) return null
+  const abs = resolveScript(token, layer, locator, projects)
+  // Outside the boundary the token as written is all kondo may say about it:
+  // a path it refused to resolve is not a path it may restate (ADR-0002).
+  if (abs === null) return { path: truncate(token, 200), status: 'unverifiable' }
+  const display = tildify(abs, locator.home)
+  // A stat and never a read (ADR-0007) — whether the file is there is the
+  // whole question. One that cannot be statted is reported and reads as
+  // missing rather than failing the listing (ADR-0005).
+  const stat = await safeStat(abs, display, c)
+  return { path: display, status: stat === null ? 'missing' : 'present' }
+}
+
+export async function hooksFromLayers(
+  layers: SettingsLayer[],
+  locator: StoreLocator,
+  projects: VerifiedProject[],
+  c: Collector
+): Promise<HookInfo[]> {
+  const hooks: HookInfo[] = []
+  for (const layer of layers) {
+    let index = 0
+    for (const raw of rawHooks(layer)) {
+      hooks.push({
+        id: `hook:${layer.info.id}:${index++}`,
+        kind: 'hook',
+        capabilities: capabilitiesFor('hook', layer.info.layer),
+        event: raw.event,
+        matcher: raw.matcher,
+        command: raw.command === null ? '(not a command)' : truncate(raw.command, 200),
+        script:
+          raw.command === null
+            ? null
+            : await hookScript(raw.command, layer, locator, projects, c),
+        source: layer.info.path,
+        layer: layer.info.layer,
+        projectId: layer.info.projectId,
+        projectLabel: layer.owner
+      })
+    }
+  }
   return hooks
+}
+
+/** The label the user layer's group carries; a project's is its folder name. */
+const GLOBAL_GROUP = 'Global'
+
+/**
+ * The listing, under the project whose layer arms each hook. Insertion order
+ * is `readSettingsLayers`'s, so the user layer's group comes first and each
+ * project follows in the order the scan verified them.
+ */
+export function groupHooks(hooks: HookInfo[]): HookGroup[] {
+  const groups = new Map<string, HookGroup>()
+  for (const hook of hooks) {
+    // The empty string keys the user layer, which no project id can collide
+    // with — every project id starts `project:code:`.
+    const key = hook.projectId ?? ''
+    let group = groups.get(key)
+    if (group === undefined) {
+      group = { projectId: hook.projectId, label: hook.projectLabel ?? GLOBAL_GROUP, hooks: [] }
+      groups.set(key, group)
+    }
+    group.hooks.push(hook)
+  }
+  return [...groups.values()]
+}
+
+/**
+ * Every script inside the boundary that some layer's `hooks` object actually
+ * runs, keyed the way `installPaths` is — resolved and case-folded, because
+ * one Windows path can be spelled several ways.
+ *
+ * A script on disk is not an armed hook (domain.md), and this is the set the
+ * tidy sweep subtracts from `~/.claude/hooks/` to find the ones nothing runs.
+ */
+export function armedHookScripts(
+  layers: SettingsLayer[],
+  locator: StoreLocator,
+  projects: VerifiedProject[]
+): Set<string> {
+  const armed = new Set<string>()
+  for (const layer of layers) {
+    for (const raw of rawHooks(layer)) {
+      if (raw.command === null) continue
+      const token = scriptToken(raw.command)
+      if (token === null) continue
+      const abs = resolveScript(token, layer, locator, projects)
+      if (abs !== null) armed.add(installKey(abs))
+    }
+  }
+  return armed
 }
 
 // ---------------------------------------------------------------------------

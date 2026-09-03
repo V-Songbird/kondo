@@ -1,5 +1,7 @@
 import { Fragment, useState, type ReactNode } from 'react'
 import type {
+  HookScript,
+  HookScriptStatus,
   JournalEntryInfo,
   KondoApi,
   PlacedEntryInfo,
@@ -347,33 +349,41 @@ function ProjectPage({
               </Section>
 
               <Section title="Hooks" count={detail.hooks.length}>
-                <table className="tbl">
-                  <thead>
-                    <tr>
-                      <th>Event</th>
-                      <th>Matcher</th>
-                      <th>Command</th>
-                      <th>Settings file</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.hooks.map((hook) => (
-                      <tr key={hook.id}>
-                        <td className="font-mono">{hook.event}</td>
-                        <td className="font-mono text-mut">{hook.matcher ?? '*'}</td>
-                        <td className="max-w-md truncate font-mono text-xs" title={hook.command}>
-                          {hook.command}
-                        </td>
-                        <td
-                          className="max-w-xs truncate font-mono text-xs text-mut"
-                          title={hook.source}
-                        >
-                          {hook.source}
-                        </td>
+                {/* Five columns of paths outgrow the card on a narrow window,
+                    so the table scrolls inside it rather than the page. */}
+                <div className="overflow-x-auto">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>Event</th>
+                        <th>Matcher</th>
+                        <th>Command</th>
+                        <th>Script</th>
+                        <th>Settings file</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {detail.hooks.map((hook) => (
+                        <tr key={hook.id}>
+                          <td className="font-mono">{hook.event}</td>
+                          <td className="font-mono text-mut">{hook.matcher ?? '*'}</td>
+                          <td className="max-w-xs truncate font-mono text-xs" title={hook.command}>
+                            {hook.command}
+                          </td>
+                          <td>
+                            <HookScriptCell script={hook.script} />
+                          </td>
+                          <td
+                            className="max-w-xs truncate font-mono text-xs text-mut"
+                            title={hook.source}
+                          >
+                            {hook.source}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </Section>
 
               <Section title="Agents" count={detail.agents.length}>
@@ -482,6 +492,36 @@ function Section({
       </h2>
       {count === 0 ? <div className="text-mut">None.</div> : children}
     </div>
+  )
+}
+
+/** How each script status reads, and the colour that carries the finding. */
+const SCRIPT_TONE: Record<HookScriptStatus, { label: string; tone: string }> = {
+  present: { label: 'on disk', tone: 'text-mut' },
+  // The one row worth looking at: a settings layer arms this and Claude
+  // fails it every time it fires.
+  missing: { label: 'not found', tone: 'text-bad' },
+  unverifiable: { label: 'cannot check', tone: 'text-warn' }
+}
+
+/**
+ * The script a hook runs, and whether it is there. "cannot check" is not a
+ * shrug: the path holds a variable kondo does not expand, or it lies outside
+ * the stores kondo may read (ADR-0002), and saying so is more honest than
+ * reaching for it.
+ */
+function HookScriptCell({ script }: { script: HookScript | null }) {
+  if (script === null) return <span className="text-mut">—</span>
+  const { label, tone } = SCRIPT_TONE[script.status]
+  return (
+    <span className="flex items-baseline gap-2">
+      {/* The verdict first: it is the finding, and the path behind it is what
+          you go and look at once the verdict says there is something to see. */}
+      <span className={`pill shrink-0 ${tone}`}>{label}</span>
+      <span className="max-w-40 truncate font-mono text-xs" title={script.path}>
+        {script.path}
+      </span>
+    </span>
   )
 }
 

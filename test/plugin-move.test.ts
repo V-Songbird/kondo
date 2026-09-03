@@ -214,12 +214,18 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
   })
 
   it('no longer tells anyone that only skills move', () => {
-    for (const kind of ['hook', 'settings', 'session', 'mcp'] as const) {
+    // A hook is not on this list any more (entry 036): its `hooks` object is
+    // read in every layer, so a move is a two-layer settings edit kondo has
+    // not built rather than one Claude's conventions forbid.
+    for (const kind of ['settings', 'session', 'mcp'] as const) {
       const scope = kind === 'session' ? 'code' : 'user'
       const reason = capabilitiesFor(kind, scope).move.reason ?? ''
       expect(reason, kind).not.toContain('Only skills')
       expect(reason, kind).toContain('does not move between scopes')
     }
+    const hook = capabilitiesFor('hook', 'user').move.reason ?? ''
+    expect(hook).not.toContain('Only skills')
+    expect(hook).not.toContain('does not move between scopes')
   })
 
   // -------------------------------------------------------------------------

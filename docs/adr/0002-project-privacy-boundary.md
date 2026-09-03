@@ -53,3 +53,28 @@ a widening fails a test rather than passing review.
   (stat only), `~/.claude.json` (ADR-0009), and `<project>/.mcp.json`.
 - Some insights stay impossible on purpose; ROADMAP lists this under
   non-goals so it is not re-litigated feature by feature.
+
+## Amendment, 2026-09-03 — a hook's script is checked, or reported unchecked
+
+Entry 036 added `HookInfo.script`: the script a hook command runs, and
+whether it is on disk. That is a stat against a path kondo did not choose —
+the command did — so the boundary decides it *before* any filesystem call,
+never after.
+
+`resolveScript` in `user-store.ts` returns a path only when it lands inside
+`locator.userRoot` or inside a verified project's `.claude`. Everything else
+answers null and the row reads `unverifiable`:
+
+- a token holding `$` or `%` — `$CLAUDE_PROJECT_DIR`, `$CLAUDE_PLUGIN_ROOT`,
+  `%USERPROFILE%`. Kondo expands no shell variable, because expanding one is
+  guessing at a path it was not given;
+- a relative path in the **user** layer, whose hooks run in whatever directory
+  Claude was started in. A **project** layer's relative path does resolve —
+  against that project, which is where Claude runs its hooks;
+- anything resolving outside both roots, however ordinary it looks.
+
+The allowed set outside a `.claude` directory is unchanged: this amendment
+buys no fourth path. It records that a *reported* path and a *statted* path
+are different things, and that `unverifiable` is the honest answer rather
+than a reach. `test/hooks.test.ts` spies on `fs.stat` and asserts neither
+unverifiable row was ever probed.

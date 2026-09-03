@@ -22,7 +22,8 @@ const LABEL: Record<TidyCategory, string> = {
   'orphan-session-env': 'Leftover session snapshots',
   'reclaimable-caches': 'Caches Claude rebuilds',
   'superseded-plugin-versions': 'Old plugin versions',
-  'orphan-plugin-residue': 'Leftovers from removed plugins'
+  'orphan-plugin-residue': 'Leftovers from removed plugins',
+  'unarmed-hook-scripts': 'Hook scripts nothing runs'
 }
 
 function hintFor(category: TidyCategory, staleAfterDays: number): string {
@@ -45,6 +46,8 @@ function hintFor(category: TidyCategory, staleAfterDays: number): string {
       return 'Older copies of plugins you still have. The version in use stays.'
     case 'orphan-plugin-residue':
       return 'Data and install records for plugins that are no longer installed.'
+    case 'unarmed-hook-scripts':
+      return 'Scripts in your hooks folder that no settings file actually runs.'
   }
 }
 

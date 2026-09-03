@@ -555,12 +555,43 @@ export interface McpServerInfo extends EntityIdentity {
   orphan: boolean
 }
 
+/**
+ * What kondo could establish about the script a hook command runs.
+ *
+ * `missing` is the finding worth having: a settings layer arming a script
+ * that is not there is a hook Claude fails every time it fires, and nothing
+ * else in the store says so. `unverifiable` is the honest third answer —
+ * the path holds a shell variable kondo does not expand, or resolves
+ * outside the user store and the verified `.claude` directories, and
+ * ADR-0002 says kondo reports rather than reaches.
+ */
+export type HookScriptStatus = 'present' | 'missing' | 'unverifiable'
+
+/**
+ * The script one hook command names. Stat-deep only (ADR-0007): whether the
+ * file is there is the whole question, so nothing here was read.
+ */
+export interface HookScript {
+  /**
+   * Display path of the script (tildified) when kondo resolved it inside the
+   * boundary; otherwise the token exactly as the command wrote it, because
+   * a path kondo may not resolve is not a path it may restate.
+   */
+  path: string
+  status: HookScriptStatus
+}
+
 export interface HookInfo extends EntityIdentity {
   /** `hook:<settings-layer-id>:<n>` — e.g. `hook:settings:user:user:0`. */
   id: string
   event: string
   matcher: string | null
   command: string
+  /**
+   * The script that command runs and whether it is there, or null when the
+   * command names no script at all — an inline `echo`, a bare binary.
+   */
+  script: HookScript | null
   /** Display path of the settings file that arms it. */
   source: string
   layer: 'user' | 'project' | 'local'
@@ -569,6 +600,27 @@ export interface HookInfo extends EntityIdentity {
    * null for the user layer (ADR-0008).
    */
   projectId: string | null
+  /**
+   * That project's folder name, for display; null for the user layer. Not
+   * unique — two projects can both be called `app` — so it labels a group
+   * and never keys one, exactly as `PluginScopeState.projectLabel` does.
+   */
+  projectLabel: string | null
+}
+
+/**
+ * Every hook of one scope, under the project whose settings arm them. The
+ * listing is grouped rather than flat because a flat table cannot say which
+ * project a row belongs to, and a machine with hooks in several projects is
+ * exactly the one where that matters.
+ */
+export interface HookGroup {
+  /** `project:code:<dirName>`, or null for the user layer (ADR-0008). */
+  projectId: string | null
+  /** The project's folder name, or `Global` for the user layer. */
+  label: string
+  /** Never empty: a group exists because a hook put it there. */
+  hooks: HookInfo[]
 }
 
 export interface SettingsLayerInfo extends EntityIdentity {
@@ -725,7 +777,13 @@ export const tidyCategories = [
    * `plugins/data/` directories and `plugins/.install-manifests/` files for
    * `<name>@<marketplace>` ids `installed_plugins.json` does not declare.
    */
-  'orphan-plugin-residue'
+  'orphan-plugin-residue',
+  /**
+   * Files in `~/.claude/hooks/` that no settings layer's `hooks` object
+   * runs. A script on disk is not an armed hook (domain.md) — the owner's
+   * store held two of them beside an empty `hooks: {}`.
+   */
+  'unarmed-hook-scripts'
 ] as const
 
 export type TidyCategory = (typeof tidyCategories)[number]
@@ -1091,7 +1149,14 @@ export interface KondoApi {
     destinationId: string,
     createLayer?: boolean
   ): Promise<Scan<JournalEntryInfo | null>>
-  hooksList(): Promise<Scan<HookInfo[]>>
+  /**
+   * Every hook, grouped by the project whose settings layer arms it — the
+   * user layer's group first, then one per project. Each row carries the
+   * script its command runs and whether that script is there (ADR-0007: a
+   * stat, never a read), or `unverifiable` where the path lies outside the
+   * boundary ADR-0002 draws.
+   */
+  hooksList(): Promise<Scan<HookGroup[]>>
   settingsLayers(): Promise<Scan<SettingsLayerInfo[]>>
   /**
    * What a sweep would move, computed without moving anything: counts and

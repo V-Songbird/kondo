@@ -450,7 +450,16 @@ const pluginSkill: EntityKindDefinition<SkillInfo> = {
 const hook: EntityKindDefinition<HookInfo> = {
   kind: 'hook',
   async discover(context) {
-    return hooksFromLayers(await context.layers())
+    // The verified projects come along because a hook's script may be
+    // written relative to the project whose layer arms it, and because a
+    // path outside every one of them is refused rather than statted
+    // (ADR-0002).
+    return hooksFromLayers(
+      await context.layers(),
+      context.locator,
+      await context.projects(),
+      context.c
+    )
   },
   read(id, context) {
     return findById(id, hook.discover(context))

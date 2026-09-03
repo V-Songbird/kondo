@@ -100,3 +100,32 @@ preferences, scan cache — never the truth about the user's Claude setup.
   needs already exists — `spliceMember(source, [member, key], literal)` in
   `user-store.ts` takes the member name as a parameter, so `enabledPlugins`
   and `skillOverrides` share one editor and no second one is to be added.
+
+## Amendment, 2026-09-03 — a hook does not toggle, but it does move
+
+Entry 036 splits the hook capability row in two, because one refusal was
+covering two different facts.
+
+**Both toggles stay refused, unchanged.** Claude ships no per-hook disable
+convention — no `.disabled` sibling, no settings key that benches one — so
+kondo invents none. `HOOK_HAS_NO_CONVENTION` still says so, and still names
+the settings layer a user would edit instead.
+
+**`move` was refused for the wrong reason.** It carried
+`NOTHING_TO_HAND_OVER` — "this kind does not move between scopes" — which is
+false. Claude reads a `hooks` object in *every* settings layer, so handing a
+hook from one layer to another invents nothing at all: it is remove-the-group
+here, insert-the-group there. Two `SpliceEdit`s (ADR-0010, built by entry
+031) inside one journal entry, so a single undo puts both files back or
+neither. What is missing is the plan, not the mechanism, and the row now says
+that: `HOOK_MOVE_NOT_BUILT`.
+
+The plan this ADR licenses, for whoever builds it:
+
+- read both layers in one context, splice the group out of the source and
+  into the destination, and journal the pair as one entry (ADR-0001);
+- refuse a command naming `$CLAUDE_PROJECT_DIR` or a `.claude/hooks`
+  relative path. Both resolve against the layer they sit in, so moving the
+  group would silently re-point the script at a different file — the move
+  would succeed and the hook would run something else, which is exactly the
+  kind of invented state this ADR exists to forbid.

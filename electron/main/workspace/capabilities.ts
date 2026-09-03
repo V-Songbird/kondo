@@ -71,6 +71,33 @@ const PLUGIN_OWNED =
 // This row changes the day a faithful mechanism exists, and not before.
 const HOOK_HAS_NO_CONVENTION =
   'Claude has no convention for disabling one hook; edit the settings layer that arms it.'
+/**
+ * Moving a hook is a different question from disabling one, and it gets a
+ * different answer. A hook lives in the `hooks` object of one settings
+ * layer, and Claude reads that object in every layer, so handing one to
+ * another layer invents nothing: it is remove-the-group here, insert-the-
+ * group there — two `SpliceEdit`s (entry 031) inside one journal entry, so
+ * a single undo puts both files back or neither.
+ *
+ * What is missing is the plan, not the mechanism, so the row says "not
+ * yet" rather than "never" — the old text called a two-layer settings edit
+ * impossible, which it is not. When the plan lands it refuses a command
+ * naming `$CLAUDE_PROJECT_DIR` or a `.claude/hooks` relative path: both
+ * resolve against the layer they sit in, so moving the group would silently
+ * re-point the script at a different file.
+ */
+const HOOK_MOVE_NOT_BUILT =
+  'Moving a hook between settings layers is two edits kondo has not built yet; edit both files by hand for now.'
+
+/** The row every hook gets, in every layer that can hold one. */
+function hook(): Capabilities {
+  return {
+    enable: deny(HOOK_HAS_NO_CONVENTION),
+    disable: deny(HOOK_HAS_NO_CONVENTION),
+    move: deny(HOOK_MOVE_NOT_BUILT),
+    trash: deny(NOT_KONDOS_TO_REMOVE)
+  }
+}
 const NOT_A_TOGGLE = 'A settings layer is a file, not a toggle.'
 const SESSIONS_ARE_SWEPT =
   'Sessions have no enabled state; they are swept through the kondo trash.'
@@ -144,9 +171,9 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
     local: { enable: ALLOW, disable: ALLOW, move: ALLOW, trash: deny(NOT_KONDOS_TO_REMOVE) }
   },
   hook: {
-    user: neither(HOOK_HAS_NO_CONVENTION),
-    project: neither(HOOK_HAS_NO_CONVENTION),
-    local: neither(HOOK_HAS_NO_CONVENTION)
+    user: hook(),
+    project: hook(),
+    local: hook()
   },
   settings: {
     user: neither(NOT_A_TOGGLE),

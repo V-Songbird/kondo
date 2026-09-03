@@ -173,6 +173,18 @@ describe('kind registry and capability matrix', () => {
     expect(capabilitiesFor('hook', 'user').disable.allowed).toBe(false)
   })
 
+  it('gives a hook move its own reason, apart from the toggle refusal', () => {
+    // The old row called a two-layer settings edit impossible. Both toggles
+    // are refused because Claude has no convention (ADR-0006); the move is
+    // refused because kondo has not built it, and the two must not read the
+    // same or the UI states a falsehood about what Claude allows.
+    const row = capabilitiesFor('hook', 'user')
+    expect(row.move.allowed).toBe(false)
+    expect(row.move.reason).not.toBe(row.enable.reason)
+    expect(row.move.reason).not.toBe(row.disable.reason)
+    expect(row.move.reason).toMatch(/not built yet/)
+  })
+
   it('refuses both hook operations because Claude has no convention (ADR-0006)', () => {
     const row = capabilitiesFor('hook', 'user')
     expect(row.enable.allowed).toBe(false)
@@ -220,7 +232,7 @@ describe('kind registry and capability matrix', () => {
 
     const hooks = await api.hooksList()
     expect(hooks.data.length).toBeGreaterThan(0)
-    for (const hook of hooks.data) {
+    for (const hook of hooks.data.flatMap((group) => group.hooks)) {
       expect(hook.kind).toBe('hook')
       expect(hook.capabilities).toEqual(capabilitiesFor('hook', hook.layer))
     }
@@ -297,7 +309,11 @@ describe('kind registry and capability matrix', () => {
 
   it('answers the shipped listing channels with entityList', async () => {
     expect((await api.skillsList()).data).toEqual((await api.entityList('skill')).data)
-    expect((await api.hooksList()).data).toEqual((await api.entityList('hook')).data)
+    // The one shipped listing that is not a pass-through: it groups what
+    // `entityList` returns flat, so the members are what has to match.
+    expect((await api.hooksList()).data.flatMap((group) => group.hooks)).toEqual(
+      (await api.entityList('hook')).data
+    )
     expect((await api.settingsLayers()).data).toEqual((await api.entityList('settings')).data)
     expect((await api.pluginsList()).data).toEqual((await api.entityList('plugin')).data)
     expect((await api.desktopSessions()).data).toEqual((await api.entityList('session')).data)
