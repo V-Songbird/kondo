@@ -6,7 +6,7 @@
       "check": "outbound-network-call",
       "classId": "outbound-network-call",
       "runner": "PostToolUse",
-      "mode": "armed",
+      "mode": "observe",
       "provenance": "elicited",
       "proof": "759d789ca415cc9d746e81a37d83a9eedc6ae35e5efee34abc1870eaf9b9093b"
     },
@@ -15,7 +15,7 @@
       "check": "raw-path-across-the-seam",
       "classId": "raw-path-across-the-seam",
       "runner": "PostToolUse",
-      "mode": "armed",
+      "mode": "observe",
       "provenance": "elicited",
       "proof": "fbe555bccf2d91eafbea08ac09be13b9e4ef897226ac727cb0f2a0610435b996"
     },
