@@ -12,13 +12,15 @@ Decision: scanning happens in two tiers.
 - **Tier 2 — detail (on demand):** for a session the user opens or an
   analysis that needs it, read the transcript's first and last lines to bound
   it in time, and stream lines (never `readFile` whole) for worked time,
-  message counts, and duplicate signatures. Results *will be* cached in
-  kondo's data directory keyed by `(path, size, mtime)` — a changed file
-  re-parses, an unchanged one never does. As of v0.2 that cache does not
-  exist: tier-2 reads are recomputed on demand, and the only cache is the
+  message counts, and duplicate signatures. A read that only needs the
+  opening stops at the first user message rather than running the file out
+  (`readFirstUserPrompt` in `jsonl.ts`). Results are cached in kondo's data
+  directory keyed by `(path, size, mtime)` — a changed file re-parses, an
+  unchanged one never does. `scan-cache.ts` is that cache: one JSON file per
+  namespace under `<kondo-data>/scan-cache/`, written aside and renamed so a
+  half-written file cannot outlive the process. Beside it sits the
   process-lifetime tier-1 inventory in the workspace, dropped after any
-  sweep or undo. The persistent cache ships with the first analysis that
-  reads every transcript (duplicate signatures, entry 034).
+  sweep, trash or undo.
 
 ## Considered options
 
@@ -33,6 +35,16 @@ Decision: scanning happens in two tiers.
 - The UI must be honest about tiers: inventory numbers appear instantly,
   detail-derived numbers (worked time, duplicates) fill in as computed.
 - The scan cache is disposable by design — deleting it only costs re-parsing.
+  That is also why nothing in `scan-cache.ts` reports into a collector: a
+  cache that cannot be read or written gives a slower answer, never a wrong
+  one, and raising a "problem" over one would misdescribe the data (ADR-0005).
+- Duplicate sessions are the split in one feature (entry 034).
+  `SessionSummary.mirroredIn` is tier 1 — the desktop store's `local_<uuid>`
+  stems joined to the code store's uuids, two listings and no file opened.
+  `sessionNearDuplicates(projectId)` is tier 2, and takes a project rather
+  than a store precisely because the alternative is the whole-store parse
+  this ADR refuses; it is reached by a button in the sessions table, never by
+  drawing one.
 - Adapters expose both tiers explicitly; nothing silently escalates a whole
   store to tier 2.
 - A plugin's own skills are a tier-2 read of the plugins view:

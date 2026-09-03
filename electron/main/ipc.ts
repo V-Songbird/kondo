@@ -43,6 +43,12 @@ export function registerIpc(api: KondoApi): void {
   ipcMain.handle(channels.sessionDetail, (_event, sessionId: unknown) =>
     api.sessionDetail(String(sessionId))
   )
+  ipcMain.handle(channels.sessionNearDuplicates, (_event, projectId: unknown) =>
+    api.sessionNearDuplicates(String(projectId))
+  )
+  ipcMain.handle(channels.sessionTrash, (_event, ids: unknown) =>
+    api.sessionTrash(ids as string[])
+  )
   ipcMain.handle(channels.desktopSessions, () => api.desktopSessions())
   ipcMain.handle(channels.skillsList, () => api.skillsList())
   ipcMain.handle(channels.skillToggle, (_event, skillId: unknown, operation: unknown) =>

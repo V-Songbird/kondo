@@ -7,6 +7,7 @@ import type {
   ProjectPluginState,
   ProjectRow,
   Scan,
+  SessionDuplicateGroup,
   SessionSummary,
   SkillInfo,
   StoreReport,
@@ -449,7 +450,12 @@ function ProjectPage({
 
               {!row.global && (
                 <Section title="Sessions" count={detail.sessions.length}>
-                  <SessionTable sessions={detail.sessions} />
+                  <SessionTable
+                    projectId={row.id}
+                    sessions={detail.sessions}
+                    busy={busy}
+                    onTrash={(ids) => void run((api) => api.sessionTrash(ids))}
+                  />
                 </Section>
               )}
             </div>
@@ -597,44 +603,196 @@ function SkillTable({
   )
 }
 
-function SessionTable({ sessions }: { sessions: SessionSummary[] }) {
+/**
+ * One project's sessions, and the two ways two of them turn out to be the
+ * same work (entry 034). The mirror pill is free — main joined the desktop
+ * store's listing to this one while building the rows. The near-duplicate
+ * pass is not free: it opens the head of every transcript in this project,
+ * so it is a button and never a default (ADR-0007).
+ *
+ * What is picked here is trashed as one journal entry, so a single undo puts
+ * the whole selection back (ADR-0001) — which is why the confirmation counts
+ * sessions rather than offering them one at a time.
+ */
+function SessionTable({
+  projectId,
+  sessions,
+  busy,
+  onTrash
+}: {
+  projectId: string
+  sessions: SessionSummary[]
+  busy: boolean
+  onTrash: (ids: string[]) => void
+}) {
   const [opened, setOpened] = useState<string | null>(null)
+  const [picked, setPicked] = useState<string[]>([])
+  const [confirming, setConfirming] = useState(false)
+  const [groups, setGroups] = useState<SessionDuplicateGroup[] | null>(null)
+  const [looking, setLooking] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  const find = async (): Promise<void> => {
+    const api = window.kondo
+    if (!api) return
+    setLooking(true)
+    setProblem(null)
+    try {
+      const scan = await api.sessionNearDuplicates(projectId)
+      // A transcript that would not open costs itself a group and nothing
+      // else (ADR-0005), so whatever did group is still shown beside it.
+      setProblem(scan.errors[0]?.message ?? null)
+      setGroups(scan.data)
+    } catch (cause) {
+      setProblem(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setLooking(false)
+    }
+  }
+
+  /** Which group a session landed in, as a number its row can wear. */
+  const groupOf = new Map<string, { at: number; prompt: string }>()
+  groups?.forEach((group, at) => {
+    for (const member of group.members) {
+      groupOf.set(member.id, { at: at + 1, prompt: group.prompt })
+    }
+  })
+
+  const pick = (id: string): void => {
+    setConfirming(false)
+    setPicked((current) =>
+      current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]
+    )
+  }
+
+  const trash = (): void => {
+    setConfirming(false)
+    onTrash(picked)
+    // The store is the state (ADR-0006): what was picked and what was found
+    // both describe the tree before the move, so neither survives it.
+    setPicked([])
+    setGroups(null)
+  }
+
+  const chosen = picked.filter((id) => sessions.some((session) => session.id === id))
+
   return (
-    <table className="tbl">
-      <thead>
-        <tr>
-          <th>Session</th>
-          <th className="text-right">Size</th>
-          <th>Last activity</th>
-          <th>Flags</th>
-        </tr>
-      </thead>
-      <tbody>
-        {sessions.map((session) => (
-          <Fragment key={session.id}>
-            <tr
-              className="cursor-pointer"
-              onClick={() => setOpened(opened === session.id ? null : session.id)}
-            >
-              <td className="font-mono">{session.uuid}</td>
-              <td className="text-right">{formatBytes(session.bytes)}</td>
-              <td className="text-mut">{formatAgo(session.mtimeMs)}</td>
-              <td>
-                {session.stale && <span className="pill mr-1 text-warn">untouched</span>}
-                {session.hasSidecar && <span className="pill">session folder</span>}
-              </td>
-            </tr>
-            {opened === session.id && (
-              <tr>
-                <td colSpan={4}>
-                  <SessionDetailView sessionId={session.id} />
-                </td>
-              </tr>
-            )}
-          </Fragment>
-        ))}
-      </tbody>
-    </table>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          disabled={looking || busy}
+          className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-xs text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => void find()}
+        >
+          {looking ? 'Reading openings…' : 'Find near-duplicate openings'}
+        </button>
+        {groups !== null && (
+          <span className="text-xs text-mut">
+            {groups.length === 0
+              ? 'No two sessions here open the same way.'
+              : `${formatCount(groups.length, 'set')} of sessions open the same way.`}
+          </span>
+        )}
+        {problem !== null && <span className="text-xs text-bad">{problem}</span>}
+      </div>
+
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th />
+            <th>Session</th>
+            <th className="text-right">Size</th>
+            <th>Last activity</th>
+            <th>Flags</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sessions.map((session) => {
+            const group = groupOf.get(session.id)
+            return (
+              <Fragment key={session.id}>
+                <tr
+                  className="cursor-pointer"
+                  onClick={() => setOpened(opened === session.id ? null : session.id)}
+                >
+                  <td onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      className="cursor-pointer disabled:cursor-not-allowed"
+                      disabled={busy}
+                      checked={picked.includes(session.id)}
+                      onChange={() => pick(session.id)}
+                    />
+                  </td>
+                  <td className="font-mono">{session.uuid}</td>
+                  <td className="text-right">{formatBytes(session.bytes)}</td>
+                  <td className="text-mut">{formatAgo(session.mtimeMs)}</td>
+                  <td>
+                    {session.stale && <span className="pill mr-1 text-warn">untouched</span>}
+                    {session.hasSidecar && <span className="pill mr-1">session folder</span>}
+                    {session.mirroredIn !== null && (
+                      <span
+                        className="pill mr-1"
+                        title={`The ${session.mirroredIn} store holds a session with this id — the same work recorded twice.`}
+                      >
+                        also in {session.mirroredIn}
+                      </span>
+                    )}
+                    {group && (
+                      <span className="pill" title={`Opens with: ${group.prompt}`}>
+                        same opening #{group.at}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+                {opened === session.id && (
+                  <tr>
+                    <td colSpan={5}>
+                      <SessionDetailView sessionId={session.id} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            )
+          })}
+        </tbody>
+      </table>
+
+      {confirming ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-warn/50 p-2">
+          <span>
+            Move {formatCount(chosen.length, 'session')} — transcripts and their side files —
+            into kondo&rsquo;s trash?
+          </span>
+          <button
+            type="button"
+            className="cursor-pointer rounded-md border border-warn/60 px-3 py-1 text-warn hover:bg-inset"
+            onClick={trash}
+          >
+            Trash
+          </button>
+          <button
+            type="button"
+            className="cursor-pointer rounded-md border border-edge px-3 py-1 text-mut hover:text-ink"
+            onClick={() => setConfirming(false)}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={chosen.length === 0 || busy}
+          className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-xs text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => setConfirming(true)}
+        >
+          {chosen.length === 0
+            ? 'Select sessions to trash'
+            : `Trash ${formatCount(chosen.length, 'session')}`}
+        </button>
+      )}
+    </div>
   )
 }
 

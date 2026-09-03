@@ -299,9 +299,15 @@ export function toSessionProjects(
   }))
 }
 
+/**
+ * `mirrored` is the desktop store's session ids (`desktopSessionStems`). The
+ * join is on the uuid alone, because a session id is the same UUID in every
+ * store that holds it (domain.md) — two listings, no transcript opened.
+ */
 export function toSessionSummaries(
   project: ProjectRecord,
-  nowMs: number
+  nowMs: number,
+  mirrored: ReadonlySet<string> = new Set()
 ): SessionSummary[] {
   const capabilities = capabilitiesFor('session', 'code')
   return project.sessions.map((session) => ({
@@ -313,6 +319,7 @@ export function toSessionSummaries(
     bytes: session.bytes,
     mtimeMs: session.mtimeMs,
     stale: isStale(session.mtimeMs, nowMs),
-    hasSidecar: session.sidecar !== null
+    hasSidecar: session.sidecar !== null,
+    mirroredIn: mirrored.has(session.uuid) ? 'desktop' : null
   }))
 }

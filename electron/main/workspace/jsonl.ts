@@ -68,6 +68,43 @@ export async function summarizeTranscript(file: string): Promise<TranscriptSumma
   return summary
 }
 
+/**
+ * The opening user message and nothing after it. `summarizeTranscript` has to
+ * reach the last line to bound a session in time; this one stops at the first
+ * user message it can read, so the near-duplicate scan pays a few kilobytes
+ * per session instead of a whole transcript (ADR-0007).
+ *
+ * A malformed line is skipped rather than fatal, and a transcript with no
+ * readable user message answers null (ADR-0005).
+ */
+export async function readFirstUserPrompt(file: string): Promise<string | null> {
+  const stream = createReadStream(file, { encoding: 'utf8' })
+  const lines = readline.createInterface({ input: stream, crlfDelay: Infinity })
+  try {
+    for await (const line of lines) {
+      if (line.trim() === '') continue
+      let event: unknown
+      try {
+        event = JSON.parse(line)
+      } catch {
+        continue
+      }
+      if (typeof event !== 'object' || event === null) continue
+      const record = event as Record<string, unknown>
+      if (record['type'] !== 'user') continue
+      const text = extractText(record['message'])
+      // A user event whose content kondo cannot read is not the opening; the
+      // stream goes on to the next one rather than calling the session blank.
+      if (text === null) continue
+      return truncate(text, MAX_PROMPT_CHARS)
+    }
+  } finally {
+    lines.close()
+    stream.destroy()
+  }
+  return null
+}
+
 function extractText(message: unknown): string | null {
   if (typeof message !== 'object' || message === null) return null
   const content = (message as Record<string, unknown>)['content']

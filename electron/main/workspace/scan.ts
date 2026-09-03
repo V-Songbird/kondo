@@ -91,6 +91,13 @@ export async function safeReadJson(
   }
 }
 
+/**
+ * A path under a store root, as a step names it: relative, and always with
+ * forward slashes so a plan reads the same on every platform (ADR-0003).
+ */
+export const relativeTo = (root: string, target: string): string =>
+  path.relative(root, target).split(path.sep).join('/')
+
 /** True when target lies strictly inside root (never for root itself). */
 export function pathWithin(target: string, root: string): boolean {
   const rel = path.relative(root, target)

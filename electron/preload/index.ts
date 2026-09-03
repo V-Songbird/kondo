@@ -22,6 +22,9 @@ const api: KondoApi = {
     ipcRenderer.invoke(channels.sessionProjects, refresh === true),
   sessionList: (projectId: string) => ipcRenderer.invoke(channels.sessionList, projectId),
   sessionDetail: (sessionId: string) => ipcRenderer.invoke(channels.sessionDetail, sessionId),
+  sessionNearDuplicates: (projectId: string) =>
+    ipcRenderer.invoke(channels.sessionNearDuplicates, projectId),
+  sessionTrash: (ids: string[]) => ipcRenderer.invoke(channels.sessionTrash, ids),
   desktopSessions: () => ipcRenderer.invoke(channels.desktopSessions),
   skillsList: () => ipcRenderer.invoke(channels.skillsList),
   skillToggle: (skillId: string, operation: ToggleOperation) =>

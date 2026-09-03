@@ -42,13 +42,13 @@ const flatten = (target) =>
 const skill = (name, description) =>
   `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`
 
-const transcript = (id) =>
+const transcript = (id, prompt = 'hello kondo') =>
   [
     { type: 'summary', leafUuid: 'leaf', sessionId: id },
     {
       type: 'user',
       timestamp: '2026-08-20T10:00:00.000Z',
-      message: { role: 'user', content: 'hello kondo' }
+      message: { role: 'user', content: prompt }
     },
     {
       type: 'assistant',
@@ -96,12 +96,32 @@ await write(userRoot, {
     null,
     2
   ),
+  // Three sessions in one project, shaped for entry 034: the first two open
+  // with the same request restated, the third with a different one. The
+  // first also has a sidecar, so trashing it is two steps rather than one.
   [`projects/${flatten(projA)}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`]: transcript(
-    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'refactor the transcript reader'
+  ),
+  [`projects/${flatten(projA)}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/state.json`]: '{}',
+  [`projects/${flatten(projA)}/cccccccc-cccc-4ccc-8ccc-cccccccccccc.jsonl`]: transcript(
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    '  Refactor, the  TRANSCRIPT reader!  '
+  ),
+  [`projects/${flatten(projA)}/dddddddd-dddd-4ddd-8ddd-dddddddddddd.jsonl`]: transcript(
+    'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    'ship the release notes today'
   ),
   [`projects/${flatten(projB)}/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jsonl`]: transcript(
     'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
   )
+})
+
+// The desktop app holds one of those sessions under its own naming, so the
+// mirror flag has something to find (entry 034).
+await write(desktopRoot, {
+  'local-agent-mode-sessions/device-1/account-1/local_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.json':
+    '{}'
 })
 
 // Ships inside a plugin, so kondo's skills catalogue must not list it. Two of

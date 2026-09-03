@@ -34,14 +34,15 @@ function deny(reason: string): CapabilityDecision {
 const NOTHING_TO_HAND_OVER = 'This kind does not move between scopes.'
 
 /**
- * The one thing kondo removes on its own: a skill the user placed, once the
- * duplicate listing has shown a copy of it somewhere else. Everything else
- * here is either Claude's to install and uninstall or a fragment of a file,
- * so the row denies `trash` rather than offering a displacement nobody asked
- * for. This changes per kind the day one of them earns it, not before.
+ * The two things kondo removes on its own: a skill the user placed, once the
+ * duplicate listing has shown a copy of it somewhere else, and a Claude Code
+ * session the user picked out of a project. Everything else here is either
+ * Claude's to install and uninstall or a fragment of a file, so the row
+ * denies `trash` rather than offering a displacement nobody asked for. This
+ * changes per kind the day one of them earns it, not before.
  */
 const NOT_KONDOS_TO_REMOVE =
-  'kondo removes a redundant skill and nothing else; this stays where it is.'
+  'kondo removes a redundant skill and a session you picked; this stays where it is.'
 
 /** No operation at all is permitted, all four for the same reason. */
 function none(reason: string): Capabilities {
@@ -152,8 +153,14 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
     project: neither(NOT_A_TOGGLE),
     local: neither(NOT_A_TOGGLE)
   },
+  // A session has no enabled state and belongs to the project it was
+  // recorded in, so three of the four columns refuse. `trash` is the one
+  // kondo owns (ADR-0001): the sweep already displaces sessions by category,
+  // and `sessionTrash` is the same displacement for a set picked by hand.
+  // Only the Claude Code store — kondo reads the desktop store's sessions
+  // and has no plan that writes it.
   session: {
-    code: neither(SESSIONS_ARE_SWEPT),
+    code: { ...neither(SESSIONS_ARE_SWEPT), trash: ALLOW },
     desktop: neither(SESSIONS_ARE_SWEPT)
   },
   project: {

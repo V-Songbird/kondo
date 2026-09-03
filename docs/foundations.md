@@ -115,8 +115,9 @@ the error half (ADR-0005).
 
 Kondo keeps its private state in `<kondo-data>` — Electron's `userData`
 directory for the app (e.g. `%APPDATA%/Kondo` on Windows). That is where the
-mutation journal (`journal.jsonl`), the kondo trash (`trash/`), and any scan
-cache will live. Two rules: `<kondo-data>` is never inside a Claude store,
+mutation journal (`journal.jsonl`), the kondo trash (`trash/`), and the scan
+cache (`scan-cache/<namespace>.json`, keyed by `(path, size, mtime)` per
+ADR-0007) live. Two rules: `<kondo-data>` is never inside a Claude store,
 and no Claude-truth is stored there (ADR-0006) — losing it loses undo
 history and caches, never the user's actual configuration.
 

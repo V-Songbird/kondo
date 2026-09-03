@@ -10,7 +10,14 @@ import type { StoreLocator } from './locator'
 import type { MutationPlan, PlannedStep } from './mutations'
 import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
 import { tildify } from './display'
-import { directorySize, mapPool, safeReaddir, safeStat, type Collector } from './scan'
+import {
+  directorySize,
+  mapPool,
+  relativeTo,
+  safeReaddir,
+  safeStat,
+  type Collector
+} from './scan'
 import type { SessionInventory } from './sessions'
 import {
   installKey,
@@ -75,9 +82,6 @@ const SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 /** Display paths shown per category, so a count is inspectable, not a claim. */
 const EXAMPLES = 5
-
-const relativeTo = (root: string, target: string): string =>
-  path.relative(root, target).split(path.sep).join('/')
 
 /**
  * Every candidate, by category. Reads only: the whole point of the preview

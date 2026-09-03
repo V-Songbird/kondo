@@ -13,6 +13,7 @@ import type {
   PluginScopeState,
   ProjectPluginState,
   SessionDetail,
+  SessionDuplicateGroup,
   SessionProject,
   SessionSummary,
   SettingsLayerInfo,
@@ -23,12 +24,13 @@ import type {
   ToggleOperation
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
-import { digestTree, mapPool, type Collector } from './scan'
+import { digestTree, mapPool, relativeTo, type Collector } from './scan'
 import { applyEdits, digestSource, type MutationPlan, type PlannedStep, type SpliceEdit } from './mutations'
 import { capabilitiesFor } from './capabilities'
 import { tildify } from './display'
-import { desktopSessions } from './desktop-store'
-import { summarizeTranscript } from './jsonl'
+import { desktopSessions, desktopSessionStems } from './desktop-store'
+import { readFirstUserPrompt, summarizeTranscript } from './jsonl'
+import { openScanCache } from './scan-cache'
 import { toSessionProjects, toSessionSummaries, type SessionInventory } from './sessions'
 import {
   clearEnabledPlugin,
@@ -96,6 +98,12 @@ export interface KindContext {
    * registry is opened for the pair of them.
    */
   skillUsage(): Promise<ReadonlySet<string>>
+  /**
+   * The session ids the desktop store holds, read at most once — the join
+   * behind `SessionSummary.mirroredIn`. Readdir only, so a listing that asks
+   * for it is still tier-1 (ADR-0007).
+   */
+  desktopStems(): Promise<ReadonlySet<string>>
   /** Narrows `discover` to one parent entity's children, or null for all. */
   parentId: string | null
 }
@@ -114,6 +122,7 @@ export function createKindContext(sources: KindContextSources): KindContext {
   let plugins: Promise<PluginRecord[]> | null = null
   let skills: Promise<SkillInfo[]> | null = null
   let usage: Promise<ReadonlySet<string>> | null = null
+  let stems: Promise<ReadonlySet<string>> | null = null
 
   const context: KindContext = {
     locator: sources.locator,
@@ -141,6 +150,7 @@ export function createKindContext(sources: KindContextSources): KindContext {
           sources.c
         ))()),
     skillUsage: () => (usage ??= scanSkillUsage(sources.locator, sources.c)),
+    desktopStems: () => (stems ??= desktopSessionStems(sources.locator, sources.c)),
     parentId: sources.parentId ?? null
   }
   return context
@@ -489,7 +499,10 @@ const session: EntityKindDefinition<SessionSummary, SessionDetail> = {
     const record = (await context.inventory()).byDirName.get(
       parentId.slice(PROJECT_PREFIX.length)
     )
-    return record ? toSessionSummaries(record, context.now) : null
+    if (!record) return null
+    // The mirror flag is a second listing joined to this one, not a second
+    // tier: readdir over the desktop store, no transcript opened (ADR-0007).
+    return toSessionSummaries(record, context.now, await context.desktopStems())
   },
   /**
    * `session:code:<dirName>/<uuid>` → the transcript summary, streamed
@@ -1141,6 +1154,192 @@ export async function skillDuplicates(
         first !== null && digested.every((member) => member.digest === first)
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate sessions (entry 034)
+
+/**
+ * How much of an opening two sessions must share before sharing it means
+ * anything. "ok" and "continue" open hundreds of sessions apiece and say
+ * nothing about whether they are the same work.
+ */
+const MIN_SIGNATURE_CHARS = 12
+
+/**
+ * The key two openings are grouped on: lower case, letters and digits only,
+ * single spaces. Near-identical rather than identical is the whole point — a
+ * prompt retyped with different punctuation, or pasted with its indentation
+ * lost, is the same request and groups with the one it repeats.
+ *
+ * Null for an opening too short to be evidence of anything.
+ */
+function promptSignature(prompt: string): string | null {
+  const signature = prompt
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+  return signature.length < MIN_SIGNATURE_CHARS ? null : signature
+}
+
+/**
+ * Sessions of ONE project whose openings match. Tier-2 (ADR-0007) and
+ * narrowed to the project asked for, because the alternative — every
+ * transcript in a store of thousands — is the startup cost that ADR exists
+ * to refuse.
+ *
+ * Two things keep the cost down. Each transcript is streamed only as far as
+ * its first user message (`readFirstUserPrompt`), so an opening costs
+ * kilobytes rather than the file; and what that read found is cached under
+ * `<kondo-data>` on `(path, size, mtime)`, so asking twice re-reads only the
+ * sessions that were written to since.
+ *
+ * Null when the project id does not resolve. A transcript that could not be
+ * read costs itself its opening and is left out of every group, with the
+ * failure itemized beside the groups that formed (ADR-0005) — and is
+ * deliberately not cached, so the next call tries again.
+ */
+export async function sessionNearDuplicates(
+  projectId: string,
+  context: KindContext
+): Promise<SessionDuplicateGroup[] | null> {
+  if (!projectId.startsWith(PROJECT_PREFIX)) return null
+  const record = (await context.inventory()).byDirName.get(
+    projectId.slice(PROJECT_PREFIX.length)
+  )
+  if (!record) return null
+
+  const summaries = toSessionSummaries(record, context.now, await context.desktopStems())
+  // The value is wrapped rather than stored bare: a session whose transcript
+  // holds no user message caches a `null` prompt, and that is a hit, not a
+  // miss — otherwise every empty transcript is re-streamed forever.
+  const cache = await openScanCache<{ prompt: string | null }>(
+    context.locator.kondoDataRoot,
+    'first-prompt'
+  )
+
+  const openings = await mapPool(record.sessions, 8, async (session) => {
+    const hit = cache.get(session.file, session.bytes, session.mtimeMs)
+    if (hit !== null) return hit.prompt
+    try {
+      const prompt = await readFirstUserPrompt(session.file)
+      cache.set(session.file, session.bytes, session.mtimeMs, { prompt })
+      return prompt
+    } catch (cause) {
+      context.c.fail('read-failed', tildify(session.file, context.locator.home), cause)
+      return null
+    }
+  })
+  await cache.save()
+
+  const groups = new Map<string, SessionDuplicateGroup>()
+  // `toSessionSummaries` maps one for one, so the three arrays share indices.
+  for (const [at, prompt] of openings.entries()) {
+    const summary = summaries[at]
+    if (prompt === null || summary === undefined) continue
+    const signature = promptSignature(prompt)
+    if (signature === null) continue
+    const group = groups.get(signature)
+    if (group) group.members.push(summary)
+    else groups.set(signature, { prompt, members: [summary] })
+  }
+
+  return [...groups.values()]
+    .filter((group) => group.members.length > 1)
+    .sort((a, b) => b.members.length - a.members.length || a.prompt.localeCompare(b.prompt))
+}
+
+export type SessionTrashPlan =
+  | { ok: true; plan: MutationPlan | null }
+  | { ok: false; code: ScanErrorCode; message: string }
+
+/**
+ * One journal entry covering every session picked, so a single undo puts the
+ * whole selection back (ADR-0001). Each session contributes a `trash` step
+ * for its transcript and, when it has one, a second for the sibling directory
+ * holding its state — leaving that behind would only make it tomorrow's
+ * orphan, which is the same reason the sweep carries it along.
+ *
+ * One step and not the move's copy → verify → trash: there is no destination
+ * whose bytes need proving, and the kondo trash IS the copy.
+ *
+ * Any id that does not resolve refuses the WHOLE selection rather than
+ * trashing part of it — a set the user confirmed is moved entire or not at
+ * all. An empty choice returns a null plan and writes no entry.
+ */
+export async function sessionTrashPlan(
+  ids: readonly string[],
+  context: KindContext
+): Promise<SessionTrashPlan> {
+  const decision = capabilitiesFor('session', 'code').trash
+  if (!decision.allowed) {
+    return {
+      ok: false,
+      code: 'not-permitted',
+      message: decision.reason ?? 'kondo cannot trash a session.'
+    }
+  }
+
+  const inventory = await context.inventory()
+  const root = context.locator.userRoot
+  const steps: PlannedStep[] = []
+  // The same session named twice is one displacement: the second step would
+  // reach for a source the first already moved and fail the whole plan.
+  const chosen = [...new Set(ids)]
+
+  for (const id of chosen) {
+    if (id.startsWith(DESKTOP_SESSION_PREFIX)) {
+      const desktop = capabilitiesFor('session', 'desktop').trash
+      return {
+        ok: false,
+        code: 'not-permitted',
+        message: desktop.reason ?? 'kondo cannot trash a desktop session.'
+      }
+    }
+    if (!id.startsWith(SESSION_PREFIX)) {
+      return {
+        ok: false,
+        code: 'bad-request',
+        message: `sessionTrash expects ${SESSION_PREFIX} ids; "${id}" is not one.`
+      }
+    }
+    const key = id.slice(SESSION_PREFIX.length)
+    const slash = key.lastIndexOf('/')
+    const project = slash <= 0 ? undefined : inventory.byDirName.get(key.slice(0, slash))
+    const session = project?.sessions.find(
+      (candidate) => candidate.uuid === key.slice(slash + 1).toLowerCase()
+    )
+    if (project === undefined || session === undefined) {
+      return {
+        ok: false,
+        code: 'unknown-id',
+        message: `No session with id "${id}" in the current scan — rescan and retry.`
+      }
+    }
+    steps.push({ type: 'trash', store: 'user', from: relativeTo(root, session.file) })
+    if (session.sidecar !== null) {
+      steps.push({
+        type: 'trash',
+        store: 'user',
+        from: relativeTo(root, path.join(project.absPath, session.sidecar))
+      })
+    }
+  }
+  if (steps.length === 0) return { ok: true, plan: null }
+
+  // One session is an entity the journal can name (ADR-0008); a set of them
+  // spans several, so it names the store the way the sweep does.
+  const single = chosen.length === 1
+  return {
+    ok: true,
+    plan: {
+      op: 'trash',
+      kind: single ? 'session' : 'store',
+      entityId: single ? (chosen[0] as string) : 'store:user',
+      summary: `Trash ${chosen.length} session${single ? '' : 's'} into kondo's trash`,
+      steps
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -18,8 +18,10 @@ machine; nothing is ever sent anywhere.
 - **Sessions** — one inventory across every store: Claude Code's
   `~/.claude/projects` and the desktop app's session directories. See per
   project how many sessions exist, how large they are, which are stale,
-  empty, or orphaned. (Worked time and duplicate detection are on the
-  roadmap, not in the build.)
+  empty, orphaned, or duplicated — the same session id held in both stores,
+  or two sessions of one project opening with near-identical prompts. Pick
+  any set and move it to kondo's trash in one undoable step. (Worked time is
+  still on the roadmap, not in the build.)
 - **Skills** — a single catalog of global and per-project skills. Enable or
   disable without deleting. Move a skill between scopes or from one project to
   another.

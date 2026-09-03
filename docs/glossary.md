@@ -48,8 +48,10 @@ meanings.
   detected.
 - **Orphan** — a session's sibling directory whose transcript is gone.
 - **Duplicate** — two sessions judged to be the same work: identical session
-  id in two stores, or same project + near-identical opening prompt. Defined,
-  not yet computed (ROADMAP, entry 034).
+  id in two stores (`SessionSummary.mirroredIn`, tier 1), or same project +
+  near-identical opening prompt (`sessionNearDuplicates`, tier 2, one project
+  at a time). Evidence, never a verdict: kondo groups them and says nothing
+  about which to keep.
 - **Worked time** — the summed active spans inside a session's transcript
   (gaps above an idle threshold are not counted), not last-minus-first
   timestamp. Defined, not yet computed (ROADMAP, Later).

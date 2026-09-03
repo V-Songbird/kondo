@@ -221,6 +221,17 @@ scan and a mutation can never disagree about where an entry lives.
   `leafUuid`, `sessionId` ✅; message lines carry timestamps and roles ◇.
   Kondo reads the first and last lines to bound a session in time, and
   message timestamps (streamed, never whole-file) for worked time.
+- Two sessions in one project can be the *same work restarted*: the same
+  opening prompt, a fresh uuid ✅. `sessionNearDuplicates(projectId)` groups
+  them on the first `type: "user"` message, normalized to lower-case letters
+  and digits with single spaces, so a prompt retyped with different
+  punctuation still groups. Openings under 12 characters are dropped — "ok"
+  and "continue" open many sessions and mean nothing. The read stops at that
+  first message (`readFirstUserPrompt`) and is cached on `(path, size,
+  mtime)` under `<kondo-data>` (ADR-0007); it is asked for one project at a
+  time, never for the store. A session may be picked out of the listing and
+  displaced into kondo's trash with its sidecar, as one journal entry
+  (`sessionTrash`, ADR-0001).
 
 ## Project store: `<project>/.claude`
 
@@ -291,9 +302,12 @@ bulk size. The Claude-specific parts ✅:
 
 - A session id is a UUID and appears in: its transcript filename, the
   transcript's lines, `history.jsonl` entries, `session-env/`, and possibly a
-  desktop-store directory — this is how kondo will join data across stores to
-  find duplicates (entry 034); today the transcript, its sidecar and its
-  `session-env/` snapshot are joined. `session-env/` held 5,213 directories
+  desktop-store directory — this is how kondo joins data across stores to
+  find duplicates. The transcript, its sidecar and its `session-env/`
+  snapshot are joined for the sweep; the desktop store's
+  `local_<uuid>.json` stems are joined to the code store's uuids for
+  `SessionSummary.mirroredIn` ✅, which is the whole of "the same session in
+  two stores" (entry 034). `session-env/` held 5,213 directories
   against 11,686 transcripts ✅ — the sweep entry 033 shipped reads exactly
   that join, and offers only the snapshots the transcript set does not claim.
 - A project is joined across `~/.claude.json`, `~/.claude/projects/` and

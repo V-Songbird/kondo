@@ -44,6 +44,43 @@ export async function desktopStoreReport(
   return { root: display, exists: true, entries, totalBytes }
 }
 
+/**
+ * Just the session ids the desktop store holds, read off the `local_<uuid>`
+ * stems — the join key behind `SessionSummary.mirroredIn`. Lower-cased, the
+ * way the code store's uuids are, so the two listings compare directly.
+ *
+ * Its own pass rather than `desktopSessions` above, because that one stats
+ * every file and walks every sidecar for a size no join needs; this is
+ * readdir alone, which is what makes the mirror flag tier-1 (ADR-0007).
+ *
+ * Deliberately silent about unknown entries: `desktopSessions` already
+ * reports them, and reading a key is not a second listing of the store.
+ */
+export async function desktopSessionStems(
+  locator: StoreLocator,
+  c: Collector
+): Promise<Set<string>> {
+  const stems = new Set<string>()
+  const root = locator.desktopRoot
+  if (!root) return stems
+  const base = path.join(root, SESSIONS_DIR)
+  const baseDisplay = tildify(base, locator.home)
+
+  for (const top of await safeReaddir(base, baseDisplay, c)) {
+    if (!top.isDirectory()) continue
+    const topDir = path.join(base, top.name)
+    for (const account of await safeReaddir(topDir, `${baseDisplay}/${top.name}`, c)) {
+      if (!account.isDirectory()) continue
+      const accountDisplay = `${baseDisplay}/${top.name}/${account.name}`
+      for (const entry of await safeReaddir(path.join(topDir, account.name), accountDisplay, c)) {
+        const match = entry.isFile() ? SESSION_FILE.exec(entry.name) : null
+        if (match?.[1] !== undefined) stems.add(match[1].toLowerCase())
+      }
+    }
+  }
+  return stems
+}
+
 export async function desktopSessions(
   locator: StoreLocator,
   c: Collector

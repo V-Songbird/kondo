@@ -273,6 +273,35 @@ export interface SessionSummary extends EntityIdentity {
   stale: boolean
   /** A sibling directory (subagent/tool state) exists for this session. */
   hasSidecar: boolean
+  /**
+   * The other store holding a session of this id, or null when none does —
+   * `'desktop'` today, that being the only other store kondo reads.
+   *
+   * A session id is the same UUID wherever it appears (domain.md), so a
+   * `local_<uuid>.json` in the desktop app's directories is this same work
+   * recorded twice. This is the tier-1 half of duplicate detection: a join
+   * over two listings kondo already makes, with no transcript opened
+   * (ADR-0007).
+   */
+  mirroredIn: string | null
+}
+
+/**
+ * Sessions of ONE project whose opening prompts match once normalized — the
+ * tier-2 half of duplicate detection (ADR-0007), and the reason it is asked
+ * for a project rather than for a store. Groups of one are left out.
+ *
+ * Near-identical rather than identical: members are grouped on the opening
+ * lowercased with punctuation dropped and runs of whitespace collapsed, so a
+ * prompt retyped with a comma moved still lands beside the one it repeats.
+ * Two sessions sharing an opening is evidence and not a verdict — what to do
+ * about them is the reader's call, which is why nothing here says redundant.
+ */
+export interface SessionDuplicateGroup {
+  /** The first member's opening as it was written, truncated for display. */
+  prompt: string
+  /** Two or more, always: a lone opening is not a group. */
+  members: SessionSummary[]
 }
 
 export interface SessionDetail {
@@ -915,6 +944,36 @@ export interface KondoApi {
   sessionProjects(refresh?: boolean): Promise<Scan<SessionProject[]>>
   sessionList(projectId: string): Promise<Scan<SessionSummary[]>>
   sessionDetail(sessionId: string): Promise<Scan<SessionDetail | null>>
+  /**
+   * Sessions of one project sharing a near-identical opening prompt. Tier-2
+   * (ADR-0007) and narrowed on purpose: it streams each of that project's
+   * transcripts only as far as its first user message, and never walks the
+   * store. Getting an opening is not reading a transcript.
+   *
+   * What it streams is cached under kondo's data directory keyed by (path,
+   * size, mtime), so asking twice re-reads only the transcripts that changed
+   * since. The cache is disposable — losing it costs re-parsing and nothing
+   * else.
+   *
+   * A transcript that is empty, truncated or malformed simply has no opening
+   * and joins no group (ADR-0005); the read that failed is reported beside
+   * the groups that succeeded.
+   */
+  sessionNearDuplicates(projectId: string): Promise<Scan<SessionDuplicateGroup[]>>
+  /**
+   * Displace every named session — its transcript and the sibling directory
+   * holding its state — into kondo's trash as ONE journal entry, so a single
+   * undo restores the whole selection together (ADR-0001). Nothing is ever
+   * unlinked.
+   *
+   * `ids` are `session:code:` ids from a previous scan (ADR-0008), never
+   * paths. An id the current scan no longer holds refuses the whole set
+   * rather than trashing part of it, and a desktop session is refused in the
+   * capability matrix's own words (ADR-0006). An empty selection returns null
+   * and writes no entry. A trash changes the tree the inventory was built
+   * from, so callers re-read rather than patching.
+   */
+  sessionTrash(ids: string[]): Promise<Scan<JournalEntryInfo | null>>
   desktopSessions(): Promise<Scan<DesktopSession[]>>
   skillsList(): Promise<Scan<SkillInfo[]>>
   /**
@@ -1110,6 +1169,8 @@ export const channels = {
   sessionProjects: 'kondo:session-projects',
   sessionList: 'kondo:session-list',
   sessionDetail: 'kondo:session-detail',
+  sessionNearDuplicates: 'kondo:session-near-duplicates',
+  sessionTrash: 'kondo:session-trash',
   desktopSessions: 'kondo:desktop-sessions',
   skillsList: 'kondo:skills-list',
   skillToggle: 'kondo:skill-toggle',

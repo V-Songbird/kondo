@@ -15,6 +15,7 @@ import type {
   Scan,
   ScanError,
   SessionDetail,
+  SessionDuplicateGroup,
   SessionProject,
   SessionSummary,
   SettingsLayerInfo,
@@ -36,6 +37,8 @@ import {
   listingForId,
   pluginClearPlan,
   projectPluginStates,
+  sessionNearDuplicates,
+  sessionTrashPlan,
   skillDuplicates,
   type KindContext
 } from './kinds'
@@ -479,6 +482,44 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       } catch (cause) {
         c.errors.push({ code: 'read-failed', path: sessionId, message: describe(cause) })
         return finish(null, c)
+      }
+    },
+
+    async sessionNearDuplicates(projectId: string): Promise<Scan<SessionDuplicateGroup[]>> {
+      if (typeof projectId !== 'string' || !projectId.startsWith(PROJECT_ID_PREFIX)) {
+        return badRequest(
+          [] as SessionDuplicateGroup[],
+          'sessionNearDuplicates expects a project:code: id.'
+        )
+      }
+      const c = collector()
+      const groups = await sessionNearDuplicates(projectId, context(c))
+      if (groups === null) return unknownId([] as SessionDuplicateGroup[], projectId)
+      return finish(groups, c)
+    },
+
+    async sessionTrash(ids: string[]): Promise<Scan<JournalEntryInfo | null>> {
+      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
+        return badRequest(null, 'sessionTrash expects an array of session ids.')
+      }
+      const c = collector()
+      // The same cached scan the listing was drawn from (ADR-0007), so the
+      // set trashed is the set the user picked. An id that has since gone
+      // refuses the whole plan rather than moving a different one.
+      const planned = await sessionTrashPlan(ids, context(c))
+      if (!planned.ok) {
+        c.errors.push({ code: planned.code, path: '(request)', message: planned.message })
+        return finish(null, c)
+      }
+      if (planned.plan === null) return finish<JournalEntryInfo | null>(null, c)
+
+      // Dropped whether or not it finished: a step that failed part way has
+      // already moved transcripts the cached inventory still lists.
+      const result = await mutations.mutate(planned.plan).finally(dropInventory)
+      return {
+        data: result.data,
+        errors: [...c.errors, ...result.errors],
+        unknown: [...c.unknown, ...result.unknown]
       }
     },
 

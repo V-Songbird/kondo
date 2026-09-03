@@ -14,7 +14,9 @@ in temp directories by the builders in `test/helpers.ts`.
    cross-platform recipe yet; add it when one exists.)
 2. **Unit — analysis.** Staleness (`isStale`) and the project-path join
    (`projects.ts`) are pure functions over scanned data, table-tested.
-   Worked time and duplicates will join them when they ship.
+   Prompt-signature grouping (`sessionNearDuplicates`) and the scan cache
+   join them in `test/session-duplicates.test.ts`; worked time will when it
+   ships.
 3. **Integration — the seam.** Workspace methods — the functions the IPC
    handlers delegate to one line each — invoked directly against a fixture
    store; asserts channel contracts (shape in, shape out, errors as values).
@@ -42,7 +44,11 @@ in temp directories by the builders in `test/helpers.ts`.
      `test/skill-move.test.ts` (all three directions, the name-collision and
      plugin-owned refusals, undo removing the copy as well as restoring the
      source, and — the one that matters most — a copy that does not verify
-     leaving the source untouched).
+     leaving the source untouched). Trashing a chosen set of sessions extends
+     them in `test/session-duplicates.test.ts` (one entry for the whole
+     selection, sidecars carried with their transcripts, undo restoring the
+     fixture byte-for-byte, and a refusal that moves nothing when one id in
+     the set no longer resolves).
 5. **End-to-end** (later): the built app driven against a fixture store via a
    `KONDO_STORE_ROOT` override. Until then the `run-kondo` project skill
    (`.claude/skills/run-kondo/`) launches the dev app against a fixture store
