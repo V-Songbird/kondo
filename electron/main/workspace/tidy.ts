@@ -10,8 +10,16 @@ import type { StoreLocator } from './locator'
 import type { MutationPlan, PlannedStep } from './mutations'
 import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
 import { tildify } from './display'
-import { directorySize, mapPool, safeReaddir, type Collector } from './scan'
+import { directorySize, mapPool, safeReaddir, safeStat, type Collector } from './scan'
 import type { SessionInventory } from './sessions'
+import {
+  installKey,
+  readInstalledPlugins,
+  PLUGIN_CACHE_DIR,
+  PLUGIN_DATA_DIR,
+  PLUGIN_MANIFEST_DIR,
+  PLUGINS_DIR
+} from './user-store'
 
 /**
  * The tidy sweep: what a bloated store would get back, and the single
@@ -55,6 +63,16 @@ const RECLAIMABLE = [
   'telemetry'
 ] as const
 
+/** One directory per session id, keyed by that id (domain.md). */
+const SESSION_ENV = 'session-env'
+
+/**
+ * The shape `sessions.ts` matches a transcript filename by. `session-env/`
+ * is joined to `projects/` on exactly this id, so a directory that is not
+ * uuid-shaped is not a session snapshot and kondo leaves it where it is.
+ */
+const SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /** Display paths shown per category, so a count is inspectable, not a claim. */
 const EXAMPLES = 5
 
@@ -78,7 +96,10 @@ export async function scanTidyCandidates(
     'stale-sessions': [],
     'empty-transcripts': [],
     'orphan-sidecars': [],
-    'reclaimable-caches': []
+    'orphan-session-env': [],
+    'reclaimable-caches': [],
+    'superseded-plugin-versions': [],
+    'orphan-plugin-residue': []
   }
 
   // The two whole-tree categories go first and claim their directories, so
@@ -177,7 +198,139 @@ export async function scanTidyCandidates(
     if (bytes > 0) candidates['reclaimable-caches'].push({ paths: [name], bytes, display })
   }
 
+  await scanSessionEnv(locator, inventory, candidates, c)
+  await scanPluginResidue(locator, candidates, c)
+
   return candidates
+}
+
+/**
+ * `session-env/<uuid>/` snapshots with no transcript behind them. Nothing
+ * prunes this directory — the observed store held 5,213 of them against
+ * 11,686 transcripts (domain.md) — and the uuid alone decides each one, so
+ * no snapshot is opened to classify it (ADR-0007).
+ *
+ * A snapshot whose transcript is still there is never offered, including one
+ * whose transcript this very sweep is about to trash: candidates come from
+ * one scan, so a session and its snapshot leave in separate sweeps rather
+ * than in a pair of steps that could half-fail.
+ */
+async function scanSessionEnv(
+  locator: StoreLocator,
+  inventory: SessionInventory,
+  candidates: TidyCandidates,
+  c: Collector
+): Promise<void> {
+  const transcripts = new Set<string>()
+  for (const project of inventory.projects) {
+    for (const session of project.sessions) transcripts.add(session.uuid.toLowerCase())
+  }
+
+  const root = path.join(locator.userRoot, SESSION_ENV)
+  const rootDisplay = tildify(root, locator.home)
+  const orphans = (await safeReaddir(root, rootDisplay, c)).filter(
+    (entry) =>
+      entry.isDirectory() &&
+      SESSION_UUID.test(entry.name) &&
+      !transcripts.has(entry.name.toLowerCase())
+  )
+
+  candidates['orphan-session-env'] = await mapPool(orphans, 16, async (entry) => {
+    const display = `${rootDisplay}/${entry.name}`
+    return {
+      paths: [`${SESSION_ENV}/${entry.name}`],
+      bytes: await directorySize(path.join(root, entry.name), display, c),
+      display
+    }
+  })
+}
+
+/**
+ * What `plugins/` keeps after an upgrade or an uninstall. Two categories out
+ * of one manifest read, and they cannot overlap: superseded versions live
+ * under `plugins/cache/`, residue under `plugins/data/` and
+ * `plugins/.install-manifests/`.
+ *
+ * `installed_plugins.json` is the only authority here. When it cannot be
+ * read or parsed, nothing is offered at all (ADR-0005): treating an
+ * unreadable manifest as "nothing is installed" would offer every plugin the
+ * user has, live code included.
+ */
+async function scanPluginResidue(
+  locator: StoreLocator,
+  candidates: TidyCandidates,
+  c: Collector
+): Promise<void> {
+  const installed = await readInstalledPlugins(locator, c)
+  if (installed === null) return
+
+  const root = path.join(locator.userRoot, PLUGINS_DIR)
+  const rootRelative = PLUGINS_DIR
+  const rootDisplay = tildify(root, locator.home)
+
+  const measure = async (relative: string, absPath: string): Promise<Candidate> => {
+    const display = `${rootDisplay}/${relative}`
+    return {
+      paths: [`${rootRelative}/${relative}`],
+      bytes: await directorySize(absPath, display, c),
+      display
+    }
+  }
+
+  // Every cached version of an installed plugin except the one its
+  // `installPath` names. Walking outwards from the manifest rather than over
+  // `plugins/cache/` is what keeps the live version safe by construction: a
+  // directory is offered only after its own plugin's install path has been
+  // looked up and did not match it.
+  for (const key of installed.keys) {
+    const at = key.lastIndexOf('@')
+    if (at <= 0) continue
+    const relative = `${PLUGIN_CACHE_DIR}/${key.slice(at + 1)}/${key.slice(0, at)}`
+    const versionsDir = path.join(root, ...relative.split('/'))
+    const versions = await safeReaddir(versionsDir, `${rootDisplay}/${relative}`, c)
+    for (const version of versions) {
+      if (!version.isDirectory()) continue
+      const absPath = path.join(versionsDir, version.name)
+      if (installed.installPaths.has(installKey(absPath))) continue
+      candidates['superseded-plugin-versions'].push(
+        await measure(`${relative}/${version.name}`, absPath)
+      )
+    }
+  }
+
+  // `plugins/data/<plugin>-<marketplace>/` — the id spelled with a dash
+  // (domain.md). Derived forwards, from each declared id, because reading a
+  // directory name backwards into an id is ambiguous the moment either half
+  // holds a dash.
+  const slugs = new Set([...installed.keys].map((key) => key.replaceAll('@', '-')))
+  const dataDir = path.join(root, PLUGIN_DATA_DIR)
+  const data = await safeReaddir(dataDir, `${rootDisplay}/${PLUGIN_DATA_DIR}`, c)
+  for (const entry of data) {
+    if (!entry.isDirectory() || slugs.has(entry.name)) continue
+    candidates['orphan-plugin-residue'].push(
+      await measure(`${PLUGIN_DATA_DIR}/${entry.name}`, path.join(dataDir, entry.name))
+    )
+  }
+
+  // `plugins/.install-manifests/<id>.json` — the id verbatim, so no guessing.
+  const manifestDir = path.join(root, PLUGIN_MANIFEST_DIR)
+  const manifests = await safeReaddir(
+    manifestDir,
+    `${rootDisplay}/${PLUGIN_MANIFEST_DIR}`,
+    c
+  )
+  for (const entry of manifests) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+    if (installed.keys.has(entry.name.slice(0, -'.json'.length))) continue
+    const relative = `${PLUGIN_MANIFEST_DIR}/${entry.name}`
+    const display = `${rootDisplay}/${relative}`
+    const info = await safeStat(path.join(manifestDir, entry.name), display, c)
+    candidates['orphan-plugin-residue'].push({
+      paths: [`${rootRelative}/${relative}`],
+      bytes: info?.size ?? 0,
+      display
+    })
+  }
 }
 
 /** The dry run itself: counts and bytes per category, and nothing moved. */
@@ -206,7 +359,10 @@ const LABEL: Record<TidyCategory, readonly [one: string, many: string]> = {
   'stale-sessions': ['stale session', 'stale sessions'],
   'empty-transcripts': ['empty transcript', 'empty transcripts'],
   'orphan-sidecars': ['orphaned sidecar', 'orphaned sidecars'],
-  'reclaimable-caches': ['cache directory', 'cache directories']
+  'orphan-session-env': ['orphaned session snapshot', 'orphaned session snapshots'],
+  'reclaimable-caches': ['cache directory', 'cache directories'],
+  'superseded-plugin-versions': ['superseded plugin version', 'superseded plugin versions'],
+  'orphan-plugin-residue': ['leftover plugin file', 'leftover plugin files']
 }
 
 /**

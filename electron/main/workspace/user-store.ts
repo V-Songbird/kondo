@@ -260,16 +260,93 @@ export interface PluginRecord {
   installAbs: string | null
 }
 
+/** Where `plugins/` lives, and the two residue directories under it. */
+export const PLUGINS_DIR = 'plugins'
+export const PLUGIN_CACHE_DIR = 'cache'
+export const PLUGIN_DATA_DIR = 'data'
+export const PLUGIN_MANIFEST_DIR = '.install-manifests'
+
+/**
+ * The `plugins[<name>@<marketplace>]` map of `installed_plugins.json`, or
+ * null when the file is missing, unreadable, or not the shape it claims.
+ *
+ * Null and `{}` are deliberately different answers. `{}` says nothing is
+ * installed, which makes every `data/` directory residue; null says kondo
+ * could not tell, and a reader that cannot tell must offer nothing rather
+ * than guess (ADR-0005).
+ */
+export async function readPluginManifest(
+  locator: StoreLocator,
+  c: Collector
+): Promise<Record<string, unknown> | null> {
+  const file = path.join(locator.userRoot, PLUGINS_DIR, 'installed_plugins.json')
+  const json = await safeReadJson(file, tildify(file, locator.home), c)
+  if (typeof json !== 'object' || json === null) return null
+  const plugins = (json as Record<string, unknown>)['plugins']
+  if (typeof plugins !== 'object' || plugins === null) return null
+  return plugins as Record<string, unknown>
+}
+
+/** What is installed right now, in the two shapes a residue sweep asks for. */
+export interface InstalledPlugins {
+  /** Every `<name>@<marketplace>` id the manifest declares. */
+  keys: Set<string>
+  /**
+   * The install directory of each declared id, resolved and case-folded so a
+   * comparison against a directory read off the same store cannot miss. A
+   * missed match would offer the live version as a candidate, so this errs
+   * towards matching: over-matching skips one superseded directory, while
+   * under-matching would trash the code Claude is running.
+   */
+  installPaths: Set<string>
+}
+
+/** Case-folded and resolved — see `InstalledPlugins.installPaths`. */
+export const installKey = (absPath: string): string =>
+  path.resolve(absPath).toLowerCase()
+
+/**
+ * What `installed_plugins.json` declares installed, or null when it could not
+ * be read — see `readPluginManifest` for why the two stay distinguishable.
+ *
+ * An `installPath` that escapes the user store is dropped rather than
+ * followed (SECURITY.md), exactly as `scanPlugins` drops it: an escaping
+ * path names nothing inside `plugins/cache/`, so it can only fail to protect
+ * a directory it was never about.
+ */
+export async function readInstalledPlugins(
+  locator: StoreLocator,
+  c: Collector
+): Promise<InstalledPlugins | null> {
+  const plugins = await readPluginManifest(locator, c)
+  if (plugins === null) return null
+  const keys = new Set<string>()
+  const installPaths = new Set<string>()
+  for (const [key, installs] of Object.entries(plugins)) {
+    keys.add(key)
+    const install = firstInstall(installs)
+    const declared = typeof install['installPath'] === 'string' ? install['installPath'] : null
+    if (declared !== null && pathWithin(declared, locator.userRoot)) {
+      installPaths.add(installKey(declared))
+    }
+  }
+  return { keys, installPaths }
+}
+
+/** The first install record of a manifest entry; `{}` for any other shape. */
+function firstInstall(installs: unknown): Record<string, unknown> {
+  return Array.isArray(installs) && typeof installs[0] === 'object' && installs[0] !== null
+    ? (installs[0] as Record<string, unknown>)
+    : {}
+}
+
 export async function scanPlugins(
   locator: StoreLocator,
   layers: SettingsLayer[],
   c: Collector
 ): Promise<PluginRecord[]> {
-  const file = path.join(locator.userRoot, 'plugins', 'installed_plugins.json')
-  const json = await safeReadJson(file, tildify(file, locator.home), c)
-  if (typeof json !== 'object' || json === null) return []
-  const plugins = (json as Record<string, unknown>)['plugins']
-  if (typeof plugins !== 'object' || plugins === null) return []
+  const plugins = await readPluginManifest(locator, c)
+  if (plugins === null) return []
 
   // Display order for the whole row, unchanged: local, project, user.
   const ordered = [...layers].sort(
@@ -307,10 +384,7 @@ export async function scanPlugins(
     const at = key.lastIndexOf('@')
     const name = at > 0 ? key.slice(0, at) : key
     const marketplace = at > 0 ? key.slice(at + 1) : ''
-    const install =
-      Array.isArray(installs) && typeof installs[0] === 'object' && installs[0] !== null
-        ? (installs[0] as Record<string, unknown>)
-        : {}
+    const install = firstInstall(installs)
     const declared =
       typeof install['installPath'] === 'string' ? install['installPath'] : null
     // Confinement (SECURITY.md): installPath comes from a store manifest and

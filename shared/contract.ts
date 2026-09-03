@@ -678,8 +678,25 @@ export const tidyCategories = [
   'empty-transcripts',
   /** `<uuid>/` sidecar directories whose transcript is already gone. */
   'orphan-sidecars',
+  /**
+   * `session-env/<uuid>/` snapshots whose session left no transcript behind.
+   * Nothing prunes this directory: the observed store held 5,213 of them
+   * against 11,686 transcripts.
+   */
+  'orphan-session-env',
   /** Support directories domain.md marks reclaimable; Claude rebuilds them. */
-  'reclaimable-caches'
+  'reclaimable-caches',
+  /**
+   * `plugins/cache/<mp>/<plugin>/<version>/` trees that are not the version
+   * `installed_plugins.json` points at. The installed `installPath` is never
+   * a candidate — that one is the live code Claude loads.
+   */
+  'superseded-plugin-versions',
+  /**
+   * `plugins/data/` directories and `plugins/.install-manifests/` files for
+   * `<name>@<marketplace>` ids `installed_plugins.json` does not declare.
+   */
+  'orphan-plugin-residue'
 ] as const
 
 export type TidyCategory = (typeof tidyCategories)[number]

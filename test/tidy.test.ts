@@ -23,6 +23,7 @@ import {
   UUID_B,
   UUID_C,
   writeFileTree,
+  writeJson,
   type FixtureWorld
 } from './helpers'
 
@@ -486,5 +487,244 @@ describe('dead and scratch project directories', () => {
     const undone = await api.journalUndo(done.data!.id)
     expect(undone.errors).toEqual([])
     expect(await hashTree(world.userRoot)).toBe(before)
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Session snapshots and plugin residue (ROADMAP entry 033). Three categories
+ * that share one rule: the join is a name — a uuid, or a `<name>@<mp>` id —
+ * so nothing is opened to classify a candidate (ADR-0007), and the version
+ * `installed_plugins.json` points at is never offered at all.
+ */
+describe('session-env snapshots and plugin residue', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+
+  /** The one plugin the manifest declares, and the version it points at. */
+  const KEEP = 'keep@mp'
+  const LIVE_VERSION = '2.0.0'
+  /** Declared by no manifest entry: its residue is what the sweep is for. */
+  const GONE = 'gone@mp'
+
+  const inStore = (relative: string): string =>
+    path.join(world.userRoot, ...relative.split('/'))
+
+  const liveInstallPath = (root: string): string =>
+    path.join(root, 'plugins', 'cache', 'mp', 'keep', LIVE_VERSION)
+
+  /** `installed_plugins.json` as Claude writes it, for one installed plugin. */
+  const manifest = (root: string): string =>
+    writeJson({
+      version: 2,
+      plugins: {
+        [KEEP]: [
+          {
+            scope: 'user',
+            installPath: liveInstallPath(root),
+            version: LIVE_VERSION,
+            installedAt: '2026-01-01T00:00:00.000Z'
+          }
+        ]
+      }
+    })
+
+  const open = (fixture: FixtureWorld): KondoApi =>
+    createWorkspace({
+      locator: fixture.locator,
+      platform: process.platform,
+      now: () => NOW,
+      guessExists: async () => false
+    })
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, {
+      // One live transcript, so its snapshot has something behind it.
+      [`projects/${DIR}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
+      [`session-env/${UUID_A}/env.json`]: '{"cwd":"/here"}',
+      // Two snapshots no transcript accounts for.
+      [`session-env/${UUID_B}/env.json`]: '{"cwd":"/gone"}',
+      [`session-env/${UUID_D}/env.json`]: '{"cwd":"/gone-too"}',
+      // Not a session id at all, so not kondo's to move.
+      'session-env/last-sweep/marker': 'x',
+
+      'plugins/installed_plugins.json': manifest(world.userRoot),
+      // The installed version — the live code Claude loads.
+      [`plugins/cache/mp/keep/${LIVE_VERSION}/plugin.json`]: '{"name":"keep"}',
+      // ...and two it has upgraded past.
+      'plugins/cache/mp/keep/1.0.0/plugin.json': '{"name":"keep"}',
+      'plugins/cache/mp/keep/1.5.0/plugin.json': '{"name":"keep"}',
+      // Data and an install record for the plugin that is installed...
+      'plugins/data/keep-mp/state.json': '{"kept":true}',
+      [`plugins/.install-manifests/${KEEP}.json`]: '{"pluginId":"keep@mp"}',
+      // ...and for one that is not.
+      'plugins/data/gone-mp/state.json': '{"left":"behind"}',
+      [`plugins/.install-manifests/${GONE}.json`]: '{"pluginId":"gone@mp"}',
+      'settings.json': '{}'
+    })
+    await fs.utimes(inStore(`projects/${DIR}/${UUID_A}.jsonl`), FRESH, FRESH)
+    api = open(world)
+  })
+  afterEach(async () => {
+    await world.cleanup()
+  })
+
+  it('offers a session snapshot with no transcript, and never one with', async () => {
+    const found = byCategory((await api.tidyPreview()).data)
+    expect(found['orphan-session-env'].count).toBe(2)
+    expect(found['orphan-session-env'].examples.slice().sort()).toEqual(
+      [UUID_B, UUID_D].map((uuid) => `~/.claude/session-env/${uuid}`).sort()
+    )
+    expect(found['orphan-session-env'].bytes).toBeGreaterThan(0)
+
+    const named = (await api.tidyPreview()).data.categories.flatMap((e) => e.examples)
+    // The live session's snapshot, and a directory that is not a session id.
+    expect(named).not.toContain(`~/.claude/session-env/${UUID_A}`)
+    expect(named).not.toContain('~/.claude/session-env/last-sweep')
+  })
+
+  it('never offers the installed version, and offers every other one', async () => {
+    const found = byCategory((await api.tidyPreview()).data)
+    expect(found['superseded-plugin-versions'].count).toBe(2)
+    expect(found['superseded-plugin-versions'].examples.slice().sort()).toEqual([
+      '~/.claude/plugins/cache/mp/keep/1.0.0',
+      '~/.claude/plugins/cache/mp/keep/1.5.0'
+    ])
+    expect(found['superseded-plugin-versions'].bytes).toBeGreaterThan(0)
+
+    const named = (await api.tidyPreview()).data.categories.flatMap((e) => e.examples)
+    expect(named).not.toContain(`~/.claude/plugins/cache/mp/keep/${LIVE_VERSION}`)
+
+    // And a full sweep leaves the live version exactly where Claude left it.
+    expect((await api.tidySweep(ALL)).errors).toEqual([])
+    expect(await exists(liveInstallPath(world.userRoot))).toBe(true)
+    expect(await exists(path.join(liveInstallPath(world.userRoot), 'plugin.json'))).toBe(
+      true
+    )
+  })
+
+  it('offers data and install records for ids no manifest declares', async () => {
+    const found = byCategory((await api.tidyPreview()).data)
+    expect(found['orphan-plugin-residue'].count).toBe(2)
+    expect(found['orphan-plugin-residue'].examples.slice().sort()).toEqual([
+      `~/.claude/plugins/.install-manifests/${GONE}.json`,
+      '~/.claude/plugins/data/gone-mp'
+    ])
+
+    const named = (await api.tidyPreview()).data.categories.flatMap((e) => e.examples)
+    expect(named).not.toContain('~/.claude/plugins/data/keep-mp')
+    expect(named).not.toContain(`~/.claude/plugins/.install-manifests/${KEEP}.json`)
+  })
+
+  it('never offers one path under two categories', async () => {
+    const offered = (await api.tidyPreview()).data.categories.flatMap((e) => e.examples)
+    expect(new Set(offered).size).toBe(offered.length)
+    for (const outer of offered) {
+      for (const inner of offered) {
+        if (outer === inner) continue
+        expect(inner.startsWith(`${outer}/`), `${inner} sits inside ${outer}`).toBe(false)
+      }
+    }
+  })
+
+  it('trashes each candidate as its own reversible step', async () => {
+    const before = await hashTree(world.userRoot)
+    const categories: TidyCategory[] = [
+      'orphan-session-env',
+      'superseded-plugin-versions',
+      'orphan-plugin-residue'
+    ]
+    const done = await api.tidySweep(categories)
+    expect(done.errors).toEqual([])
+    // One step per candidate: two snapshots, two versions, two leftovers.
+    expect(done.data?.stepCount).toBe(6)
+    expect(done.data?.summary).toContain('2 orphaned session snapshots')
+    expect(done.data?.summary).toContain('2 superseded plugin versions')
+    expect(done.data?.summary).toContain('2 leftover plugin files')
+
+    const swept = [
+      `session-env/${UUID_B}`,
+      `session-env/${UUID_D}`,
+      'plugins/cache/mp/keep/1.0.0',
+      'plugins/cache/mp/keep/1.5.0',
+      'plugins/data/gone-mp',
+      `plugins/.install-manifests/${GONE}.json`
+    ]
+    const trashDir = path.join(
+      world.kondoDataRoot,
+      'trash',
+      done.data!.id.slice('journal:'.length),
+      'user'
+    )
+    for (const relative of swept) {
+      expect(await exists(inStore(relative)), relative).toBe(false)
+      // Displaced, never unlinked (ADR-0001).
+      expect(
+        await exists(path.join(trashDir, ...relative.split('/'))),
+        relative
+      ).toBe(true)
+    }
+    // What stays: the live snapshot, the live version, the installed plugin's
+    // own data and record, and the directory that is not a session id.
+    expect(await exists(inStore(`session-env/${UUID_A}`))).toBe(true)
+    expect(await exists(inStore('session-env/last-sweep'))).toBe(true)
+    expect(await exists(inStore('plugins/data/keep-mp'))).toBe(true)
+    expect(await exists(inStore(`plugins/.install-manifests/${KEEP}.json`))).toBe(true)
+    expect(await exists(inStore('plugins/installed_plugins.json'))).toBe(true)
+
+    const undone = await api.journalUndo(done.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('offers no plugin candidate when the manifest cannot be read', async () => {
+    for (const broken of ['not json at all', writeJson({ version: 2 }), '[]']) {
+      const fixture = await makeWorld()
+      try {
+        await writeFileTree(fixture.userRoot, {
+          'plugins/installed_plugins.json': broken,
+          [`plugins/cache/mp/keep/${LIVE_VERSION}/plugin.json`]: '{"name":"keep"}',
+          'plugins/cache/mp/keep/1.0.0/plugin.json': '{"name":"keep"}',
+          'plugins/data/keep-mp/state.json': '{"kept":true}',
+          [`plugins/.install-manifests/${KEEP}.json`]: '{"pluginId":"keep@mp"}',
+          'settings.json': '{}'
+        })
+        const reader = open(fixture)
+        const found = byCategory((await reader.tidyPreview()).data)
+        // A manifest kondo cannot read is not evidence that nothing is
+        // installed, so it degrades to offering nothing (ADR-0005).
+        expect(found['superseded-plugin-versions'].count, broken).toBe(0)
+        expect(found['orphan-plugin-residue'].count, broken).toBe(0)
+
+        // Degrading is not going quiet: a manifest that would not parse is
+        // reported, and the sweep still moves nothing under `plugins/`.
+        const stored = await hashTree(fixture.userRoot)
+        const swept = await reader.tidySweep(ALL)
+        expect(swept.errors.every((error) => error.code === 'parse-failed')).toBe(true)
+        expect(await hashTree(fixture.userRoot)).toBe(stored)
+      } finally {
+        await fixture.cleanup()
+      }
+    }
+  })
+
+  it('treats an empty manifest as nothing installed, not as unreadable', async () => {
+    const fixture = await makeWorld()
+    try {
+      await writeFileTree(fixture.userRoot, {
+        'plugins/installed_plugins.json': writeJson({ version: 2, plugins: {} }),
+        'plugins/data/gone-mp/state.json': '{"left":"behind"}',
+        [`plugins/.install-manifests/${GONE}.json`]: '{"pluginId":"gone@mp"}',
+        'settings.json': '{}'
+      })
+      const found = byCategory((await open(fixture).tidyPreview()).data)
+      expect(found['orphan-plugin-residue'].count).toBe(2)
+      // No plugin is installed, so no cache tree is walked for one either.
+      expect(found['superseded-plugin-versions'].count).toBe(0)
+    } finally {
+      await fixture.cleanup()
+    }
   })
 })

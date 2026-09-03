@@ -19,7 +19,10 @@ const LABEL: Record<TidyCategory, string> = {
   'stale-sessions': 'Old conversations',
   'empty-transcripts': 'Empty conversations',
   'orphan-sidecars': 'Leftover session files',
-  'reclaimable-caches': 'Caches Claude rebuilds'
+  'orphan-session-env': 'Leftover session snapshots',
+  'reclaimable-caches': 'Caches Claude rebuilds',
+  'superseded-plugin-versions': 'Old plugin versions',
+  'orphan-plugin-residue': 'Leftovers from removed plugins'
 }
 
 function hintFor(category: TidyCategory, staleAfterDays: number): string {
@@ -34,8 +37,14 @@ function hintFor(category: TidyCategory, staleAfterDays: number): string {
       return 'Conversations that recorded nothing at all.'
     case 'orphan-sidecars':
       return 'Side files left behind after their conversation was removed.'
+    case 'orphan-session-env':
+      return 'Saved settings for conversations Claude no longer has a record of.'
     case 'reclaimable-caches':
       return 'Claude builds these again the next time it runs.'
+    case 'superseded-plugin-versions':
+      return 'Older copies of plugins you still have. The version in use stays.'
+    case 'orphan-plugin-residue':
+      return 'Data and install records for plugins that are no longer installed.'
   }
 }
 

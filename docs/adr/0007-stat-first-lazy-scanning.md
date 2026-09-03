@@ -38,6 +38,13 @@ Decision: scanning happens in two tiers.
 - A plugin's own skills are a tier-2 read of the plugins view:
   `pluginSkills(pluginId)` opens each `SKILL.md` under the one plugin whose
   row was opened, never every plugin's at listing time.
+- The tidy sweep classifies on names, never on contents. A `session-env/`
+  snapshot is a candidate because its uuid is absent from the transcript set,
+  and a `plugins/cache/<mp>/<plugin>/<version>/` tree because it is not the
+  `installPath` `installed_plugins.json` names — so neither opens a snapshot
+  nor walks a plugin tree to decide one (entry 033). Sizes are still measured,
+  because what a category reclaims is the whole reason to offer it; that is a
+  cost per *candidate*, not per store entry.
 - The projects home is the same split at the app's front door.
   `projectsList` is tier 1 — the cached inventory plus a readdir per
   directory it counts, opening no file in any store — and `projectDetail` is
