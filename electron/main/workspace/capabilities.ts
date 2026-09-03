@@ -57,17 +57,20 @@ const MCP_IS_READ_ONLY =
 // to offer and invents none. This row changes the day one exists.
 const PLACED_HAS_NO_CONVENTION =
   'Claude has no convention for disabling one of these; move the file out of the directory instead.'
-// Relocating one is entry 028: it generalises the skill placement table so a
-// promotion carries the same collision refusal and the same undo.
-const PLACED_MOVE_NOT_YET =
-  'kondo does not move agents, commands, rules or output styles between scopes yet.'
 
-/** The row every placed kind gets, in every scope it has. */
+/**
+ * The row every placed kind gets, in every scope it has. Relocating one *is*
+ * Claude's own convention (ADR-0006): the file sits in the other scope's
+ * directory and Claude loads it there for the same reason it loaded it here,
+ * so nothing is invented and `move` is allowed wherever the entry is the
+ * user's own. Which destinations exist is a separate question the placement
+ * table answers — a project store holds no `output-styles`.
+ */
 function placed(): Capabilities {
   return {
     enable: deny(PLACED_HAS_NO_CONVENTION),
     disable: deny(PLACED_HAS_NO_CONVENTION),
-    move: deny(PLACED_MOVE_NOT_YET)
+    move: ALLOW
   }
 }
 
@@ -125,7 +128,8 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
     project: neither(MCP_IS_READ_ONLY)
   },
   // The four hand-placed kinds (domain.md). Same answer in every scope, and
-  // a project store has no `output-styles` directory to give that kind one.
+  // a project store has no `output-styles` directory to give that kind one —
+  // which is also why a promotion out of the user scope is refused for it.
   agent: { user: placed(), project: placed() },
   command: { user: placed(), project: placed() },
   rule: { user: placed(), project: placed() },

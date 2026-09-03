@@ -291,9 +291,11 @@ export type PlacedScope = 'user' | 'project'
  * one shape because on disk they are one thing — a `.md` file whose
  * frontmatter describes it — differing only in the directory they sit in.
  *
- * Read-only in every scope (ADR-0006): Claude loads these by presence and
- * offers no `.disabled` sibling and no settings key to bench one, so the
- * matrix refuses both toggles rather than kondo inventing a mechanism.
+ * Neither toggle has a mechanism (ADR-0006): Claude loads these by presence
+ * and offers no `.disabled` sibling and no settings key to bench one, so the
+ * matrix refuses both rather than kondo inventing one. `move` is permitted —
+ * putting the file in the other scope's directory is exactly how Claude
+ * loads it there, so a promotion invents nothing.
  */
 export interface PlacedEntryInfo extends EntityIdentity {
   /** `<kind>:user:<name>` · `<kind>:project/<flat>:<name>` */

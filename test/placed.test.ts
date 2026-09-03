@@ -131,23 +131,24 @@ describe('placed entries: agents, commands, rules, output styles', () => {
     expect(await kinds.agent.read('agent:user:absent', context)).toBeNull()
   })
 
-  it('refuses enable, disable and move in every scope (ADR-0006)', async () => {
+  it('refuses both toggles in every scope, and permits the move (ADR-0006)', async () => {
     for (const kind of ['agent', 'command', 'rule', 'output-style'] as const) {
       for (const scope of scopesFor(kind)) {
         const row = capabilitiesFor(kind, scope)
         expect(row.enable.allowed, `${kind}/${scope}`).toBe(false)
         expect(row.disable.allowed, `${kind}/${scope}`).toBe(false)
-        expect(row.move.allowed, `${kind}/${scope}`).toBe(false)
         expect(row.enable.reason).toContain('no convention')
-        expect(row.move.reason).toContain('does not move')
+        // Relocating one is Claude's own convention — entry 028.
+        expect(row.move.allowed, `${kind}/${scope}`).toBe(true)
+        expect(row.move.reason).toBeNull()
       }
       for (const entry of await scan(kind)) {
         expect(entry.capabilities).toEqual(capabilitiesFor(kind, entry.scope))
       }
     }
-    // The one plan seat answers the same way, quoting the row above. It
-    // refuses before reading anything, so the context it is handed can be
-    // one that would throw on every source.
+    // The one plan seat answers the toggles the same way, quoting the row
+    // above. It refuses before reading anything, so the context it is handed
+    // can be one that would throw on every source.
     const agent = (await scan('agent'))[0]!
     const context = createKindContext({
       locator: world.locator,
@@ -160,7 +161,7 @@ describe('placed entries: agents, commands, rules, output styles', () => {
         throw new Error('a refusal reads nothing')
       }
     })
-    for (const op of ['enable', 'disable', 'move'] as const) {
+    for (const op of ['enable', 'disable'] as const) {
       const planned = await kinds.agent.plan(agent, { op }, context)
       expect(planned.ok, op).toBe(false)
       expect(planned.ok === false && planned.message).toBe(

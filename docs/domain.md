@@ -146,13 +146,26 @@ that is missing or malformed leaves `description` null and is not an error
 | `rule` | `~/.claude/rules/*.md` ◇ | `<project>/.claude/rules/*.md` ✅ | `rule:user:<name>` · `rule:project/<flat>:<name>` |
 | `output-style` | `~/.claude/output-styles/*.md` ◇ | not read — unobserved in a project store | `output-style:user:<name>` |
 
-All four are **read-only in every scope**. Claude loads them by presence:
+All four **cannot be toggled, in any scope**. Claude loads them by presence:
 there is no `.disabled` sibling directory and no settings key that benches
 one, so the capability matrix refuses `enable` and `disable` outright rather
-than kondo inventing a mechanism (ADR-0006). `move` is refused too, until
-entry 028 generalises the skill placement table to them. The owning project
-travels as `PlacedEntryInfo.projectId`, never as a substring the renderer
-splits out of an id (ADR-0008).
+than kondo inventing a mechanism (ADR-0006). The owning project travels as
+`PlacedEntryInfo.projectId`, never as a substring the renderer splits out of
+an id (ADR-0008).
+
+`move` **is** permitted (entry 028), because putting the file in the other
+scope's directory is exactly how Claude loads it there — nothing is invented.
+A promotion runs the skill move's plan unchanged: copy, verify, trash, as one
+journal entry, so ADR-0001's undo restores it or none of it. `output-style`
+is the exception, and only in one direction: a project store has no
+`output-styles` directory to read, so a project destination is refused for
+that kind rather than kondo creating the first one anybody has seen.
+
+Where each kind sits is one table, `PLACEMENTS` in
+`electron/main/workspace/user-store.ts` — directory, bench (`skills.disabled`
+for skills, none for the four above), on-disk suffix, and whether a project
+store holds it. Both the listings and `kinds.ts`'s move read from it, so a
+scan and a mutation can never disagree about where an entry lives.
 
 ### `projects/` — sessions
 

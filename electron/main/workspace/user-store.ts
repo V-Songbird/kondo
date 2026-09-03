@@ -1072,6 +1072,37 @@ const MARKDOWN = '.md'
  */
 type PlacedShape = 'skill-dir' | 'markdown'
 
+/**
+ * Where one kind's entries live inside a store, and what its name looks like
+ * on disk (domain.md). One table for all five placed kinds, so a listing and
+ * a move can never disagree about where an entry sits: `kinds.ts` reads
+ * placements from here rather than deriving a path of its own.
+ *
+ * `benched` is the sibling directory a disabled entry sits in — Claude's own
+ * convention for skills (ADR-0006), and null for the four markdown kinds,
+ * which have no bench at all. `inProject` is false only for output styles:
+ * no project store has been observed carrying them, and kondo does not go
+ * looking for a directory it has never seen.
+ */
+export interface KindPlacement {
+  /** The directory a live entry sits in, relative to the store root. */
+  dir: string
+  /** The sibling directory a benched entry sits in, or null for no bench. */
+  benched: string | null
+  /** What the name carries on disk: `.md` for a file, '' for a directory. */
+  suffix: string
+  /** Whether a project store holds this directory too. */
+  inProject: boolean
+}
+
+export const PLACEMENTS: Record<'skill' | PlacedKind, KindPlacement> = {
+  skill: { dir: 'skills', benched: 'skills.disabled', suffix: '', inProject: true },
+  agent: { dir: 'agents', benched: null, suffix: MARKDOWN, inProject: true },
+  command: { dir: 'commands', benched: null, suffix: MARKDOWN, inProject: true },
+  rule: { dir: 'rules', benched: null, suffix: MARKDOWN, inProject: true },
+  'output-style': { dir: 'output-styles', benched: null, suffix: MARKDOWN, inProject: false }
+}
+
 /** One entry read off disk, before a kind turns it into an entity. */
 interface PlacedRecord {
   /** The name on disk: the directory's, or the file's without `.md`. */
@@ -1168,24 +1199,10 @@ async function readSkillDir(
 }
 
 /**
- * The directory each placed kind lives in, and whether a project store has
- * one too (domain.md). Output styles are user-scope here because no project
- * store has been observed carrying them; kondo does not go looking for a
- * directory it has never seen.
- */
-const PLACED_DIRS: Record<PlacedKind, { dir: string; inProject: boolean }> = {
-  agent: { dir: 'agents', inProject: true },
-  command: { dir: 'commands', inProject: true },
-  rule: { dir: 'rules', inProject: true },
-  'output-style': { dir: 'output-styles', inProject: false }
-}
-
-/**
  * Every entry of one placed kind, in the user store and in each verified
- * project. Read-only by construction: the scope resolves to a matrix row
- * refusing both toggles (ADR-0006 — Claude has no disable convention for
- * these) and refusing `move` until entry 028, so an id from this listing
- * cannot be mutated by whatever gets hold of one.
+ * project. The scope resolves to a matrix row refusing both toggles
+ * (ADR-0006 — Claude has no disable convention for these) and allowing
+ * `move`, which relocates the file without changing how Claude reads it.
  */
 export async function scanPlacedEntries(
   locator: StoreLocator,
@@ -1193,7 +1210,7 @@ export async function scanPlacedEntries(
   projects: VerifiedProject[],
   c: Collector
 ): Promise<PlacedEntryInfo[]> {
-  const { dir, inProject } = PLACED_DIRS[kind]
+  const { dir, inProject } = PLACEMENTS[kind]
   const roots: Array<[string, PlacedScope, string, string | null]> = [
     [path.join(locator.userRoot, dir), 'user', 'user', null]
   ]
@@ -1281,10 +1298,14 @@ export async function countStoreEntries(
   }
 
   return {
-    skills: (await count('skills', isDirLike)) + (await count('skills.disabled', isDirLike)),
-    agents: await count(PLACED_DIRS.agent.dir, isMarkdownLike),
-    commands: await count(PLACED_DIRS.command.dir, isMarkdownLike),
-    rules: await count(PLACED_DIRS.rule.dir, isMarkdownLike),
+    skills:
+      (await count(PLACEMENTS.skill.dir, isDirLike)) +
+      (PLACEMENTS.skill.benched === null
+        ? 0
+        : await count(PLACEMENTS.skill.benched, isDirLike)),
+    agents: await count(PLACEMENTS.agent.dir, isMarkdownLike),
+    commands: await count(PLACEMENTS.command.dir, isMarkdownLike),
+    rules: await count(PLACEMENTS.rule.dir, isMarkdownLike),
     settings: SETTINGS_NAMES.filter((name) => present.has(name)).length,
     hooks: null,
     mcpServers: null
@@ -1305,31 +1326,32 @@ export async function scanSkills(
   projects: VerifiedProject[],
   c: Collector
 ): Promise<SkillInfo[]> {
+  // Both of Claude's skill directories come off the placement table, so the
+  // toggle in `kinds.ts` and this listing name the same two (ADR-0006). The
+  // bench is a fact of the table rather than of the type, so a kind that
+  // grew one later simply lists both without this being edited.
+  const { dir, benched } = PLACEMENTS.skill
   const roots: Array<[string, SkillInfo['scope'], string, boolean, string | null]> = [
-    [path.join(locator.userRoot, 'skills'), 'user', 'user', true, null],
-    [
-      path.join(locator.userRoot, 'skills.disabled'),
-      'user-disabled',
-      'user-disabled',
-      false,
-      null
-    ]
+    [path.join(locator.userRoot, dir), 'user', 'user', true, null]
   ]
+  if (benched !== null) {
+    roots.push([path.join(locator.userRoot, benched), 'user-disabled', 'user-disabled', false, null])
+  }
   for (const project of projects) {
     // ADR-0002: the project store is its .claude directory and nothing above
     // it. ADR-0006: skills.disabled is Claude's own convention, scoped.
     const claudeDir = path.join(project.absPath, '.claude')
     const owner = projectId(project.dirName)
-    roots.push(
-      [path.join(claudeDir, 'skills'), 'project', `project/${project.dirName}`, true, owner],
-      [
-        path.join(claudeDir, 'skills.disabled'),
+    roots.push([path.join(claudeDir, dir), 'project', `project/${project.dirName}`, true, owner])
+    if (benched !== null) {
+      roots.push([
+        path.join(claudeDir, benched),
         'project-disabled',
         `project-disabled/${project.dirName}`,
         false,
         owner
-      ]
-    )
+      ])
+    }
   }
 
   const skills: SkillInfo[] = []

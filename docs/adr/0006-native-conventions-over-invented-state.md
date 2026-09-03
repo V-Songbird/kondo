@@ -37,9 +37,19 @@ preferences, scan cache — never the truth about the user's Claude setup.
   `.disabled` sibling and no settings key that benches one. Kondo lists them
   read-only (entry 024) and the matrix refuses both toggles with that as the
   stated reason, rather than inventing a mechanism that would be true in
-  kondo's UI and false in every session. Moving one between scopes is a
-  different question — it changes nothing about how Claude reads the file —
-  and is refused only until entry 028 ships it.
+  kondo's UI and false in every session.
+- Moving one of those four between scopes *is* a native convention, and
+  shipped as entry 028. Claude loads an agent because `agents/reviewer.md` is
+  in a directory it reads; putting that file in the other scope's `agents/`
+  is the whole of what "promote it" means, so kondo does exactly that and
+  invents nothing. It is the skill move's plan unchanged — copy, verify,
+  trash, one journal entry — because `mutations` verifies a copy by digesting
+  the tree and a lone file is a tree of one. One placement table
+  (`PLACEMENTS`) now states where every placed kind lives, so skills read
+  their own placement from it like the rest. The one refusal that is not a
+  collision: an output style has no project destination, because no project
+  store has been observed holding `output-styles/` and kondo will not be the
+  first to write one.
 - Moving a plugin between scopes is not a move at all. Claude installs a
   plugin once and reads `enabledPlugins` per layer, so "on there, off here"
   is two statements in two settings files and nothing on disk changes place.

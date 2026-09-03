@@ -34,6 +34,7 @@ import {
   editMember,
   hooksFromLayers,
   newSettingsSource,
+  PLACEMENTS,
   pluginStateIn,
   readSettingsLayers,
   scanMcpServers,
@@ -200,39 +201,63 @@ async function findById<T extends EntityIdentity>(
 // ---------------------------------------------------------------------------
 // The kinds
 
-// Claude's own convention, and the whole of kondo's disable mechanism
-// (ADR-0006): the two sibling directories a skill moves between.
-const SKILLS = 'skills'
-const SKILLS_DISABLED = 'skills.disabled'
+/**
+ * The kinds whose entries sit at a known place inside a store — the skill
+ * directory and the four hand-placed markdown kinds. `PLACEMENTS` in
+ * `user-store.ts` is the one table that says where; nothing here spells a
+ * directory name of its own.
+ */
+type PlacedishKind = keyof typeof PLACEMENTS
+
+/** Where one entity sits: the store it is in, and its path inside it. */
+interface Placement {
+  store: string
+  at: string
+}
 
 /**
- * The store a skill lives in and the move that flips its state. The store is
- * `user` for the user scope and `project:<dirName>` for a project's — whose
- * root is that project's `.claude` directory, so a step can never address
- * anything above it (ADR-0002). Plugin-shipped skills have no placement:
- * they live inside their plugin's tree and follow it.
+ * Where one entity lives, read off the placement table every listing is built
+ * from. The store is `user` for the user scope and `project:<dirName>` for a
+ * project's — whose root is that project's `.claude` directory, so a step can
+ * never address anything above it (ADR-0002).
+ *
+ * Null for an entity with no placement of its own: a plugin-shipped skill
+ * lives inside its plugin's tree and follows it, and a kind with no bench has
+ * no benched scope to resolve.
  */
-function skillPlacement(entity: SkillInfo): { store: string; from: string; to: string } | null {
-  // The id is `skill:<key>:<name>` by construction, so the key is exactly
+function placementOf(
+  kind: PlacedishKind,
+  entity: { id: string; name: string; scope: string }
+): Placement | null {
+  const rule = PLACEMENTS[kind]
+  // The id is `<kind>:<key>:<name>` by construction, so the key is exactly
   // what sits between — no split a ':' in a directory name could confuse.
-  const key = entity.id.slice('skill:'.length, entity.id.length - entity.name.length - 1)
-  const between = (store: string, disabled: boolean) => ({
-    store,
-    from: `${disabled ? SKILLS_DISABLED : SKILLS}/${entity.name}`,
-    to: `${disabled ? SKILLS : SKILLS_DISABLED}/${entity.name}`
-  })
-  switch (entity.scope) {
-    case 'user':
-      return between('user', false)
-    case 'user-disabled':
-      return between('user', true)
-    case 'project':
-      return between(`project:${key.slice('project/'.length)}`, false)
-    case 'project-disabled':
-      return between(`project:${key.slice('project-disabled/'.length)}`, true)
-    default:
-      return null
+  const key = entity.id.slice(kind.length + 1, entity.id.length - entity.name.length - 1)
+  const benched = entity.scope === 'user-disabled' || entity.scope === 'project-disabled'
+  const dir = benched ? rule.benched : rule.dir
+  if (dir === null) return null
+  const at = `${dir}/${entity.name}${rule.suffix}`
+  if (entity.scope === 'user' || entity.scope === 'user-disabled') {
+    return { store: 'user', at }
   }
+  if (entity.scope === 'project' || entity.scope === 'project-disabled') {
+    // Both project keys are `<scope>/<dirName>`, so the scope's own length
+    // is what the directory name starts after.
+    return { store: `project:${key.slice(entity.scope.length + 1)}`, at }
+  }
+  return null
+}
+
+/**
+ * The other side of the bench: where a toggle in this direction would land
+ * a skill (ADR-0006 — `skills.disabled/` is Claude's convention, and the
+ * placement table is the only place it is spelled). Null for a kind with no
+ * bench, which is every kind but `skill`.
+ */
+function benchTarget(entity: SkillInfo, operation: ToggleOperation): string | null {
+  const rule = PLACEMENTS.skill
+  const dir = operation === 'enable' ? rule.dir : rule.benched
+  return dir === null ? null : `${dir}/${entity.name}${rule.suffix}`
 }
 
 function skillTogglePlan(entity: SkillInfo, operation: ToggleOperation): PlanResult {
@@ -243,8 +268,9 @@ function skillTogglePlan(entity: SkillInfo, operation: ToggleOperation): PlanRes
       decision.reason ?? `kondo cannot ${operation} this skill.`
     )
   }
-  const placement = skillPlacement(entity)
-  if (!placement) {
+  const placement = placementOf('skill', entity)
+  const to = benchTarget(entity, operation)
+  if (placement === null || to === null) {
     return refused('not-permitted', `kondo cannot tell what store ${entity.name} lives in.`)
   }
   return {
@@ -254,7 +280,7 @@ function skillTogglePlan(entity: SkillInfo, operation: ToggleOperation): PlanRes
       kind: 'skill',
       entityId: entity.id,
       summary: `${operation === 'enable' ? 'Enable' : 'Disable'} skill ${entity.name} (${entity.scope})`,
-      steps: [{ type: 'move', ...placement }]
+      steps: [{ type: 'move', store: placement.store, from: placement.at, to }]
     }
   }
 }
@@ -272,7 +298,7 @@ const skill: EntityKindDefinition<SkillInfo> = {
   },
   async plan(entity, request, context) {
     return request.op === 'move'
-      ? skillMovePlan(entity, request.targetId ?? '', context)
+      ? movePlan('skill', entity, request.targetId ?? '', context.skills(), context)
       : skillTogglePlan(entity, request.op)
   }
 }
@@ -450,9 +476,12 @@ const mcp: EntityKindDefinition<McpServerInfo> = {
  * A factory rather than four literals — the near-copies would be identical
  * but for the kind they close over.
  *
- * Read-only in every scope. Claude loads these by presence and ships no
- * disable convention for them (ADR-0006), so every operation is refused in
- * the matrix's own words; `move` waits on entry 028.
+ * Neither toggle has a mechanism: Claude loads these by presence and ships no
+ * disable convention for them (ADR-0006), so both are refused in the matrix's
+ * own words. `move` is the one operation that *is* Claude's own convention —
+ * the file simply sits in the other scope's directory — so it goes through
+ * the same copy, verify, trash plan a skill move does, with the same
+ * collision refusal and the same undo.
  */
 function placedKind(kind: PlacedKind): EntityKindDefinition<PlacedEntryInfo> {
   const definition: EntityKindDefinition<PlacedEntryInfo> = {
@@ -463,8 +492,17 @@ function placedKind(kind: PlacedKind): EntityKindDefinition<PlacedEntryInfo> {
     read(id, context) {
       return findById(id, definition.discover(context))
     },
-    async plan(entity, request) {
-      return matrixRefusal(kind, entity.scope, request.op)
+    async plan(entity, request, context) {
+      if (request.op !== 'move') return matrixRefusal(kind, entity.scope, request.op)
+      return movePlan(
+        kind,
+        entity,
+        request.targetId ?? '',
+        // The collision check reads this kind's own listing, so a name is a
+        // clash only when it is a clash for the directory being written.
+        definition.discover(context).then((entries) => entries ?? []),
+        context
+      )
     }
   }
   return definition
@@ -485,7 +523,7 @@ const desktopSession: EntityKindDefinition<DesktopSession> = {
 
 
 // ---------------------------------------------------------------------------
-// Moving a skill into another scope
+// Moving a placed entry into another scope
 
 /** The user scope has no key, so it names itself (ADR-0008 has no id for it). */
 const USER_DESTINATION = 'user'
@@ -540,32 +578,47 @@ async function storelessDestination(
   )} before moving anything there.`
 }
 
+/** What every kind this plan serves carries, beyond its identity. */
+interface Movable extends EntityIdentity {
+  name: string
+  scope: string
+  /** Display path of the file or directory that holds it (tildified). */
+  origin: string
+}
+
 /**
- * The store change that moves one skill into another scope: copy it, prove
- * the copy, then trash the original — one plan, so `undo` reverses the whole
- * thing or none of it (ADR-0001). The order is the invariant, and it lives in
- * the step list rather than in a caller's sequencing.
+ * The store change that moves one placed entry into another scope: copy it,
+ * prove the copy, then trash the original — one plan, so `undo` reverses the
+ * whole thing or none of it (ADR-0001). The order is the invariant, and it
+ * lives in the step list rather than in a caller's sequencing. `mutations`
+ * verifies a copy by digesting the tree, and a lone file is a tree of one, so
+ * a skill directory and an `agent.md` take the very same recipe.
+ *
+ * One plan for all five kinds, driven by the placement table: promoting an
+ * agent is a skill move with a different directory name in it, and no more.
  *
  * The matrix is the gate (ADR-0006): a plugin-shipped skill is refused here,
  * not in the UI. A destination scope that already holds the name is refused
- * too — merging two skill directories would silently mix their files.
+ * too — merging two entries would silently mix their files.
  *
  * `destinationId` is `'user'` or a `project:code:<dirName>` id from a
- * previous scan. The collision check reads `context.skills()`, so the plan is
- * answered from exactly the listing the entity was built from, and one scan
- * covers both of a scope's directories.
+ * previous scan (ADR-0008); the renderer never builds a path. `siblings` is
+ * the listing the entity itself came from, so the collision check is answered
+ * from exactly those bytes and one scan covers both of a scope's directories.
  */
-async function skillMovePlan(
-  entity: SkillInfo,
+async function movePlan<T extends Movable>(
+  kind: PlacedishKind,
+  entity: T,
   destinationId: string,
+  siblings: Promise<T[]>,
   context: KindContext
 ): Promise<PlanResult> {
   const decision = entity.capabilities.move
   if (!decision.allowed) {
-    return refused('not-permitted', decision.reason ?? 'kondo cannot move this skill.')
+    return refused('not-permitted', decision.reason ?? `kondo cannot move this ${kind}.`)
   }
-  const placement = skillPlacement(entity)
-  if (!placement) {
+  const placement = placementOf(kind, entity)
+  if (placement === null) {
     return refused('not-permitted', `kondo cannot tell what store ${entity.name} lives in.`)
   }
   const storeless = await storelessDestination(destinationId, context)
@@ -581,33 +634,48 @@ async function skillMovePlan(
   if (target.store === placement.store) {
     return refused('bad-request', `${entity.name} is already in that scope.`)
   }
+  // ADR-0006: an entry only goes where Claude reads that kind from. No
+  // project store has been observed carrying `output-styles`, so kondo will
+  // not be the one to create the first.
+  if (target.store !== USER_DESTINATION && !PLACEMENTS[kind].inProject) {
+    return refused(
+      'not-permitted',
+      `Claude does not load ${PLACEMENTS[kind].dir} from a project store; ${entity.name} stays in the user scope.`
+    )
+  }
 
-  // Both of the destination's directories count: a skill of this name sitting
-  // in its `skills.disabled` is the same name arriving twice.
-  const clash = (await context.skills()).find(
+  // Both of the destination's directories count: a name sitting in its
+  // `skills.disabled` is the same name arriving twice.
+  const clash = (await siblings).find(
     (candidate) =>
-      candidate.name === entity.name && skillPlacement(candidate)?.store === target.store
+      candidate.name === entity.name && placementOf(kind, candidate)?.store === target.store
   )
   if (clash) {
     return refused(
       'bad-request',
-      `${target.label} already holds a skill named ${entity.name} (${clash.origin}); kondo will not merge the two.`
+      `${target.label} already holds a ${kind} named ${entity.name} (${clash.origin}); kondo will not merge the two.`
     )
   }
 
-  // ADR-0006: the skill's state travels with it, so a benched skill lands in
-  // the destination's `skills.disabled` and stays benched.
-  const to = `${entity.enabled ? SKILLS : SKILLS_DISABLED}/${entity.name}`
+  // ADR-0006: the entry's state travels with it, so a benched skill lands in
+  // the destination's `skills.disabled` and stays benched. That is already
+  // what `placement.at` says — a move changes the store, never the directory.
   return {
     ok: true,
     plan: {
       op: 'move',
-      kind: 'skill',
+      kind,
       entityId: entity.id,
-      summary: `Move skill ${entity.name} from ${entity.origin} to ${target.label}`,
+      summary: `Move ${kind} ${entity.name} from ${entity.origin} to ${target.label}`,
       steps: [
-        { type: 'copy', store: placement.store, from: placement.from, toStore: target.store, to },
-        { type: 'trash', store: placement.store, from: placement.from }
+        {
+          type: 'copy',
+          store: placement.store,
+          from: placement.at,
+          toStore: target.store,
+          to: placement.at
+        },
+        { type: 'trash', store: placement.store, from: placement.at }
       ]
     }
   }
