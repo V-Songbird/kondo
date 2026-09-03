@@ -263,6 +263,32 @@ export type SkillScope =
   | 'project'
   | 'project-disabled'
 
+/**
+ * Claude's four per-skill listing values (domain.md, read off the Claude Code
+ * settings schema): `name-only` lists the skill without its description,
+ * `user-invocable-only` hides it from the model but keeps `/name`, and `off`
+ * hides it from both. A skill no layer states is `on`.
+ *
+ * Only `off` is a disabling. The middle two leave the skill loaded, so they
+ * narrow what a row *says* and never what it may do.
+ */
+export type SkillOverride = 'on' | 'name-only' | 'user-invocable-only' | 'off'
+
+/**
+ * The winning `skillOverrides` statement about one skill, and the settings
+ * layer that made it. The layer travels because a refusal has to name the
+ * file a user would edit to undo it (ADR-0006) — "this skill is off" without
+ * saying where it was switched off is not an answer anyone can act on.
+ */
+export interface SkillOverrideState {
+  value: SkillOverride
+  /** `settings:<layer>:<key>` — the layer that stated it (ADR-0008). */
+  layerId: string
+  layer: 'user' | 'project' | 'local'
+  /** Display path of that layer (tildified). */
+  layerPath: string
+}
+
 export interface SkillInfo extends EntityIdentity {
   /** `skill:<scope>:<key>` */
   id: string
@@ -271,7 +297,21 @@ export interface SkillInfo extends EntityIdentity {
   scope: SkillScope
   /** Display path of the skill directory (tildified). */
   origin: string
+  /**
+   * Whether Claude actually loads and offers this skill. Two independent
+   * mechanisms have to agree: the directory it sits in (`skills/` rather than
+   * the bench) *and* no settings layer switching it `off` via
+   * `skillOverrides`. A skill in `skills/` that an override switches off is
+   * off, and says so here rather than reading as enabled.
+   */
   enabled: boolean
+  /**
+   * The `skillOverrides` statement that governs this skill, or null when no
+   * layer in its scope's chain states one. Carried whatever it says: the two
+   * middle values are not disablings, so they show up here without touching
+   * `enabled`.
+   */
+  override: SkillOverrideState | null
   /**
    * The `project:code:<dirName>` id of the project this skill belongs to, or
    * null for a user-scope or plugin-shipped one. Attribution travels as this

@@ -117,9 +117,18 @@ export function createKindContext(sources: KindContextSources): KindContext {
     plugins: () =>
       (plugins ??= (async () =>
         scanPlugins(sources.locator, await context.layers(), sources.c))()),
+    // The settings layers come first: a skill's effective state is the
+    // directory it sits in *and* what `skillOverrides` says about it
+    // (ADR-0006), so the listing cannot be built without them. They are the
+    // same cached read every other kind uses, so this costs no extra I/O.
     skills: () =>
       (skills ??= (async () =>
-        scanSkills(sources.locator, await sources.projects(), sources.c))()),
+        scanSkills(
+          sources.locator,
+          await sources.projects(),
+          await context.layers(),
+          sources.c
+        ))()),
     parentId: sources.parentId ?? null
   }
   return context

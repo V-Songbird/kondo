@@ -15,6 +15,8 @@ import type {
   PluginScopeState,
   SettingsLayerInfo,
   SkillInfo,
+  SkillOverride,
+  SkillOverrideState,
   StoreEntry,
   StoreReport
 } from '../../../shared/contract'
@@ -29,7 +31,7 @@ import {
   safeStat,
   type Collector
 } from './scan'
-import { capabilitiesFor } from './capabilities'
+import { capabilitiesFor, skillCapabilities } from './capabilities'
 import { flattenProjectPath } from './projects'
 import { projectId } from './sessions'
 import { readFrontmatter } from './frontmatter'
@@ -882,10 +884,87 @@ export async function scanMcpServers(
 }
 
 // ---------------------------------------------------------------------------
-// Configuration orphans (ADR-0010)
+// skillOverrides — Claude's per-skill switch
 
 /** Claude's documented per-skill switch (domain.md); an object of names. */
 const SKILL_OVERRIDES = 'skillOverrides'
+
+/**
+ * The four values Claude's settings schema admits (domain.md). Anything else
+ * is a layer saying nothing rather than an error (ADR-0005) — a store that
+ * grew a fifth value leaves the skill reading as `on` until domain.md catches
+ * up, which is the safe direction to be wrong in.
+ */
+const SKILL_OVERRIDE_VALUES: readonly string[] = [
+  'on',
+  'name-only',
+  'user-invocable-only',
+  'off'
+]
+
+/**
+ * What one settings layer says about one skill, or null when it says nothing
+ * at all — the same three-way answer `pluginStateIn` gives, and for the same
+ * reason: a silent layer cannot win over one that speaks, which is what makes
+ * precedence resolvable.
+ */
+export function skillOverrideIn(layer: SettingsLayer, name: string): SkillOverride | null {
+  const value = asObject(layer.parsed?.[SKILL_OVERRIDES])?.[name]
+  if (typeof value !== 'string' || !SKILL_OVERRIDE_VALUES.includes(value)) return null
+  return value as SkillOverride
+}
+
+/**
+ * The layers that speak for one skill, highest precedence first (domain.md:
+ * local > project > user).
+ *
+ * A project-scope skill loads only in its own project, so its chain is that
+ * project's two layers and then the shared user one. A user-scope skill loads
+ * in every project, so no single project's layer speaks for it — its chain is
+ * the user layer alone, which is the one statement true everywhere. A project
+ * that switches a user skill off for itself is that project's business, and
+ * kondo has nowhere to show it: `projectDetail` lists a project's own skills,
+ * never the user's.
+ */
+export function overrideChain(
+  layers: SettingsLayer[],
+  owner: string | null
+): SettingsLayer[] {
+  const user = layers.filter((layer) => layer.info.layer === 'user')
+  if (owner === null) return user
+  return [
+    ...layers
+      .filter((layer) => layer.info.projectId === owner)
+      .sort((a, b) => LAYER_RANK[a.info.layer] - LAYER_RANK[b.info.layer]),
+    ...user
+  ]
+}
+
+/**
+ * The winning statement about one skill, or null when no layer in its chain
+ * states one. The first layer that speaks ends the walk, so precedence is the
+ * chain's order and nothing else — and the layer that won travels with the
+ * answer, because a refusal has to name it (ADR-0006).
+ */
+export function resolveSkillOverride(
+  chain: readonly SettingsLayer[],
+  name: string
+): SkillOverrideState | null {
+  for (const layer of chain) {
+    const value = skillOverrideIn(layer, name)
+    if (value === null) continue
+    return {
+      value,
+      layerId: layer.info.id,
+      layer: layer.info.layer,
+      layerPath: layer.info.path
+    }
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Configuration orphans (ADR-0010)
 
 /** One orphan, plus everything a splice needs to take it out. */
 export interface ConfigOrphanRecord {
@@ -1078,9 +1157,12 @@ type PlacedShape = 'skill-dir' | 'markdown'
  * a move can never disagree about where an entry sits: `kinds.ts` reads
  * placements from here rather than deriving a path of its own.
  *
- * `benched` is the sibling directory a disabled entry sits in — Claude's own
- * convention for skills (ADR-0006), and null for the four markdown kinds,
- * which have no bench at all. `inProject` is false only for output styles:
+ * `benched` is the sibling directory a disabled entry sits in — kondo's own
+ * parking spot for skills, and null for the four markdown kinds, which have
+ * no bench at all. Entry 029 verified that no Claude Code build reads
+ * `skills.disabled`: moving a skill there stops it loading only because it
+ * has left `skills/`, and Claude's named per-skill switch is `skillOverrides`
+ * in a settings layer (ADR-0006). `inProject` is false only for output styles:
  * no project store has been observed carrying them, and kondo does not go
  * looking for a directory it has never seen.
  */
@@ -1173,29 +1255,50 @@ async function readPlacedDir(
   return records
 }
 
-/** The skill directories under `root`, as SkillInfo. */
+/** One skill directory to read, and everything its entries resolve against. */
+interface SkillDirRead {
+  root: string
+  scope: SkillInfo['scope']
+  keyPrefix: string
+  /** Whether this is the live directory rather than the bench. */
+  live: boolean
+  owner: string | null
+  /** The layers that speak for this scope, highest precedence first. */
+  chain: readonly SettingsLayer[]
+}
+
+/**
+ * The skill directories under `read.root`, as SkillInfo. Claude has two
+ * independent per-skill mechanisms (ADR-0006) and both are resolved here: the
+ * directory the skill sits in, and the `skillOverrides` statement its chain
+ * carries. A skill is enabled only when both say so, which is what Claude
+ * does with it — a skill in `skills/` that a layer switches `off` is off.
+ */
 async function readSkillDir(
   locator: StoreLocator,
-  root: string,
-  scope: SkillInfo['scope'],
-  keyPrefix: string,
-  enabled: boolean,
-  owner: string | null,
+  read: SkillDirRead,
   c: Collector
 ): Promise<SkillInfo[]> {
-  return (await readPlacedDir(locator, root, 'skill-dir', c)).map((record) => ({
-    id: `skill:${keyPrefix}:${record.name}`,
-    kind: 'skill',
-    capabilities: capabilitiesFor('skill', scope),
-    name: record.name,
-    description: record.description,
-    scope,
-    origin: tildify(record.target, locator.home),
-    enabled,
-    // ADR-0008: the owning project travels as a field. The renderer joins
-    // on it rather than splitting `skill:project/<flat>:<name>` apart.
-    projectId: owner
-  }))
+  return (await readPlacedDir(locator, read.root, 'skill-dir', c)).map((record) => {
+    const override = resolveSkillOverride(read.chain, record.name)
+    return {
+      id: `skill:${read.keyPrefix}:${record.name}`,
+      kind: 'skill',
+      // The matrix row for the scope, narrowed by the override: a skill a
+      // layer has switched off has no toggle to offer in either direction,
+      // and the refusal names the layer rather than the bench.
+      capabilities: skillCapabilities(read.scope, override),
+      name: record.name,
+      description: record.description,
+      scope: read.scope,
+      origin: tildify(record.target, locator.home),
+      enabled: read.live && override?.value !== 'off',
+      override,
+      // ADR-0008: the owning project travels as a field. The renderer joins
+      // on it rather than splitting `skill:project/<flat>:<name>` apart.
+      projectId: read.owner
+    }
+  })
 }
 
 /**
@@ -1324,6 +1427,7 @@ export async function countStoreEntries(
 export async function scanSkills(
   locator: StoreLocator,
   projects: VerifiedProject[],
+  layers: SettingsLayer[],
   c: Collector
 ): Promise<SkillInfo[]> {
   // Both of Claude's skill directories come off the placement table, so the
@@ -1331,33 +1435,56 @@ export async function scanSkills(
   // bench is a fact of the table rather than of the type, so a kind that
   // grew one later simply lists both without this being edited.
   const { dir, benched } = PLACEMENTS.skill
-  const roots: Array<[string, SkillInfo['scope'], string, boolean, string | null]> = [
-    [path.join(locator.userRoot, dir), 'user', 'user', true, null]
+  const userChain = overrideChain(layers, null)
+  const reads: SkillDirRead[] = [
+    {
+      root: path.join(locator.userRoot, dir),
+      scope: 'user',
+      keyPrefix: 'user',
+      live: true,
+      owner: null,
+      chain: userChain
+    }
   ]
   if (benched !== null) {
-    roots.push([path.join(locator.userRoot, benched), 'user-disabled', 'user-disabled', false, null])
+    reads.push({
+      root: path.join(locator.userRoot, benched),
+      scope: 'user-disabled',
+      keyPrefix: 'user-disabled',
+      live: false,
+      owner: null,
+      chain: userChain
+    })
   }
   for (const project of projects) {
     // ADR-0002: the project store is its .claude directory and nothing above
-    // it. ADR-0006: skills.disabled is Claude's own convention, scoped.
+    // it. The bench directory is kondo's own, not Claude's — entry 029
+    // verified that no Claude Code build reads it (ADR-0006).
     const claudeDir = path.join(project.absPath, '.claude')
     const owner = projectId(project.dirName)
-    roots.push([path.join(claudeDir, dir), 'project', `project/${project.dirName}`, true, owner])
+    const chain = overrideChain(layers, owner)
+    reads.push({
+      root: path.join(claudeDir, dir),
+      scope: 'project',
+      keyPrefix: `project/${project.dirName}`,
+      live: true,
+      owner,
+      chain
+    })
     if (benched !== null) {
-      roots.push([
-        path.join(claudeDir, benched),
-        'project-disabled',
-        `project-disabled/${project.dirName}`,
-        false,
-        owner
-      ])
+      reads.push({
+        root: path.join(claudeDir, benched),
+        scope: 'project-disabled',
+        keyPrefix: `project-disabled/${project.dirName}`,
+        live: false,
+        owner,
+        chain
+      })
     }
   }
 
   const skills: SkillInfo[] = []
-  for (const [root, scope, keyPrefix, enabled, owner] of roots) {
-    skills.push(...(await readSkillDir(locator, root, scope, keyPrefix, enabled, owner, c)))
-  }
+  for (const read of reads) skills.push(...(await readSkillDir(locator, read, c)))
   skills.sort((a, b) => a.id.localeCompare(b.id))
   return skills
 }
@@ -1375,6 +1502,11 @@ export async function scanSkills(
  * The result is read-only by construction. Its `plugin` scope resolves to the
  * matrix row refusing enable, disable and move alike (ADR-0006), so an id from
  * this listing cannot be mutated by whatever gets hold of one.
+ *
+ * The override chain is empty on purpose. Claude pins a plugin-shipped skill
+ * to `on` before it consults `skillOverrides`, so a user, project or local
+ * layer does not reach one at all (domain.md, verified by entry 029) — only
+ * managed and flag settings do, and kondo reads neither.
  */
 export async function scanPluginSkills(
   locator: StoreLocator,
@@ -1386,15 +1518,18 @@ export async function scanPluginSkills(
   const key = record.info.id.slice('plugin:'.length)
   const skills = await readSkillDir(
     locator,
-    path.join(record.installAbs, 'skills'),
-    'plugin',
-    `plugin/${key}`,
-    // A plugin-shipped skill has no bench of its own: it is live exactly when
-    // its plugin is, which the plugin's own row already says.
-    true,
-    // A plugin belongs to no project: it is installed once and reaches every
-    // one of them, so the attribution field has nothing to say.
-    null,
+    {
+      root: path.join(record.installAbs, 'skills'),
+      scope: 'plugin',
+      keyPrefix: `plugin/${key}`,
+      // A plugin-shipped skill has no bench of its own: it is live exactly
+      // when its plugin is, which the plugin's own row already says.
+      live: true,
+      // A plugin belongs to no project: it is installed once and reaches
+      // every one of them, so the attribution field has nothing to say.
+      owner: null,
+      chain: []
+    },
     c
   )
   skills.sort((a, b) => a.id.localeCompare(b.id))

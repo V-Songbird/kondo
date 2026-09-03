@@ -1,4 +1,9 @@
-import type { Capabilities, CapabilityDecision, EntityKind } from '../../../shared/contract'
+import type {
+  Capabilities,
+  CapabilityDecision,
+  EntityKind,
+  SkillOverrideState
+} from '../../../shared/contract'
 
 /**
  * The capability matrix: write permission is a lookup on kind × scope ×
@@ -158,4 +163,40 @@ export function capabilitiesFor(kind: EntityKind, scope: string): Capabilities {
 /** The scopes the matrix knows for a kind — the registry publishes these. */
 export function scopesFor(kind: EntityKind): readonly string[] {
   return Object.keys(MATRIX[kind])
+}
+
+/**
+ * One skill's matrix row, narrowed by whatever `skillOverrides` says about
+ * it. The matrix answers kind × scope, which is what Claude's conventions
+ * permit *in general*; an override is a fact about this one skill in this one
+ * layer chain, so it narrows the row here rather than becoming a sixth scope
+ * the table would have to carry for every kind.
+ *
+ * Claude has two per-skill mechanisms and they are independent (ADR-0006):
+ * the directory a skill sits in, and `skillOverrides` in a settings layer.
+ * kondo's toggle writes the first, so when the second already says `off` the
+ * toggle has nothing to offer in either direction — moving a skill back into
+ * `skills/` does not turn it on while a layer switches it off, and moving it
+ * to the bench does not turn off something already off. Both refusals name
+ * the layer, because that file is where the state actually lives and editing
+ * it is the only thing that would change the answer.
+ *
+ * Only `off` narrows anything. `name-only` and `user-invocable-only` leave
+ * the skill loaded (domain.md), so a bench move still means what it means.
+ */
+export function skillCapabilities(
+  scope: string,
+  override: SkillOverrideState | null
+): Capabilities {
+  const row = capabilitiesFor('skill', scope)
+  if (override === null || override.value !== 'off') return row
+  return {
+    ...row,
+    enable: deny(
+      `${override.layerPath} switches this skill off via skillOverrides; moving it back into skills/ would not turn it on.`
+    ),
+    disable: deny(
+      `${override.layerPath} already switches this skill off via skillOverrides.`
+    )
+  }
 }

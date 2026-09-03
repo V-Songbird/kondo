@@ -63,3 +63,40 @@ preferences, scan cache — never the truth about the user's Claude setup.
   switched off that way shows as enabled. Reading it is entry 029; the same
   entry decides which convention each scope writes and records the answer
   here, so the two cannot diverge silently.
+- Settled 2026-09-03 (entry 029), against the two Claude Code builds installed
+  on the owner's machine (2.1.255 and 2.1.258). **`skills.disabled` is not a
+  Claude convention in any scope.** The string does not occur in either
+  binary; every `.disabled` hit in them belongs to something else
+  (`sandbox.filesystem.disabled`, `install.disabled_by_default`). Claude's own
+  in-product line is "Disable in /skills, or remove from .claude/skills.", and
+  `/skills` writes `skillOverrides` into the *local* layer. So the answer to
+  the question this ADR left open is the same in every scope:
+
+  | Scope | Disable convention Claude honours | What kondo does today |
+  |---|---|---|
+  | user | `skillOverrides` in `~/.claude/settings.json` | moves the directory to `~/.claude/skills.disabled/` |
+  | project | `skillOverrides` in that project's settings layer | moves it to `<project>/.claude/skills.disabled/` |
+  | local | `skillOverrides` in `settings.local.json` — where `/skills` writes | nothing |
+  | plugin | none reachable by the user's layers (below) | refused, unchanged |
+
+  The 2026-09-02 entry above is corrected on two further points. Claude pins a
+  plugin-shipped skill to `on` *before* consulting `skillOverrides`, so a
+  user, project or local layer does **not** reach one — only managed policy
+  and CLI flag settings do, and kondo reads neither. And the value set has
+  four members, not two: `on`, `name-only`, `user-invocable-only`, `off`.
+  Claude's schema describes them as — `name-only` lists the skill without its
+  description, `user-invocable-only` hides it from the model but keeps
+  `/name`, `off` hides it from both, absent = on. Only `off` is a disabling,
+  so only `off` moves kondo's `enabled`.
+- Consequence for the toggle kondo ships. Moving a skill out of `skills/` does
+  stop Claude loading it — that is the "remove from .claude/skills" half of
+  Claude's own advice — so the toggle is not *wrong*; `skills.disabled/` is
+  simply kondo's chosen parking spot rather than a bench Claude recognises,
+  and this ADR no longer claims otherwise. Entry 029 stopped at reading:
+  `SkillInfo` now carries the winning override and an `enabled` that both
+  mechanisms have to agree on, and the matrix refuses a toggle that an
+  override has already settled, naming the layer. Writing `skillOverrides`
+  instead of moving directories is the follow-on, and the splice editor it
+  needs already exists — `spliceMember(source, [member, key], literal)` in
+  `user-store.ts` takes the member name as a parameter, so `enabledPlugins`
+  and `skillOverrides` share one editor and no second one is to be added.

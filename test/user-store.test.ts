@@ -102,7 +102,7 @@ describe('user store adapter', () => {
     // A hook takes the projectId of the layer that arms it.
     for (const hook of hooksFromLayers(layers)) expect(hook.projectId).toBeNull()
 
-    const skills = await scanSkills(world.locator, verified, c)
+    const skills = await scanSkills(world.locator, verified, layers, c)
     const delta = skills.find((skill) => skill.name === 'delta-skill')!
     expect(delta.projectId).toBe(owner)
     expect(skills.find((skill) => skill.name === 'alpha-skill')!.projectId).toBeNull()
@@ -149,7 +149,8 @@ describe('user store adapter', () => {
 
   it('catalogs the skills the user placed, in the user store and each project', async () => {
     const c = collector()
-    const skills = await scanSkills(world.locator, verified, c)
+    const layers = await readSettingsLayers(world.locator, verified, c)
+    const skills = await scanSkills(world.locator, verified, layers, c)
 
     const ids = skills.map((skill) => skill.id)
     expect(ids).toContain('skill:user:alpha-skill')
@@ -166,7 +167,8 @@ describe('user store adapter', () => {
     const c = collector()
     // The fixture's plugins do ship skills; none of them is the user's to
     // move or bench, so none of them crosses into the skills catalogue.
-    const skills = await scanSkills(world.locator, verified, c)
+    const layers = await readSettingsLayers(world.locator, verified, c)
+    const skills = await scanSkills(world.locator, verified, layers, c)
     expect(skills.some((skill) => skill.scope === 'plugin')).toBe(false)
     expect(skills.some((skill) => skill.name === 'gamma-skill')).toBe(false)
     expect(skills.some((skill) => skill.name === 'epsilon-skill')).toBe(false)
