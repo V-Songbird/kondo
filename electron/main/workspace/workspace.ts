@@ -549,6 +549,29 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       })
     },
 
+    async pluginMove(
+      pluginId: string,
+      fromLayerId: string,
+      destinationId: string,
+      createLayer?: boolean
+    ): Promise<Scan<JournalEntryInfo | null>> {
+      if (typeof pluginId !== 'string' || !pluginId.startsWith(PLUGIN_ID_PREFIX)) {
+        return badRequest(null, 'pluginMove expects a plugin: id.')
+      }
+      if (typeof fromLayerId !== 'string' || !fromLayerId.startsWith('settings:')) {
+        return badRequest(null, 'pluginMove expects a settings: layer id to move out of.')
+      }
+      if (typeof destinationId !== 'string' || destinationId === '') {
+        return badRequest(null, 'pluginMove expects a destination scope id.')
+      }
+      return entityMutate(pluginId, {
+        op: 'move',
+        sourceId: fromLayerId,
+        targetId: destinationId,
+        confirm: createLayer === true
+      })
+    },
+
     async pluginClear(
       pluginId: string,
       layerId: string

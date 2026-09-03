@@ -128,6 +128,13 @@ export interface MutateRequest {
    */
   targetId?: string
   /**
+   * Where the operation starts, as an id from a previous scan. Only a plugin
+   * move needs one: a skill sits in exactly one scope, so its own id says
+   * where it comes from, while a plugin is stated in as many settings layers
+   * as mention it and the one being withdrawn has to be named.
+   */
+  sourceId?: string
+  /**
    * The user has confirmed a step that would bring a file into existence.
    * Without it such a step is refused with `needs-confirmation` and nothing
    * is written.
@@ -855,6 +862,35 @@ export interface KondoApi {
    * clear, and nothing licenses creating a file to say less than nothing.
    */
   pluginClear(pluginId: string, layerId: string): Promise<Scan<JournalEntryInfo | null>>
+  /**
+   * Hand one plugin from one settings layer to another scope as ONE
+   * reversible operation (ADR-0001): the destination's `enabledPlugins`
+   * gains a `true` and the source's entry becomes `false`, both in the same
+   * journal entry, so a single undo puts both files back or neither.
+   *
+   * Not a relocation (ADR-0006). Nothing installed moves on disk — Claude's
+   * convention for "on there, off here" is two explicit statements, and this
+   * writes exactly those two and nothing else. Only the two keys' bytes
+   * change; every other key and each file's formatting survive untouched.
+   *
+   * `fromLayerId` is the `settings:` layer the plugin is enabled in; a layer
+   * that does not enable it is refused, because there is nothing there to
+   * hand on. `destinationId` is `'user'` or a `project:code:` id from a
+   * previous scan, the same vocabulary `skillMove` takes — *which* of that
+   * scope's layers receives the `true` is policy resolved in the main
+   * process, the way `targetLayerId` is, and never the renderer's to pick.
+   *
+   * A destination whose settings file does not exist yet is refused with
+   * `needs-confirmation` and nothing is written, exactly as `pluginToggle`
+   * refuses it: the caller shows the path, asks, and repeats the call with
+   * `createLayer`.
+   */
+  pluginMove(
+    pluginId: string,
+    fromLayerId: string,
+    destinationId: string,
+    createLayer?: boolean
+  ): Promise<Scan<JournalEntryInfo | null>>
   hooksList(): Promise<Scan<HookInfo[]>>
   settingsLayers(): Promise<Scan<SettingsLayerInfo[]>>
   /**
@@ -941,6 +977,7 @@ export const channels = {
   pluginSkills: 'kondo:plugin-skills',
   pluginToggle: 'kondo:plugin-toggle',
   pluginClear: 'kondo:plugin-clear',
+  pluginMove: 'kondo:plugin-move',
   hooksList: 'kondo:hooks-list',
   settingsLayers: 'kondo:settings-layers',
   tidyPreview: 'kondo:tidy-preview',

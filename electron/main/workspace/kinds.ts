@@ -293,7 +293,15 @@ const plugin: EntityKindDefinition<PluginInfo> = {
    * The old entity-level seats had nowhere to put it and stayed empty.
    */
   async plan(entity, request, context) {
-    if (request.op === 'move') return matrixRefusal('plugin', entity.installScope, 'move')
+    if (request.op === 'move') {
+      return pluginMovePlan(
+        entity,
+        request.sourceId ?? '',
+        request.targetId ?? '',
+        request.confirm === true,
+        context
+      )
+    }
     return pluginTogglePlan(
       entity,
       request.op,
@@ -529,7 +537,7 @@ async function storelessDestination(
   return `${where} has no .claude directory; create ${path.join(
     where,
     '.claude'
-  )} before moving a skill there.`
+  )} before moving anything there.`
 }
 
 /**
@@ -682,6 +690,162 @@ async function pluginTogglePlan(
     )
   }
   return write(next)
+}
+
+// ---------------------------------------------------------------------------
+// Handing a plugin from one settings layer to another scope
+
+/**
+ * Which of a scope's layers receives the `true`: the highest-precedence one
+ * that already states a value, else that scope's `settings.local.json`. The
+ * same policy `projectPluginStates` picks a toggle's target by, so a plugin
+ * arriving in a scope lands in the file that scope's own control writes —
+ * and, like it, the renderer never chooses the file (ADR-0006).
+ */
+function destinationLayer(
+  layers: SettingsLayer[],
+  owner: string | null,
+  key: string
+): SettingsLayer | null {
+  const mine = layers
+    .filter((layer) => layer.info.projectId === owner)
+    .sort((a, b) => SCOPE_ORDER[a.info.layer] - SCOPE_ORDER[b.info.layer])
+  return (
+    mine.find((layer) => pluginStateIn(layer, key) !== null) ??
+    mine.find((layer) => layer.info.layer === 'local') ??
+    mine[0] ??
+    null
+  )
+}
+
+/**
+ * The store change that hands one plugin from one settings layer to another
+ * scope: `false` where it was stated, `true` where it is going, as ONE plan
+ * so ADR-0001's undo puts the pair back together or not at all.
+ *
+ * Two settings edits and not a relocation, because that is Claude's whole
+ * convention for it (ADR-0006): nothing installed moves, and "on there, off
+ * here" is said by `enabledPlugins` in two files. It reuses the single-layer
+ * editor `pluginTogglePlan` writes with rather than a second one, and the
+ * same `needs-confirmation` gate for a destination file that is not there.
+ *
+ * The destination is written first. Both steps are one journal entry either
+ * way, but a run interrupted between them then leaves the plugin enabled in
+ * both scopes rather than in neither — ADR-0001's order, that no intermediate
+ * state loses the thing.
+ *
+ * `destinationId` is `'user'` or a `project:code:` id (ADR-0008), the same
+ * vocabulary `skillMove` takes.
+ */
+async function pluginMovePlan(
+  entity: PluginInfo,
+  fromLayerId: string,
+  destinationId: string,
+  createLayer: boolean,
+  context: KindContext
+): Promise<PlanResult> {
+  const layers = await context.layers()
+  const from = layers.find((candidate) => candidate.info.id === fromLayerId)
+  if (!from) {
+    return refused(
+      'unknown-id',
+      `No settings layer with id "${fromLayerId}" in the current scan.`
+    )
+  }
+  // The matrix gates the layer the plugin is leaving, which is where the
+  // write that withdraws it lands (ADR-0006).
+  const decision = capabilitiesFor('plugin', from.info.layer).move
+  if (!decision.allowed) {
+    return refused(
+      'not-permitted',
+      decision.reason ?? 'kondo cannot move a plugin out of this layer.'
+    )
+  }
+  const storeless = await storelessDestination(destinationId, context)
+  if (storeless !== null) return refused('bad-request', storeless)
+
+  const target = await moveTarget(destinationId, context)
+  if (target === null) {
+    return refused(
+      'unknown-id',
+      `No scope with id "${destinationId}" in the current scan — rescan and retry.`
+    )
+  }
+
+  const key = entity.id.slice(PLUGIN_PREFIX.length)
+  // Only a layer that actually enables the plugin has one to hand on. Writing
+  // `false` where nothing said `true` states something new rather than moving
+  // anything, and would read in the journal as a move that never happened.
+  if (pluginStateIn(from, key) !== true) {
+    return refused(
+      'not-permitted',
+      `${from.info.path} does not enable ${entity.name}; there is nothing to move.`
+    )
+  }
+
+  const owner = destinationId === USER_DESTINATION ? null : destinationId
+  const to = destinationLayer(layers, owner, key)
+  if (to === null) {
+    return refused('bad-request', `${target.label} has no settings file kondo can write.`)
+  }
+  if (to.info.id === from.info.id) {
+    return refused('bad-request', `${entity.name} is already stated in ${to.info.path}.`)
+  }
+  if (pluginStateIn(to, key) === true) {
+    return refused('not-permitted', `${to.info.path} already enables ${entity.name}.`)
+  }
+
+  let arriving: string
+  if (!to.info.exists) {
+    // The same gate the toggle has, and the only one: nothing licenses
+    // conjuring a settings file, so this stops and asks and writes nothing.
+    if (!createLayer) {
+      return refused(
+        'needs-confirmation',
+        `${to.info.path} does not exist yet. Confirm to create it holding just this key.`
+      )
+    }
+    arriving = newSettingsSource(key, true)
+  } else {
+    if (to.source === null || to.parsed === null) {
+      return refused(
+        'parse-failed',
+        `${to.info.path} did not read back as a JSON object; kondo will not rewrite it.`
+      )
+    }
+    const next = editEnabledPlugins(to.source, key, true)
+    if (next === null) {
+      return refused(
+        'bad-request',
+        `kondo cannot edit enabledPlugins in ${to.info.path} without reformatting it.`
+      )
+    }
+    arriving = next
+  }
+
+  // The source states `true`, so its bytes read back — but the splice can
+  // still decline a file it would have to reformat.
+  const leaving = from.source === null ? null : editEnabledPlugins(from.source, key, false)
+  if (leaving === null) {
+    return refused(
+      'bad-request',
+      `kondo cannot edit enabledPlugins in ${from.info.path} without reformatting it.`
+    )
+  }
+
+  return {
+    ok: true,
+    plan: {
+      op: 'settings-edit',
+      kind: 'plugin',
+      entityId: entity.id,
+      summary: `Move plugin ${entity.name} from ${from.info.path} to ${to.info.path}`,
+      steps: [
+        { type: 'write', store: to.store, at: to.relative, content: arriving },
+        { type: 'write', store: from.store, at: from.relative, content: leaving }
+      ]
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

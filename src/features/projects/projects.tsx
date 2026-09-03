@@ -28,8 +28,8 @@ import { PluginControl } from './plugin-control'
  * is read for the row that was opened and for no other.
  */
 
-/** A scope a skill can be moved into (ADR-0008: ids, never paths). */
-interface Destination {
+/** A scope a skill or a plugin can be moved into (ADR-0008: ids, never paths). */
+export interface Destination {
   id: string
   label: string
 }
@@ -219,6 +219,23 @@ function ProjectPage({
     }
   }
 
+  /**
+   * Hand this plugin to another scope: one call, one journal entry, two
+   * settings files edited (ADR-0001). The source layer is the one this
+   * scope's control already writes; which file the destination scope
+   * receives it in is main's to choose, so only the scope id travels.
+   */
+  const move = (
+    plugin: ProjectPluginState,
+    destinationId: string,
+    createLayer = false
+  ): void => {
+    void run(
+      (api) => api.pluginMove(plugin.pluginId, plugin.targetLayerId, destinationId, createLayer),
+      () => move(plugin, destinationId, true)
+    )
+  }
+
   const choose = (
     plugin: ProjectPluginState,
     choice: ProjectPluginChoice,
@@ -271,6 +288,10 @@ function ProjectPage({
             return <div className="card text-mut">That project is no longer in the scan.</div>
           }
           const { row } = detail
+          // The user store names itself `user` as a destination; every other
+          // scope is its own project id. A scope is never its own destination.
+          const here = row.global ? 'user' : row.id
+          const elsewhere = destinations.filter((destination) => destination.id !== here)
           return (
             <div className="space-y-4">
               <div>
@@ -315,7 +336,9 @@ function ProjectPage({
                         state={plugin}
                         global={row.global}
                         busy={busy}
+                        destinations={elsewhere}
                         onChoose={(choice) => choose(plugin, choice)}
+                        onMove={(destinationId) => move(plugin, destinationId)}
                       />
                     </div>
                   ))}

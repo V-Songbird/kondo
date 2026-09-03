@@ -39,6 +39,19 @@ const api: KondoApi = {
     ipcRenderer.invoke(channels.pluginToggle, pluginId, layerId, operation, createLayer === true),
   pluginClear: (pluginId: string, layerId: string) =>
     ipcRenderer.invoke(channels.pluginClear, pluginId, layerId),
+  pluginMove: (
+    pluginId: string,
+    fromLayerId: string,
+    destinationId: string,
+    createLayer?: boolean
+  ) =>
+    ipcRenderer.invoke(
+      channels.pluginMove,
+      pluginId,
+      fromLayerId,
+      destinationId,
+      createLayer === true
+    ),
   hooksList: () => ipcRenderer.invoke(channels.hooksList),
   settingsLayers: () => ipcRenderer.invoke(channels.settingsLayers),
   tidyPreview: () => ipcRenderer.invoke(channels.tidyPreview),

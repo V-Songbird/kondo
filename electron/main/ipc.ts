@@ -68,6 +68,22 @@ export function registerIpc(api: KondoApi): void {
   ipcMain.handle(channels.pluginClear, (_event, pluginId: unknown, layerId: unknown) =>
     api.pluginClear(String(pluginId), String(layerId))
   )
+  ipcMain.handle(
+    channels.pluginMove,
+    (
+      _event,
+      pluginId: unknown,
+      fromLayerId: unknown,
+      destinationId: unknown,
+      createLayer: unknown
+    ) =>
+      api.pluginMove(
+        String(pluginId),
+        String(fromLayerId),
+        String(destinationId),
+        createLayer === true
+      )
+  )
   ipcMain.handle(channels.hooksList, () => api.hooksList())
   ipcMain.handle(channels.settingsLayers, () => api.settingsLayers())
   ipcMain.handle(channels.tidyPreview, () => api.tidyPreview())

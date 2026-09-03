@@ -18,10 +18,11 @@ function deny(reason: string): CapabilityDecision {
   return { allowed: false, reason }
 }
 
-// Only a skill is a self-contained directory the user placed by hand. A
-// plugin lives where Claude installed it, a hook is a fragment of a settings
-// file, and a session belongs to the project it was recorded in.
-const ONLY_SKILLS_MOVE = 'Only skills move between scopes; kondo relocates nothing else.'
+// What is left once skills and plugins are accounted for. A hook is a
+// fragment of a settings file, a session belongs to the project it was
+// recorded in, and a store is not somewhere else's to be — none of the three
+// is a thing one scope can hand to another.
+const NOTHING_TO_HAND_OVER = 'This kind does not move between scopes.'
 
 /** No operation at all is permitted, all three for the same reason. */
 function none(reason: string): Capabilities {
@@ -30,7 +31,7 @@ function none(reason: string): Capabilities {
 
 /** Neither toggle direction is permitted, and this kind does not relocate. */
 function neither(reason: string): Capabilities {
-  return { ...none(reason), move: deny(ONLY_SKILLS_MOVE) }
+  return { ...none(reason), move: deny(NOTHING_TO_HAND_OVER) }
 }
 
 const ALREADY_ENABLED = 'Already enabled.'
@@ -90,11 +91,14 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
     project: { enable: deny(ALREADY_ENABLED), disable: ALLOW, move: ALLOW },
     'project-disabled': { enable: ALLOW, disable: deny(ALREADY_DISABLED), move: ALLOW }
   },
-  // `enabledPlugins` in the settings layer for the scope (domain.md).
+  // `enabledPlugins` in the settings layer for the scope (domain.md). A
+  // plugin moves as well, and moves nothing on disk while doing it: handing
+  // one scope's plugin to another is a `false` here and a `true` there, which
+  // is what Claude's own convention says (ADR-0006) and all it says.
   plugin: {
-    user: { enable: ALLOW, disable: ALLOW, move: deny(ONLY_SKILLS_MOVE) },
-    project: { enable: ALLOW, disable: ALLOW, move: deny(ONLY_SKILLS_MOVE) },
-    local: { enable: ALLOW, disable: ALLOW, move: deny(ONLY_SKILLS_MOVE) }
+    user: { enable: ALLOW, disable: ALLOW, move: ALLOW },
+    project: { enable: ALLOW, disable: ALLOW, move: ALLOW },
+    local: { enable: ALLOW, disable: ALLOW, move: ALLOW }
   },
   hook: {
     user: neither(HOOK_HAS_NO_CONVENTION),

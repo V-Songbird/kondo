@@ -40,6 +40,11 @@ preferences, scan cache — never the truth about the user's Claude setup.
   kondo's UI and false in every session. Moving one between scopes is a
   different question — it changes nothing about how Claude reads the file —
   and is refused only until entry 028 ships it.
+- Moving a plugin between scopes is not a move at all. Claude installs a
+  plugin once and reads `enabledPlugins` per layer, so "on there, off here"
+  is two statements in two settings files and nothing on disk changes place.
+  Kondo writes exactly those two, in one plan, so ADR-0001's undo restores
+  both files or neither.
 - Revisited 2026-09-02: Claude has *two* per-skill conventions, and kondo
   speaks one. `skills.disabled/` was observed in the wild and is what the
   toggle writes. `skillOverrides` in a settings layer (`'off'`,

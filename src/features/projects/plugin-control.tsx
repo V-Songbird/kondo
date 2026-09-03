@@ -4,6 +4,7 @@ import type {
   ProjectPluginState,
   PluginScopeState
 } from '../../../shared/contract'
+import type { Destination } from './projects'
 
 /**
  * One plugin's three-way control for one scope, plus the layer strip behind a
@@ -36,20 +37,40 @@ function stateLabel(scope: PluginScopeState): string {
   return scope.enabled ? 'on' : 'off'
 }
 
+/**
+ * Why the picker is dark unless this scope says "on": a move is a `false`
+ * here and a `true` there (ADR-0006), so a scope that never turned the plugin
+ * on has nothing to hand over. Main refuses the same case by name.
+ */
+function moveRefusal(state: ProjectPluginState): string | null {
+  if (!state.capabilities.move.allowed) {
+    return state.capabilities.move.reason ?? 'kondo cannot move this plugin.'
+  }
+  return state.choice === 'on'
+    ? null
+    : 'Only a scope that turns the plugin on has one to hand over.'
+}
+
 export function PluginControl({
   state,
   global,
   busy,
-  onChoose
+  destinations,
+  onChoose,
+  onMove
 }: {
   state: ProjectPluginState
   global: boolean
   busy: boolean
+  /** Every scope but this one; ids, never paths (ADR-0008). */
+  destinations: Destination[]
   onChoose: (choice: ProjectPluginChoice) => void
+  onMove: (destinationId: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const target = state.scopes.find((scope) => scope.layerId === state.targetLayerId)
   const decision = state.capabilities.disable
+  const refusal = moveRefusal(state)
 
   return (
     <div className="space-y-1">
@@ -77,6 +98,29 @@ export function PluginControl({
             </button>
           )
         })}
+        {/* Beside the chips because it is the same question they answer —
+            where this plugin is on — asked of somewhere else. It writes two
+            files, so it is one control rather than a fourth position. */}
+        <select
+          value=""
+          disabled={busy || refusal !== null || destinations.length === 0}
+          title={
+            refusal ??
+            `Turns it off in ${target?.path ?? state.targetLayerId} and on where it lands`
+          }
+          className="max-w-[14rem] cursor-pointer rounded-md border border-edge bg-transparent px-2 py-0.5 text-xs text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          onChange={(event) => {
+            const destinationId = event.target.value
+            if (destinationId !== '') onMove(destinationId)
+          }}
+        >
+          <option value="">Move to…</option>
+          {destinations.map((destination) => (
+            <option key={destination.id} value={destination.id}>
+              {destination.label}
+            </option>
+          ))}
+        </select>
         {/* What Claude actually honours here, which is not always what this
             scope says: a silent project is answered by the user layer. */}
         <span className="ml-1 text-xs text-mut">

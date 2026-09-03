@@ -226,6 +226,11 @@ splits out of an id (ADR-0008).
   (`pluginClear`). Which file a position writes is chosen in the main process:
   the highest-precedence layer of that scope that *already states a value*,
   and `settings.local.json` when none does.
+- Handing a plugin to another scope is those same statements twice, never a
+  relocation: nothing installed moves on disk. Kondo writes `false` in the
+  layer that enabled it and `true` in the destination scope's layer, as one
+  reversible operation (`pluginMove`). The destination *file* is chosen by
+  the same rule as a toggle's.
 
 ## Desktop store
 
