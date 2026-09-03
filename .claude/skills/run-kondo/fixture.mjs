@@ -72,6 +72,7 @@ await fs.mkdir(desktopRoot, { recursive: true })
 await fs.mkdir(dataRoot, { recursive: true })
 
 const pluginInstall = path.join(userRoot, 'plugins', 'cache', 'acme', 'foreman', '2.3.0')
+const hushInstall = path.join(userRoot, 'plugins', 'cache', 'acme', 'hush', '1.0.0')
 
 await write(userRoot, {
   'settings.json': JSON.stringify({ enabledPlugins: { 'foreman@acme': true } }, null, 2),
@@ -88,7 +89,8 @@ await write(userRoot, {
     {
       version: 2,
       plugins: {
-        'foreman@acme': [{ scope: 'user', installPath: pluginInstall, version: '2.3.0' }]
+        'foreman@acme': [{ scope: 'user', installPath: pluginInstall, version: '2.3.0' }],
+        'hush@acme': [{ scope: 'user', installPath: hushInstall, version: '1.0.0' }]
       }
     },
     null,
@@ -102,10 +104,16 @@ await write(userRoot, {
   )
 })
 
-// Ships inside a plugin, so kondo's skills catalogue must not list it.
+// Ships inside a plugin, so kondo's skills catalogue must not list it. Two of
+// them, so the per-plugin listing is a list rather than a single row.
 await write(pluginInstall, {
-  'skills/roadmap/SKILL.md': skill('roadmap', 'Ships with the foreman plugin, not the user')
+  'skills/roadmap/SKILL.md': skill('roadmap', 'Ships with the foreman plugin, not the user'),
+  'skills/survey/SKILL.md': skill('survey', 'Also ships with foreman, never with the user')
 })
+
+// Installed and real, and ships nothing: no 'skills' directory at all, which
+// is the empty state under test. An empty directory is a different case.
+await write(hushInstall, { 'commands/hush.md': '# hush\n' })
 
 // A project verifies only when it has BOTH a transcript directory above and
 // a real `.claude` directory here.
