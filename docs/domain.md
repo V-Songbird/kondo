@@ -86,8 +86,9 @@ only the parts named here (ADR-0009):
   the project set**: kondo lists the union of them and the `projects/`
   directories below, joined on the flattened path, so a directory Claude has
   registered but never kept a transcript for is still a project. Each member
-  carries `sources` (`registry`, `transcripts`, or both), `pathExists`, and
-  `hasStore` — the last being whether it holds a `.claude` at all.
+  carries `sources` (`registry`, `transcripts`, or both), `location`
+  (`here`, `gone` or `unlocated` — `pathExists` was replaced by it in entry
+  030) and `hasStore`, the last being whether it holds a `.claude` at all.
 - `mcpServers` ✅ — user-scope MCP servers: `{ name → { type, command, args,
   env } | { type, url, headers } }`. `env` and `headers` can hold secrets.
 - `skillUsage` and `pluginUsage` ✅ — usage counters, `{ name → {
@@ -326,10 +327,19 @@ bulk size. The Claude-specific parts ✅:
   `<project>/.claude` by its flattened path (ADR-0009). The project set is
   the **union** of the first two, never just one of them, and each member
   says which of them named it. A registry key whose directory is gone stays
-  in the set with `pathExists: false`; one whose directory has no `.claude`
+  in the set with `location: 'gone'`; one whose directory has no `.claude`
   stays with `hasStore: false`. Only a member with `hasStore` is a store, so
   only one of those can take a skill — a move into any other is refused as a
   `bad-request` naming the `.claude` directory that would have to exist.
+- Because the set is a union, its size is not the same figure as "projects
+  with transcripts", and the wider one must never be shown wearing the
+  narrower one's label. `StoresOverview.sessions` carries both:
+  `projectCount` is the union, and `transcriptProjectCount` is how many of
+  those hold at least one transcript — derived from the same tier-1
+  inventory, not from a second scan (ADR-0007). A registry key Claude has on
+  record but never worked in sits in the gap between them, so the pair is
+  what the projects home prints, each number named for the set it counts
+  (entry 038).
 - Which project a thing belongs to travels as a field, never as a substring
   of its id (ADR-0008): `SkillInfo`, `HookInfo`, `SettingsLayerInfo` and
   `PluginScopeState` each carry `projectId`. The folder name beside it

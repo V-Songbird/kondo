@@ -13,6 +13,7 @@ import type {
   SessionSummary,
   SkillInfo,
   StoreReport,
+  StoresOverview,
   ToggleOperation
 } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
@@ -323,12 +324,7 @@ function ProjectPage({
                     <StoreCard title="Claude Code store" report={detail.storage.user} />
                     <StoreCard title="Claude desktop store" report={detail.storage.desktop} />
                   </div>
-                  <p className="mt-3 text-xs text-mut">
-                    {formatCount(detail.storage.sessions.projectCount, 'project')} ·{' '}
-                    {formatCount(detail.storage.sessions.sessionCount, 'session')} ·{' '}
-                    {formatCount(detail.storage.sessions.staleCount, 'untouched session')} ·{' '}
-                    {formatBytes(detail.storage.sessions.transcriptBytes)} of transcripts
-                  </p>
+                  <SessionCounts sessions={detail.storage.sessions} />
                 </Section>
               )}
 
@@ -533,6 +529,35 @@ function ProjectPage({
         }}
       </AsyncView>
     </div>
+  )
+}
+
+/**
+ * The store's session figures, with both project numbers said out loud.
+ * `projectCount` is the whole set — registry keys and transcript directories
+ * alike (domain.md) — so it counts folders Claude merely has on record.
+ * Showing it alone made that wider definition read as sessions having gone
+ * missing, which is why the subset that actually holds transcripts is spelled
+ * out beneath it rather than replacing it.
+ */
+function SessionCounts({ sessions }: { sessions: StoresOverview['sessions'] }) {
+  const onRecordOnly = sessions.projectCount - sessions.transcriptProjectCount
+  return (
+    <>
+      <p className="mt-3 text-xs text-mut">
+        {formatCount(sessions.projectCount, 'project')} Claude has on record ·{' '}
+        {formatCount(sessions.sessionCount, 'session')} ·{' '}
+        {formatCount(sessions.staleCount, 'untouched session')} ·{' '}
+        {formatBytes(sessions.transcriptBytes)} of transcripts
+      </p>
+      <p className="mt-1 text-xs text-mut">
+        Of those: {formatCount(sessions.transcriptProjectCount, 'project')} with sessions
+        saved
+        {onRecordOnly > 0 &&
+          `, ${formatCount(onRecordOnly, 'project')} Claude has on record but never worked in`}
+        .
+      </p>
+    </>
   )
 }
 

@@ -64,8 +64,14 @@ Decision, three parts:
   the registry is written by splice, and only by splice.
 - The registry does not know a project that has a `.claude` directory but
   no Claude session yet, and `~/.claude/projects` does not know a project
-  whose transcripts were swept. The project set kondo should show is the
-  union of both sources (entry 025); today it is still the directory list.
+  whose transcripts were swept. The project set kondo shows is the union of
+  both sources (entry 025). A union is wider than either half, so a figure
+  drawn from it must not wear the narrower half's label: `StoresOverview`
+  reports `projectCount` (the union) and `transcriptProjectCount` (the
+  members holding at least one transcript) as a **pair**, both derived from
+  the one tier-1 inventory, and the projects home names each for the set it
+  counts (entry 038). Reporting the union alone under a bare "projects" made
+  a widened definition read as sessions having gone missing.
 - A failed stat means different things on the two halves, so the seam carries
   three states and not a flag (`ProjectLocation` in `shared/contract.ts`).
   Where the registry named the path, a failed stat is *evidence*: the path

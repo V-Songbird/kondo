@@ -202,7 +202,20 @@ export interface StoresOverview {
   user: StoreReport
   desktop: StoreReport
   sessions: {
+    /**
+     * The whole project set: the union of the `~/.claude.json` registry keys
+     * and the `~/.claude/projects` directories (domain.md). Wider than
+     * "projects with transcripts" on purpose — a directory Claude has on
+     * record but never worked in is still a member.
+     */
     projectCount: number
+    /**
+     * How many of those hold at least one transcript. Always <= projectCount,
+     * and strictly less whenever a registry key has no transcripts of its own.
+     * The pair is reported rather than the union alone so a wider project set
+     * never reads as sessions having gone missing.
+     */
+    transcriptProjectCount: number
     sessionCount: number
     staleCount: number
     transcriptBytes: number

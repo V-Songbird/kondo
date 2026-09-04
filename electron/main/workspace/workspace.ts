@@ -235,7 +235,12 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     let sessionCount = 0
     let staleCount = 0
     let transcriptBytes = 0
+    // The second count the card needs, read off the inventory the first one
+    // already walked: a member with no transcript of its own is a registry key
+    // Claude has on record and nothing more. No extra scan, no extra field.
+    let transcriptProjectCount = 0
     for (const project of projects) {
+      if (project.sessions.length > 0) transcriptProjectCount += 1
       sessionCount += project.sessions.length
       transcriptBytes += project.sessions.reduce((sum, s) => sum + s.bytes, 0)
       staleCount += project.sessions.filter((s) => isStale(s.mtimeMs, nowMs)).length
@@ -250,7 +255,14 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       data: {
         user,
         desktop,
-        sessions: { projectCount: projects.length, sessionCount, staleCount, transcriptBytes }
+        sessions: {
+          // The union (ADR-0009, domain.md), not the transcript-bearing subset.
+          projectCount: projects.length,
+          transcriptProjectCount,
+          sessionCount,
+          staleCount,
+          transcriptBytes
+        }
       },
       errors,
       unknown: [...scan.unknown, ...c.unknown]
