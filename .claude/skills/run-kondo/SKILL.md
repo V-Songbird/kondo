@@ -48,13 +48,33 @@ curl -s http://127.0.0.1:9222/json/list
 keep alive. Node 22's global `WebSocket` is why no Playwright is needed.
 
 ```bash
-cd .claude/skills/run-kondo
-node drive.mjs open Skills                       # click a tab, screenshot it
-node drive.mjs shoot before                      # screenshot on demand
-node drive.mjs press Disable                     # click a button by its text
-node drive.mjs pick commit-writer apiserver      # choose a select option in a row
-node drive.mjs eval "document.title"             # anything else
+# All of these run from the repo root.
+node .claude/skills/run-kondo/drive.mjs open Projects        # click a nav tab, screenshot it
+node .claude/skills/run-kondo/drive.mjs shoot before         # screenshot on demand
+node .claude/skills/run-kondo/drive.mjs press Disable        # click a button by its text
+node .claude/skills/run-kondo/drive.mjs pick commit-writer apiserver
+node .claude/skills/run-kondo/drive.mjs eval "document.title"  # anything else
 ```
+
+### Reaching a skill or a plugin
+
+`open` clicks a nav tab, and the nav has exactly four: `Projects`,
+`Clean up`, `Leftovers`, `History`. Skills and plugins are not among them —
+they are `Section`s inside the Projects view, showing whichever row the left
+list has selected. `open Skills` answers `no tab named Skills`.
+
+`open` matches a button's whole text, and a project row's text carries its
+count chips — `Global3 skills · 1 settings file` on a fresh fixture, and the
+counts move as you mutate — so it cannot select one.
+Selecting a row is an `eval`:
+
+```bash
+node .claude/skills/run-kondo/drive.mjs eval \
+  "(() => { const row = [...document.querySelectorAll('li button')].find((b) => b.textContent.includes('apiserver')); if (!row) return 'no project row matching apiserver'; row.click(); return 'opened ' + row.textContent.trim() })()"
+```
+
+The app opens on the first row, `Global`, so a check against global skills
+needs no click at all.
 
 `pick` exists because assigning `select.value` does nothing here: React
 tracks the value node, so the choice only registers through the prototype's
@@ -63,6 +83,45 @@ you would otherwise rediscover.
 
 Its row argument is a substring, and it takes the first row that contains it.
 Name the skill, not its location — several rows share a location.
+
+The worked example above runs as written against a fresh fixture:
+`open Projects` remounts the view on its first row, `Global`, and
+`commit-writer` is a global skill, so `pick commit-writer apiserver` moves it
+to the apiserver project and the banner offers Undo.
+
+`pick` scans `tbody tr`, so it reaches the tables in the selected project's
+detail — Skills among them. The Plugins section is not a table: its rows are
+divs, so `pick foreman off` answers `no row containing foreman`. A plugin's
+three-way position is buttons, so `press` does reach it, but the labels change
+with the scope: `On`/`Off`/`Not set` on Global, `On here`/`Off here`/`Follows
+global` on a project. List them rather than guess:
+
+```bash
+node .claude/skills/run-kondo/drive.mjs eval \
+  "JSON.stringify([...document.querySelectorAll('button')].map((b) => b.textContent.trim()))"
+```
+
+The button for the position a plugin is already in is disabled, and `press`
+says `button is disabled: Not set` rather than pretending it clicked. The
+plugin row's own `Move to…` select is out of `pick`'s reach for now.
+
+### Reading the bridge directly
+
+Some of the contract has no renderer yet. `window.kondo.pluginSkills` is one:
+it is on the preload bridge and covered by `test/plugin-skills.test.ts`, but
+the Plugins section shows a count, never the skills themselves. So `eval`
+across the seam is the only way to see its answer in a running app.
+
+```bash
+node .claude/skills/run-kondo/drive.mjs eval "window.kondo.pluginSkills('plugin:hush@acme')"
+#   {"data":[],"errors":[],"unknown":[]}      — no skills/ directory at all
+node .claude/skills/run-kondo/drive.mjs eval "window.kondo.pluginSkills('plugin:foreman@acme')"
+#   two rows, roadmap and survey, every capability refused
+```
+
+The id shape is `plugin:<name>@<marketplace>` (ADR-0008). With no argument it
+answers `bad-request`, not an empty list — an empty `data` really does mean
+the plugin ships none.
 
 Set `KONDO_SHOTS` to choose where screenshots land.
 
