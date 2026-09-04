@@ -223,7 +223,24 @@ describe('the projects home', () => {
     expect(data?.sessions).toEqual([])
     expect(data?.storage?.user.exists).toBe(true)
     expect(data?.storage?.sessions.projectCount).toBe(2)
+    expect(data?.storage?.sessions.transcriptProjectCount).toBe(1)
     expect(data?.row.counts.hooks).toBe(1)
+  })
+
+  it('counts the union and the transcript-bearing subset as two figures', async () => {
+    // `storeless` is registered in `~/.claude.json` and has no directory
+    // under `~/.claude/projects`, so it is a member of the union with no
+    // transcript of its own — the exact gap the two counts exist to name.
+    const overview = await api.storesOverview()
+    expect(overview.errors).toEqual([])
+
+    const { sessions } = overview.data
+    expect(sessions.projectCount).toBe(2)
+    expect(sessions.transcriptProjectCount).toBe(1)
+    expect(sessions.transcriptProjectCount).toBeLessThan(sessions.projectCount)
+    // The narrower count is about transcripts, not about registry keys: the
+    // one project that has any still holds every session in the store.
+    expect(sessions.sessionCount).toBe(1)
   })
 
   it('answers a malformed id and an unknown one with typed errors', async () => {

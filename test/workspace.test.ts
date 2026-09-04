@@ -109,6 +109,9 @@ describe('workspace (KondoApi)', () => {
   it('summarizes both stores in the overview', async () => {
     const overview = await api.storesOverview()
     expect(overview.data.sessions.projectCount).toBe(1)
+    // Every member of this store's union has a transcript, so the two
+    // project figures agree — the other half of the pair in projects-home.
+    expect(overview.data.sessions.transcriptProjectCount).toBe(1)
     expect(overview.data.sessions.sessionCount).toBe(1)
     expect(overview.data.sessions.transcriptBytes).toBeGreaterThan(0)
     expect(overview.data.user.exists).toBe(true)
