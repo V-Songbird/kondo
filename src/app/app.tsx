@@ -1,21 +1,27 @@
 import { useState } from 'react'
 import { Projects } from '../features/projects/projects'
 import { Tidy } from '../features/tidy/tidy'
+import { Orphans } from '../features/orphans/orphans'
 import { Journal } from '../features/journal/journal'
 
 /**
- * Three destinations, and the first one is where the app opens. Kondo used to
+ * Four destinations, and the first one is where the app opens. Kondo used to
  * offer a tab per entity kind, which asked the user to know what a hook or a
  * settings layer was before they could find anything; the kinds are still all
  * there, reached the way a person actually thinks about them — through the
  * project they belong to.
  *
- * What is left beside Projects is the two things that are not about one
- * project at all: the sweep, and the history of everything kondo has changed.
+ * What is left beside Projects is the three things that are not about one
+ * project at all: the sweep of disk, the leftovers inside Claude's
+ * configuration files, and the history of everything kondo has changed.
+ * Clean up and Leftovers are next to each other and stay apart on purpose —
+ * one reclaims bytes on disk, the other takes dead lines out of files Claude
+ * is still reading.
  */
 const views = [
   { key: 'projects', label: 'Projects', component: Projects },
   { key: 'cleanup', label: 'Clean up', component: Tidy },
+  { key: 'leftovers', label: 'Leftovers', component: Orphans },
   { key: 'history', label: 'History', component: Journal }
 ] as const
 

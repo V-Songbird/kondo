@@ -75,7 +75,18 @@ const pluginInstall = path.join(userRoot, 'plugins', 'cache', 'acme', 'foreman',
 const hushInstall = path.join(userRoot, 'plugins', 'cache', 'acme', 'hush', '1.0.0')
 
 await write(userRoot, {
-  'settings.json': JSON.stringify({ enabledPlugins: { 'foreman@acme': true } }, null, 2),
+  // `ghost@acme` is enabled and nothing installed it; `retired-helper` is
+  // switched off and no scope ships it. Both are configuration leftovers the
+  // Leftovers view groups (entry 040 / ADR-0010) — `foreman@acme` and
+  // `commit-writer` are the live pair beside them, and must never be listed.
+  'settings.json': JSON.stringify(
+    {
+      enabledPlugins: { 'foreman@acme': true, 'ghost@acme': true },
+      skillOverrides: { 'commit-writer': 'name-only', 'retired-helper': 'off' }
+    },
+    null,
+    2
+  ),
   'skills/commit-writer/SKILL.md': skill(
     'commit-writer',
     'Writes conventional commit messages from a staged diff'
@@ -141,6 +152,33 @@ await write(projA, {
   '.claude/skills/db-migrate/SKILL.md': skill('db-migrate', 'Project-scoped migration helper')
 })
 await write(projB, { '.claude/skills/.keep': '' })
+
+// Claude Code's own registry, a sibling of the store rather than a file
+// inside it (ADR-0009). `projA` is on disk and must never be called a
+// leftover; the other two are gone, and one of them still declares two MCP
+// servers, so the Leftovers view has every orphan kind to group.
+const goneProject = path.join(BASE, 'work', 'removed')
+const goneSite = path.join(BASE, 'work', 'oldsite')
+await fs.writeFile(
+  path.join(home, '.claude.json'),
+  JSON.stringify(
+    {
+      projects: {
+        [projA]: { mcpServers: {} },
+        [goneProject]: {
+          mcpServers: {
+            apiserver: { command: 'node', args: ['server.mjs'] },
+            docs: { type: 'http', url: 'https://example.invalid/mcp' }
+          }
+        },
+        [goneSite]: {}
+      }
+    },
+    null,
+    2
+  ),
+  'utf8'
+)
 
 console.log(
   JSON.stringify(

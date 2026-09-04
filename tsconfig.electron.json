@@ -16,5 +16,9 @@
     "isolatedModules": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["electron", "shared", "test"]
+  "include": ["electron", "shared", "test"],
+  // test/ lives in this project but a renderer view's reading half is still
+  // worth asserting, so the tests reach across into the app project through
+  // a reference rather than by widening this project's include.
+  "references": [{ "path": "./tsconfig.app.json" }]
 }
