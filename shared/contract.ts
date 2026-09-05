@@ -381,6 +381,34 @@ export interface SkillOverrideState {
   layerPath: string
 }
 
+/**
+ * A user-scope skill as one project sees it (entry 062). Claude loads a global
+ * skill in every project unless that project's own settings layers switch it
+ * off with `skillOverrides` (domain.md: local > project > user), so the
+ * project page lists what it inherits and offers exactly that switch.
+ */
+export interface InheritedSkillState {
+  /** The global skill itself, with the user row's capabilities. */
+  skill: SkillInfo
+  /** The `project:code:<dirName>` id of the project looking at it (ADR-0008). */
+  projectId: string
+  /**
+   * What this project's own layers say: `off` when one of them switches the
+   * skill off, `inherit` when they say nothing and the global state stands —
+   * the plugin control's "off here" / "follows global" pair, for a skill.
+   */
+  choice: 'off' | 'inherit'
+  /** Whether Claude loads the skill in this project: on globally and not off here. */
+  enabledHere: boolean
+  /**
+   * The per-project toggle: `disable` is "off here" and is offered while the
+   * project says nothing, `enable` is "follows global" and is offered while
+   * it says `off`. Both write this project's layers only — the user layer is
+   * the Global page's to change.
+   */
+  capabilities: Capabilities
+}
+
 export interface SkillInfo extends EntityIdentity {
   /** `skill:<scope>:<key>` */
   id: string
@@ -990,6 +1018,11 @@ export interface ProjectDetail {
   mcpServers: McpServerInfo[]
   settings: SettingsLayerInfo[]
   plugins: ProjectPluginState[]
+  /**
+   * The global skills this project inherits and may switch off for itself
+   * (entry 062). Empty on the global row, whose own skills are `skills`.
+   */
+  inheritedSkills: InheritedSkillState[]
   /** Empty on the global row: a session belongs to the project it recorded. */
   sessions: SessionSummary[]
   /**

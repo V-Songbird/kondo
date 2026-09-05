@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
+  InheritedSkillState,
   ConfigOrphan,
   ConfigOrphanKind,
   HookGroup,
@@ -34,7 +35,12 @@ import {
   safeStat,
   type Collector
 } from './scan'
-import { capabilitiesFor, mcpCapabilities, skillCapabilities } from './capabilities'
+import {
+  capabilitiesFor,
+  inheritedSkillCapabilities,
+  mcpCapabilities,
+  skillCapabilities
+} from './capabilities'
 import { flattenProjectPath } from './projects'
 import { projectId } from './sessions'
 import { readFrontmatter } from './frontmatter'
@@ -1218,6 +1224,42 @@ export function resolveSkillOverride(
     }
   }
   return null
+}
+
+/**
+ * The layers of one project only, highest precedence first: what that project
+ * itself says about a skill, with the user layer left out on purpose.
+ */
+export function projectLayers(layers: SettingsLayer[], owner: string): SettingsLayer[] {
+  return layers
+    .filter((layer) => layer.info.projectId === owner)
+    .sort((a, b) => LAYER_RANK[a.info.layer] - LAYER_RANK[b.info.layer])
+}
+
+/**
+ * The global skills as one project sees them (entry 062): every live
+ * user-scope skill, with whether this project's own layers switch it off. Only
+ * `off` narrows anything (domain.md); the middle values leave it loaded.
+ */
+export function inheritedSkills(
+  skills: readonly SkillInfo[],
+  layers: SettingsLayer[],
+  owner: string
+): InheritedSkillState[] {
+  const own = projectLayers(layers, owner)
+  return skills
+    .filter((skill) => skill.scope === 'user')
+    .map((skill) => {
+      const here = resolveSkillOverride(own, skill.name)
+      const choice = here?.value === 'off' ? 'off' : 'inherit'
+      return {
+        skill,
+        projectId: owner,
+        choice,
+        enabledHere: skill.enabled && choice === 'inherit',
+        capabilities: inheritedSkillCapabilities(choice)
+      }
+    })
 }
 
 // ---------------------------------------------------------------------------

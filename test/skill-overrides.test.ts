@@ -198,6 +198,70 @@ describe('skillOverrides (entry 029)', () => {
     expect(byName((await api.skillsList()).data, 'beta-skill').enabled).toBe(true)
   })
 
+  it('lists the global skills a project inherits, and switches one off for that project only (entry 062)', async () => {
+    const projectId = `project:code:${flattenPath(workdir)}`
+    const before = (await api.projectDetail(projectId)).data!
+    const alpha = before.inheritedSkills.find((entry) => entry.skill.name === 'alpha-skill')!
+    expect(alpha.choice).toBe('inherit')
+    expect(alpha.enabledHere).toBe(true)
+    expect(alpha.capabilities.disable.allowed).toBe(true)
+    expect(alpha.capabilities.enable.allowed).toBe(false)
+    // The bench and the project's own skill are not inherited from anywhere.
+    expect(before.inheritedSkills.map((entry) => entry.skill.scope)).toEqual(['user'])
+    expect(before.inheritedSkills.some((entry) => entry.skill.name === 'delta-skill')).toBe(false)
+
+    // No local layer file yet: asked first, then written with the user's yes.
+    const asked = await api.entityMutate('skill:user:alpha-skill', { op: 'disable', targetId: projectId })
+    expect(asked.errors.map((error) => error.code)).toEqual(['needs-confirmation'])
+    const off = await api.entityMutate('skill:user:alpha-skill', {
+      op: 'disable',
+      targetId: projectId,
+      confirm: true
+    })
+    expect(off.errors).toEqual([])
+    expect(off.data?.summary).toContain('off for')
+    expect(JSON.parse(await fs.readFile(path.join(workdir, '.claude', 'settings.local.json'), 'utf8')))
+      .toEqual({ skillOverrides: { 'alpha-skill': 'off' } })
+
+    // Off in this project, still on in Global and on its own page.
+    const after = (await api.projectDetail(projectId)).data!
+    const now = after.inheritedSkills.find((entry) => entry.skill.name === 'alpha-skill')!
+    expect(now.choice).toBe('off')
+    expect(now.enabledHere).toBe(false)
+    expect(now.capabilities.enable.allowed).toBe(true)
+    expect(byName((await api.skillsList()).data, 'alpha-skill').enabled).toBe(true)
+    // The user layer was never touched.
+    expect(await fs.readFile(path.join(world.userRoot, 'settings.json'), 'utf8').catch(() => 'absent')).toBe(
+      'absent'
+    )
+
+    // Follows global again: the project's off goes, and one undo puts it back.
+    const follow = await api.entityMutate('skill:user:alpha-skill', { op: 'enable', targetId: projectId })
+    expect(follow.errors).toEqual([])
+    expect(JSON.parse(await fs.readFile(path.join(workdir, '.claude', 'settings.local.json'), 'utf8')))
+      .toEqual({ skillOverrides: {} })
+    const undone = await api.journalUndo(follow.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(JSON.parse(await fs.readFile(path.join(workdir, '.claude', 'settings.local.json'), 'utf8')))
+      .toEqual({ skillOverrides: { 'alpha-skill': 'off' } })
+  })
+
+  it('never withdraws a Global off from a project page', async () => {
+    await override('user', { 'alpha-skill': 'off' })
+    const projectId = `project:code:${flattenPath(workdir)}`
+    const detail = (await api.projectDetail(projectId)).data!
+    const alpha = detail.inheritedSkills.find((entry) => entry.skill.name === 'alpha-skill')!
+    // Off, but not by this project: the project says nothing, so its own
+    // toggle is still "off here", and there is no "follows global" to press.
+    expect(alpha.choice).toBe('inherit')
+    expect(alpha.enabledHere).toBe(false)
+    expect(alpha.capabilities.enable.allowed).toBe(false)
+    const refused = await api.entityMutate('skill:user:alpha-skill', { op: 'enable', targetId: projectId })
+    expect(refused.data).toBeNull()
+    expect(refused.errors[0]?.code).toBe('not-permitted')
+    expect((await api.journalList()).data).toEqual([])
+  })
+
   it('enables by withdrawing every off in the chain, in one undoable plan (entry 045)', async () => {
     await override('user', { 'delta-skill': 'off', 'alpha-skill': 'name-only' })
     await override('local', { 'delta-skill': 'off' })

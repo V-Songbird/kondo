@@ -97,6 +97,12 @@ Decision, two halves:
   `skillUsage` record was read, `null` when there was no record — the same
   rule `ProjectRowCounts.hooks` and `mcpServers` already follow. A view badges
   on `true`, never on the absence of a record.
+- A project's view of a global entity is its own DTO, attributed to the
+  project (entry 062). `InheritedSkillState` pairs a user-scope `SkillInfo`
+  with the `projectId` looking at it, what that project's layers say
+  (`choice`), and the per-project toggle's capabilities; the mutation names
+  the project as `targetId`, an id and never a path, on the same
+  `entityMutate` seat every toggle uses (ADR-0004).
 - A row's name is a display string built main-side (entry 060).
   `ProjectRow.name` is the last segment of the real directory and
   `ProjectRow.parent` the directory above it, both through `slashed`; the

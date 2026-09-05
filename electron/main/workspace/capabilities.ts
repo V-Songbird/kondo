@@ -287,6 +287,23 @@ export function mcpCapabilities(scope: string, enabled: boolean, orphan: boolean
   return enabled ? row : { ...row, enable: ALLOW, disable: deny(ALREADY_DISABLED) }
 }
 
+const PROJECT_SAYS_NOTHING = 'This project does not switch the skill off itself; it follows Global.'
+const PROJECT_SAYS_OFF = 'This project already switches the skill off in its own settings.'
+
+/**
+ * The per-project toggle of a global skill (entry 062): one direction at a
+ * time, decided by what the project's own layers say. Neither direction
+ * touches the user layer, and a skill is never moved or trashed from here.
+ */
+export function inheritedSkillCapabilities(choice: 'off' | 'inherit'): Capabilities {
+  return {
+    enable: choice === 'off' ? ALLOW : deny(PROJECT_SAYS_NOTHING),
+    disable: choice === 'inherit' ? ALLOW : deny(PROJECT_SAYS_OFF),
+    move: deny('A global skill is moved from the Global page, not from a project that inherits it.'),
+    trash: deny('A global skill is removed from the Global page, not from a project that inherits it.')
+  }
+}
+
 export function skillCapabilities(
   scope: string,
   override: SkillOverrideState | null

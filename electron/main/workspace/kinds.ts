@@ -35,7 +35,7 @@ import {
   type SpliceEdit
 } from './mutations'
 import { flattenProjectPath } from './projects'
-import { capabilitiesFor } from './capabilities'
+import { capabilitiesFor, inheritedSkillCapabilities } from './capabilities'
 import { slashed, tildify } from './display'
 import { desktopSessions, desktopSessionStems } from './desktop-store'
 import { readFirstUserPrompt, summarizeTranscript } from './jsonl'
@@ -50,6 +50,8 @@ import {
   overrideChain,
   PLACEMENTS,
   pluginStateIn,
+  projectLayers,
+  resolveSkillOverride,
   asObject,
   SKILL_OVERRIDES,
   skillOverrideIn,
@@ -433,11 +435,91 @@ async function skillTogglePlan(
   )
 }
 
-function settingsEdit(
+/**
+ * "Off here" / "follows global" for a global skill on one project's page
+ * (entry 062): `skillOverrides[<name>] = "off"` into that project's layer —
+ * the one already speaking about the skill, else `settings.local.json`, which
+ * is where Claude's own `/skills` writes — and the member withdrawn from that
+ * project's layers to follow Global again. The user layer is never touched
+ * from here: what Global says is the Global page's business.
+ */
+async function inheritedSkillTogglePlan(
   entity: SkillInfo,
-  summary: string,
-  steps: Array<{ type: 'write'; store: string; at: string; content: string }>
-): PlanResult {
+  operation: ToggleOperation,
+  owner: string,
+  confirm: boolean,
+  context: KindContext
+): Promise<PlanResult> {
+  if (entity.scope !== 'user') {
+    return refused('not-permitted', `${entity.name} is not a global skill; toggle it where it lives.`)
+  }
+  const layers = await context.layers()
+  const own = projectLayers(layers, owner)
+  if (own.length === 0) {
+    return refused('unknown-id', `No project with id "${owner}" in the current scan.`)
+  }
+  const saysOff = resolveSkillOverride(own, entity.name)?.value === 'off'
+  const decision = inheritedSkillCapabilities(saysOff ? 'off' : 'inherit')[operation]
+  if (!decision.allowed) {
+    return refused('not-permitted', decision.reason ?? `kondo cannot ${operation} this skill here.`)
+  }
+  const keyPath = [SKILL_OVERRIDES, entity.name]
+  const write = (layer: SettingsLayer, content: string): PlannedStep => ({
+    type: 'write',
+    store: layer.store,
+    at: layer.relative,
+    content
+  })
+  const unreadable = (layer: SettingsLayer): PlanResult =>
+    refused('parse-failed', `${layer.info.path} did not read back as a JSON object; kondo will not rewrite it.`)
+  const unsplicable = (layer: SettingsLayer): PlanResult =>
+    refused('bad-request', `kondo cannot edit skillOverrides in ${layer.info.path} without reformatting it.`)
+
+  if (operation === 'disable') {
+    const layer = destinationLayer(layers, owner, (candidate) => skillOverrideIn(candidate, entity.name) !== null)
+    if (!layer) return refused('not-permitted', `No settings layer speaks for this project.`)
+    const summary = `Switch skill ${entity.name} off for ${projectLabelOf(layer)} in ${layer.info.path}`
+    if (!layer.info.exists) {
+      if (!confirm) {
+        return refused(
+          'needs-confirmation',
+          `${layer.info.path} does not exist yet. Confirm to create it holding just this key.`
+        )
+      }
+      const fresh = spliceMember('{}\n', keyPath, '"off"')
+      if (fresh === null) return unsplicable(layer)
+      return settingsEdit(entity, summary, [write(layer, fresh)])
+    }
+    if (layer.source === null || layer.parsed === null) return unreadable(layer)
+    const next = spliceMember(layer.source, keyPath, '"off"')
+    if (next === null) return unsplicable(layer)
+    return settingsEdit(entity, summary, [write(layer, next)])
+  }
+
+  const steps: PlannedStep[] = []
+  const cleared: string[] = []
+  for (const layer of own) {
+    if (skillOverrideIn(layer, entity.name) !== 'off') continue
+    if (layer.source === null || layer.parsed === null) return unreadable(layer)
+    const next = spliceMember(layer.source, keyPath, null)
+    if (next === null) return unsplicable(layer)
+    steps.push(write(layer, next))
+    cleared.push(layer.info.path)
+  }
+  if (steps.length === 0) return refused('not-permitted', `This project does not switch ${entity.name} off.`)
+  return settingsEdit(
+    entity,
+    `Let skill ${entity.name} follow Global again: stop switching it off in ${cleared.join(', ')}`,
+    steps
+  )
+}
+
+/** The project a layer belongs to, as the display path of its `.claude` parent. */
+function projectLabelOf(layer: SettingsLayer): string {
+  return layer.info.path.replace(/\/\.claude\/settings(\.local)?\.json$/, '')
+}
+
+function settingsEdit(entity: SkillInfo, summary: string, steps: PlannedStep[]): PlanResult {
   return {
     ok: true,
     plan: { op: 'settings-edit', kind: 'skill', entityId: entity.id, summary, steps }
@@ -495,9 +577,13 @@ const skill: EntityKindDefinition<SkillInfo> = {
     if (request.op === 'move') {
       return movePlan('skill', entity, request.targetId ?? '', context.skills(), context)
     }
-    return request.op === 'trash'
-      ? skillTrashPlan(entity)
-      : skillTogglePlan(entity, request.op, request.confirm === true, context)
+    if (request.op === 'trash') return skillTrashPlan(entity)
+    // A project id as the target is the per-project switch of a global skill
+    // (entry 062): the write lands in that project's layers, never the user's.
+    if (request.targetId !== undefined && request.targetId.startsWith(PROJECT_PREFIX)) {
+      return inheritedSkillTogglePlan(entity, request.op, request.targetId, request.confirm === true, context)
+    }
+    return skillTogglePlan(entity, request.op, request.confirm === true, context)
   }
 }
 

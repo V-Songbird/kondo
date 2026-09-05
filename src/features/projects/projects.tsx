@@ -3,6 +3,7 @@ import { listView, PAGE } from './project-rows'
 import type {
   HookScript,
   HookScriptStatus,
+  InheritedSkillState,
   JournalEntryInfo,
   KondoApi,
   PlacedEntryInfo,
@@ -395,6 +396,20 @@ function ProjectPage({
                   run={run}
                 />
               </Section>
+
+              {!row.global && (
+                <Section
+                  title="Inherited from Global"
+                  count={detail.inheritedSkills.length}
+                  empty="Global has no skills for this project to inherit."
+                >
+                  <InheritedSkillTable
+                    entries={detail.inheritedSkills}
+                    busy={busy}
+                    run={run}
+                  />
+                </Section>
+              )}
 
               <Section
                 title="Plugins"
@@ -798,6 +813,83 @@ function toggleFor(skill: SkillInfo): { operation: ToggleOperation; reason: stri
         operation: 'enable',
         reason: skill.capabilities.enable.allowed ? null : skill.capabilities.enable.reason
       }
+}
+
+/**
+ * The global skills a project inherits, with the one switch Claude gives a
+ * project over them (entry 062): `skillOverrides[<name>] = "off"` in its own
+ * settings layer. "Off here" and "Follows global" are the plugin control's
+ * words for the same two positions, kept so the page speaks one language.
+ */
+function InheritedSkillTable({
+  entries,
+  busy,
+  run
+}: {
+  entries: InheritedSkillState[]
+  busy: boolean
+  run: (
+    call: (api: KondoApi) => Promise<Scan<JournalEntryInfo | null>>,
+    retry?: () => void
+  ) => Promise<void>
+}) {
+  const toggle = (entry: InheritedSkillState, operation: ToggleOperation, confirm = false): void => {
+    void run(
+      (api) =>
+        api.entityMutate(entry.skill.id, { op: operation, targetId: entry.projectId, confirm }),
+      () => toggle(entry, operation, true)
+    )
+  }
+  return (
+    <table className="tbl">
+      <thead>
+        <tr>
+          <th>Skill</th>
+          <th>Description</th>
+          <th>In this project</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {entries.map((entry) => {
+          // One direction at a time, decided by the project's own layers.
+          const operation: ToggleOperation = entry.choice === 'inherit' ? 'disable' : 'enable'
+          const reason = entry.capabilities[operation].allowed
+            ? null
+            : entry.capabilities[operation].reason
+          return (
+            <tr key={entry.skill.id} className={entry.enabledHere ? '' : 'opacity-60'}>
+              <td className="font-mono" title={entry.skill.origin}>
+                {entry.skill.name}
+              </td>
+              <td className="max-w-md text-mut">{entry.skill.description ?? '—'}</td>
+              <td>
+                {/* Why it is off matters: this project's own switch, or Global's. */}
+                {entry.choice === 'off' ? (
+                  <span className="pill text-warn">off here</span>
+                ) : entry.skill.enabled ? (
+                  <span className="pill text-ok">on</span>
+                ) : (
+                  <span className="pill text-mut">off in Global</span>
+                )}
+              </td>
+              <td className="text-right">
+                <button
+                  type="button"
+                  disabled={reason !== null || busy}
+                  className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => toggle(entry, operation)}
+                >
+                  {operation === 'disable' ? 'Off here' : 'Follows global'}
+                </button>
+                <Refusal reason={reason} />
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
 }
 
 function SkillTable({

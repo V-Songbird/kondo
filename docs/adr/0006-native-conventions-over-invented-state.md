@@ -100,6 +100,14 @@ preferences, scan cache — never the truth about the user's Claude setup.
   needs already exists — `spliceMember(source, [member, key], literal)` in
   `user-store.ts` takes the member name as a parameter, so `enabledPlugins`
   and `skillOverrides` share one editor and no second one is to be added.
+- Written 2026-09-05 (entry 062). A global skill is switched off for one
+  project the way Claude's own `/skills` does it from inside that project:
+  `skillOverrides[<name>] = "off"` in the project's `settings.local.json`
+  (or whichever of its layers already names the skill), and the member
+  withdrawn to follow Global again. The project page lists the global skills
+  it inherits with exactly that switch; the user layer is never written from
+  a project page, so a Global `off` shows as "off in Global" there and is the
+  Global page's to change.
 - Written 2026-09-05 (entry 061). An MCP server is switched off per project
   the way Claude does it: its name goes into the project's
   `disabledMcpServers` (declared in the registry entry) or

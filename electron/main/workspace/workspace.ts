@@ -54,6 +54,7 @@ import {
   armedHookScripts,
   countStoreEntries,
   groupHooks,
+  inheritedSkills,
   userStoreReport,
   type VerifiedProject
 } from './user-store'
@@ -545,6 +546,9 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
           mcpServers,
           settings: mine(layers),
           plugins: projectPluginStates(plugins ?? [], owner),
+          // The full layers (parsed, not the seam's summaries): what each says
+          // about a skill is the whole question.
+          inheritedSkills: global ? [] : inheritedSkills(skills ?? [], await shared.layers(), id),
           sessions,
           staleAfterDays: STALE_AFTER_DAYS,
           storage: overview?.data ?? null
