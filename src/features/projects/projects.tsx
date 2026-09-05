@@ -963,6 +963,14 @@ function SessionTable({
                     {session.stale && (
                       <span className="pill mr-1 text-warn">untouched {staleAfterDays}+ days</span>
                     )}
+                    {session.releasedByDesktop && (
+                      <span
+                        className="pill mr-1 text-warn"
+                        title="The desktop app left a released marker beside this transcript."
+                      >
+                        deleted in desktop app
+                      </span>
+                    )}
                     {session.hasSidecar && <span className="pill mr-1">session folder</span>}
                     {session.mirroredIn !== null && (
                       <span

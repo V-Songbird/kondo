@@ -150,6 +150,14 @@ export function transcriptLine(event: Record<string, unknown>): string {
   return `${JSON.stringify(event)}\n`
 }
 
+/**
+ * The desktop app's marker beside a transcript it has released (domain.md):
+ * the exact 78-byte shape observed, `reason: "delete"` unless told otherwise.
+ */
+export function desktopReleased(reason = 'delete'): string {
+  return JSON.stringify({ v: 1, releasedAt: '2026-09-02T22:05:18.949Z', reason }, null, 2) + '\n'
+}
+
 export function healthyTranscript(sessionId: string): string {
   return (
     transcriptLine({ type: 'summary', leafUuid: 'leaf', sessionId }) +

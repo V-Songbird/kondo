@@ -4,6 +4,7 @@ import path from 'node:path'
 import { scanSessionInventory, toSessionProjects, toSessionSummaries } from '../electron/main/workspace/sessions'
 import { flattenProjectPath } from '../electron/main/workspace/projects'
 import {
+  desktopReleased,
   healthyTranscript,
   makeWorld,
   registerProjects,
@@ -13,6 +14,8 @@ import {
   writeFileTree,
   type FixtureWorld
 } from './helpers'
+
+const UUID_D = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
 const NOW = Date.parse('2026-03-01T00:00:00.000Z')
 const OLD = new Date('2025-11-01T00:00:00.000Z')
@@ -27,7 +30,11 @@ describe('scanSessionInventory', () => {
       [`${UUID_B}.jsonl`]: '',
       [`${UUID_B}/tool-state.json`]: '{}',
       [`${UUID_C}/leftover.txt`]: 'orphaned sidecar',
+      // The desktop app released UUID_A; UUID_D's marker outlived its transcript.
+      [`${UUID_A}.desktop-released.json`]: desktopReleased(),
+      [`${UUID_D}.desktop-released.json`]: desktopReleased(),
       'memory/notes.md': 'project memory',
+      '.benchmarks/razor-vs-ponytail/runs/20260705-231056/result.json': '{}',
       'stray.txt': 'what is this'
     })
     // UUID_A is old enough to be stale; UUID_B is fresh.
@@ -56,6 +63,23 @@ describe('scanSessionInventory', () => {
 
     expect(scan.unknown.some((entry) => entry.endsWith('stray.txt'))).toBe(true)
     expect(scan.unknown.some((entry) => entry.includes('memory'))).toBe(false)
+    // Claude-written entries kondo knows about are never reported as unknown.
+    expect(scan.unknown.some((entry) => entry.includes('.benchmarks'))).toBe(false)
+    expect(scan.unknown.some((entry) => entry.includes('desktop-released'))).toBe(false)
+    expect(project.hasMemory).toBe(true)
+  })
+
+  it('attaches the desktop app’s released marker to its session, and orphans one without (entry 059)', async () => {
+    const scan = await scanSessionInventory(world.locator, process.platform, async () => false)
+    const project = scan.data.projects[0]!
+    const byUuid = new Map(project.sessions.map((session) => [session.uuid, session]))
+    expect(byUuid.get(UUID_A)?.released).toBe(`${UUID_A}.desktop-released.json`)
+    expect(byUuid.get(UUID_B)?.released).toBeNull()
+    expect(project.orphanMarkers).toEqual([`${UUID_D}.desktop-released.json`])
+
+    const summaries = toSessionSummaries(project, Date.now(), new Set())
+    expect(summaries.find((s) => s.uuid === UUID_A)?.releasedByDesktop).toBe(true)
+    expect(summaries.find((s) => s.uuid === UUID_B)?.releasedByDesktop).toBe(false)
   })
 
   it('projects the inventory into contract shapes with staleness', async () => {

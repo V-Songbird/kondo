@@ -1449,6 +1449,13 @@ export async function sessionTrashPlan(
         from: relativeTo(root, path.join(project.absPath, session.sidecar))
       })
     }
+    if (session.released !== null) {
+      steps.push({
+        type: 'trash',
+        store: 'user',
+        from: relativeTo(root, path.join(project.absPath, session.released))
+      })
+    }
   }
   if (steps.length === 0) return { ok: true, plan: null }
 

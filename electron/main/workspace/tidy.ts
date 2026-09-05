@@ -108,6 +108,7 @@ export async function scanTidyCandidates(
     'dead-projects': [],
     'stale-sessions': [],
     'empty-transcripts': [],
+    'desktop-released-sessions': [],
     'orphan-sidecars': [],
     'orphan-session-env': [],
     'reclaimable-caches': [],
@@ -168,6 +169,11 @@ export async function scanTidyCandidates(
       if (session.sidecar !== null) {
         paths.push(relativeTo(root, path.join(project.absPath, session.sidecar)))
       }
+      // So does the desktop app's released marker: a marker for a transcript
+      // that has gone is the next scan's orphan.
+      if (session.released !== null) {
+        paths.push(relativeTo(root, path.join(project.absPath, session.released)))
+      }
       const item: Candidate = {
         paths,
         bytes: session.bytes,
@@ -175,24 +181,41 @@ export async function scanTidyCandidates(
       }
       // A zero-byte transcript is empty whatever its age, so that category
       // claims it — no path is ever queued under two categories, which is
-      // what would make the second trash step of a pair fail.
+      // what would make the second trash step of a pair fail. A released one
+      // is claimed by what the desktop app said about it before its age is
+      // asked; the most specific description wins.
       if (session.bytes === 0) candidates['empty-transcripts'].push(item)
+      else if (session.released !== null) candidates['desktop-released-sessions'].push(item)
       else if (isStale(session.mtimeMs, nowMs)) candidates['stale-sessions'].push(item)
     }
     for (const name of project.orphanDirs) orphans.push(path.join(project.absPath, name))
+    for (const name of project.orphanMarkers) {
+      // A marker with no transcript is an orphan like a sidecar directory is,
+      // and one file — its size is the stat the inventory did not keep.
+      const absPath = path.join(project.absPath, name)
+      const display = tildify(absPath, locator.home)
+      const info = await safeStat(absPath, display, c)
+      candidates['orphan-sidecars'].push({
+        paths: [relativeTo(root, absPath)],
+        bytes: info?.size ?? 0,
+        display
+      })
+    }
   }
 
   // An orphan's whole value is its directory, so unlike a transcript it has
   // to be measured. Bounded, and only over the directories the inventory
   // already proved orphaned — never the projects tree at large.
-  candidates['orphan-sidecars'] = await mapPool(orphans, 16, async (absPath) => {
-    const display = tildify(absPath, locator.home)
-    return {
-      paths: [relativeTo(root, absPath)],
-      bytes: await directorySize(absPath, display, c),
-      display
-    }
-  })
+  candidates['orphan-sidecars'].push(
+    ...(await mapPool(orphans, 16, async (absPath) => {
+      const display = tildify(absPath, locator.home)
+      return {
+        paths: [relativeTo(root, absPath)],
+        bytes: await directorySize(absPath, display, c),
+        display
+      }
+    }))
+  )
 
   // A project directory is offered whole, as one path — its size is the
   // point of offering it, and one trash step over the tree is what makes the
@@ -427,6 +450,10 @@ const LABEL: Record<TidyCategory, readonly [one: string, many: string]> = {
   'dead-projects': ['deleted project', 'deleted projects'],
   'stale-sessions': ['untouched session', 'untouched sessions'],
   'empty-transcripts': ['empty transcript', 'empty transcripts'],
+  'desktop-released-sessions': [
+    'conversation deleted in the desktop app',
+    'conversations deleted in the desktop app'
+  ],
   'orphan-sidecars': ['leftover session folder', 'leftover session folders'],
   'orphan-session-env': ['leftover session snapshot', 'leftover session snapshots'],
   'reclaimable-caches': ['cache directory', 'cache directories'],

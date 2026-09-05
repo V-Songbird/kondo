@@ -287,6 +287,14 @@ export interface SessionSummary extends EntityIdentity {
   /** A sibling directory (subagent/tool state) exists for this session. */
   hasSidecar: boolean
   /**
+   * The desktop app left a `<uuid>.desktop-released.json` beside the
+   * transcript (domain.md): it has released — on the observed store, deleted
+   * — this conversation on its side while the bytes stayed here. A fact
+   * about the store, not a verdict; the `desktop-released-sessions` tidy
+   * category is where it becomes one.
+   */
+  releasedByDesktop: boolean
+  /**
    * The other store holding a session of this id, or null when none does —
    * `'desktop'` today, that being the only other store kondo reads.
    *
@@ -765,8 +773,8 @@ export const tidyCategories = [
   /**
    * Project directories that were only ever throwaway: the flattened name
    * sits under the OS temp directory, or carries a `.claude-worktrees` /
-   * `.claude-jobs` marker, or the directory holds no transcript at all
-   * (memory-only included).
+   * `.claude-jobs` marker, or the directory holds no transcript, no `memory/`
+   * and no path kondo can locate (entry 058).
    */
   'scratch-projects',
   /** Project directories the registry names whose path no longer stats. */
@@ -775,6 +783,13 @@ export const tidyCategories = [
   'stale-sessions',
   /** Zero-byte transcripts — a session that recorded nothing at all. */
   'empty-transcripts',
+  /**
+   * Transcripts the desktop app has marked released (`reason: "delete"` on
+   * every one observed) with a `<uuid>.desktop-released.json` beside them:
+   * deleted on the desktop side, still on disk here. Sidecar and marker go
+   * with the transcript.
+   */
+  'desktop-released-sessions',
   /** `<uuid>/` sidecar directories whose transcript is already gone. */
   'orphan-sidecars',
   /**

@@ -62,6 +62,8 @@ usage):
 | `file-history/` | Edit history backing checkpoint/rewind ✅. Grows silently; tidy candidate. |
 | `shell-snapshots/` | Shell state snapshots ✅. Tidy candidate. |
 | `backups/`, `paste-cache/`, `cache/`, `debug/`, `telemetry/`, `downloads/`, `ide/` | Support and cache directories ✅. Reclaimable space lives here. |
+| `chrome/` | Claude in Chrome's native-messaging host (`chrome-native-host.bat`) ✅. 1 KB; not a cache. |
+| `plans/` | Plan-mode plans as markdown, one file per plan with a generated slug name ✅ (3 observed, 60 KB). The user's writing; never a tidy candidate. |
 | `daemon`, `daemon.log` | Daemon socket/state and log ✅. |
 | `stats-cache.json`, `statusline-command.sh`, `CLAUDE.md` | Misc: usage stats cache, statusline script, the user's global instructions ✅. `todos/` ◇ (documented, absent here). |
 | `feedback/`, `daemon-auth-cooldown`, `daemon-auth-status.json`, `gh-pr-status-cache.json`, `.last-update-result.json`, `.last-cleanup`, `statusline-command.sh.bak`, marker files (`.caveman-active`, …) | Small support and state files ✅. Listed by name and size only. |
@@ -224,6 +226,17 @@ scan and a mutation can never disagree about where an entry lives.
   - `<session-uuid>/` — optional sibling directory (subagent transcripts,
     tool state, a `custom-title.json`). A sibling without its `.jsonl` is an
     orphan.
+  - `<session-uuid>.desktop-released.json` ✅ — a 78-byte marker the desktop
+    app writes beside a transcript it has released: `{ "v": 1, "releasedAt":
+    <ISO>, "reason": "delete" }`. 101 observed on 2026-09-05, every one
+    beside its transcript, every `reason` `delete` (other reasons ◇). Kondo
+    attaches it to its session (`SessionRecord.released`,
+    `SessionSummary.releasedByDesktop`), moves it with the transcript, treats
+    one without a transcript as an orphan sidecar, and offers the released
+    sessions as the `desktop-released-sessions` tidy category (entry 059).
+  - `.benchmarks/<name>/runs/<stamp>/` ◇ — benchmark runs written by
+    `claude plugin eval`; one project directory held one. Known, never
+    offered.
   - `memory/` — the project's persistent memory files. 17 directories held
     only `memory/` and 23 held no transcript at all ✅ (24 of 8,641 on
     2026-09-05, two of them live projects — `D:\Projects\Knowledge\GRFEditor`

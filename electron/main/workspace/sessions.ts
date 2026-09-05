@@ -35,9 +35,18 @@ import { tildify } from './display'
 
 const TRANSCRIPT = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
 const UUID_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-/** Non-session entries that are normal inside a project directory. */
+/**
+ * The desktop app's marker beside a transcript it has released (domain.md):
+ * `<uuid>.desktop-released.json`, 78 bytes of `{ v, releasedAt, reason }`.
+ */
+const RELEASED =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.desktop-released\.json$/i
+/**
+ * Non-session entries that are normal inside a project directory: Claude's
+ * memory, and the benchmark runs `claude plugin eval` writes (domain.md).
+ */
 const MEMORY_DIR = 'memory'
-const KNOWN_PROJECT_ENTRIES = new Set([MEMORY_DIR])
+const KNOWN_PROJECT_ENTRIES = new Set([MEMORY_DIR, '.benchmarks'])
 
 export interface SessionRecord {
   uuid: string
@@ -50,6 +59,12 @@ export interface SessionRecord {
    * directory and the match that found it is case-insensitive.
    */
   sidecar: string | null
+  /**
+   * The desktop app's `<uuid>.desktop-released.json` marker, by its real
+   * name, or null. Its presence says the desktop app has released — on the
+   * observed store, deleted — this conversation while the transcript stayed.
+   */
+  released: string | null
 }
 
 export interface ProjectRecord {
@@ -64,6 +79,8 @@ export interface ProjectRecord {
   guessedPath: string | null
   sessions: SessionRecord[]
   orphanDirs: string[]
+  /** Released markers whose transcript is already gone, by file name. */
+  orphanMarkers: string[]
   /**
    * The directory holds a `memory/` — Claude's persistent memory for the
    * project. Evidence that Claude worked with the project even when no
@@ -156,6 +173,7 @@ async function scanProject(
   const sessions: SessionRecord[] = []
   const sidecars = new Map<string, string>()
   const orphanCandidates: string[] = []
+  const markers = new Map<string, string>()
   let hasMemory = false
 
   for (const entry of entries) {
@@ -168,6 +186,11 @@ async function scanProject(
       } else if (!KNOWN_PROJECT_ENTRIES.has(entry.name)) {
         c.unknown.push(`${display}/${entry.name}`)
       }
+      continue
+    }
+    const released = RELEASED.exec(entry.name)
+    if (released && released[1] !== undefined) {
+      markers.set(released[1].toLowerCase(), entry.name)
       continue
     }
     const match = TRANSCRIPT.exec(entry.name)
@@ -183,15 +206,22 @@ async function scanProject(
       file,
       bytes: info.size,
       mtimeMs: info.mtimeMs,
-      sidecar: null
+      sidecar: null,
+      released: null
     })
   }
 
   const transcriptUuids = new Set(sessions.map((session) => session.uuid))
-  for (const session of sessions) session.sidecar = sidecars.get(session.uuid) ?? null
+  for (const session of sessions) {
+    session.sidecar = sidecars.get(session.uuid) ?? null
+    session.released = markers.get(session.uuid) ?? null
+  }
   const orphanDirs = orphanCandidates.filter(
     (name) => !transcriptUuids.has(name.toLowerCase())
   )
+  const orphanMarkers = [...markers.entries()]
+    .filter(([uuid]) => !transcriptUuids.has(uuid))
+    .map(([, name]) => name)
 
   sessions.sort((a, b) => b.mtimeMs - a.mtimeMs)
   return {
@@ -200,6 +230,7 @@ async function scanProject(
     ...(await locate(dirName, home, platform, exists, registered, c)),
     sessions,
     orphanDirs,
+    orphanMarkers,
     hasMemory
   }
 }
@@ -225,6 +256,7 @@ async function registryProject(
     guessedPath: absPath,
     sessions: [],
     orphanDirs: [],
+    orphanMarkers: [],
     hasMemory: false,
     sources: ['registry'],
     // The registry named it, so a failed stat is evidence and not ignorance.
@@ -333,6 +365,7 @@ export function toSessionSummaries(
     mtimeMs: session.mtimeMs,
     stale: isStale(session.mtimeMs, nowMs),
     hasSidecar: session.sidecar !== null,
+    releasedByDesktop: session.released !== null,
     mirroredIn: mirrored.has(session.uuid) ? 'desktop' : null
   }))
 }

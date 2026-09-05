@@ -97,6 +97,11 @@ Decision, two halves:
   `skillUsage` record was read, `null` when there was no record — the same
   rule `ProjectRowCounts.hooks` and `mcpServers` already follow. A view badges
   on `true`, never on the absence of a record.
+- A store fact travels as a fact, and the verdict on it lives in one place
+  (entry 059). `SessionSummary.releasedByDesktop` says the desktop app left
+  its released marker beside the transcript; whether that makes the session
+  litter is the `desktop-released-sessions` tidy category's call, not a
+  second flag.
 - A threshold a flag was computed from travels beside the flag (entry 050).
   `SessionSummary.stale` is a verdict; `ProjectDetail.staleAfterDays` is the
   number behind it, as `TidyPreview.staleAfterDays` was already, so no view

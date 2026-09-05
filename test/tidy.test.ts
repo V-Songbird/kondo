@@ -12,6 +12,7 @@ import { tidyCategories } from '../shared/contract'
 import { STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
+  desktopReleased,
   exists,
   flattenPath,
   hashTree,
@@ -519,6 +520,100 @@ describe('dead and scratch project directories', () => {
     const undone = await api.journalUndo(done.data!.id)
     expect(undone.errors).toEqual([])
     expect(await hashTree(world.userRoot)).toBe(before)
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Conversations the desktop app deleted on its side (entry 059): the marker
+ * beside the transcript makes the category, rides along with the sweep and
+ * the hand-picked trash, and is an orphan on its own once the transcript is
+ * gone.
+ */
+describe('desktop-released sessions (entry 059)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+  const inStore = (relative: string): string =>
+    path.join(world.userRoot, ...relative.split('/'))
+  const released = (uuid: string): string => `projects/${DIR}/${uuid}.desktop-released.json`
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, {
+      // Released and stale both: the desktop app's word is the more specific
+      // description, so that category claims it and stale does not.
+      [`projects/${DIR}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
+      [`projects/${DIR}/${UUID_A}/agent.json`]: '{"subagent":"one"}',
+      [released(UUID_A)]: desktopReleased(),
+      // Released and fresh.
+      [`projects/${DIR}/${UUID_B}.jsonl`]: healthyTranscript(UUID_B),
+      [released(UUID_B)]: desktopReleased(),
+      // Neither: nothing may touch it.
+      [`projects/${DIR}/${UUID_C}.jsonl`]: healthyTranscript(UUID_C),
+      // A marker whose transcript is already gone.
+      [released(UUID_D)]: desktopReleased(),
+      'settings.json': '{}'
+    })
+    await fs.utimes(inStore(`projects/${DIR}/${UUID_A}.jsonl`), LONG_AGO, LONG_AGO)
+    for (const uuid of [UUID_B, UUID_C]) {
+      await fs.utimes(inStore(`projects/${DIR}/${uuid}.jsonl`), FRESH, FRESH)
+    }
+    api = createWorkspace({
+      locator: world.locator,
+      platform: process.platform,
+      now: () => NOW,
+      guessExists: async () => false
+    })
+  })
+  afterEach(async () => {
+    await world.cleanup()
+  })
+
+  it('offers released conversations under their own category, once each', async () => {
+    const found = byCategory((await api.tidyPreview()).data)
+    expect(found['desktop-released-sessions'].count).toBe(2)
+    expect(found['desktop-released-sessions'].examples.slice().sort()).toEqual(
+      [UUID_A, UUID_B].map((uuid) => `~/.claude/projects/${DIR}/${uuid}.jsonl`).sort()
+    )
+    // Released beats stale: UUID_A is both and is counted once, over there.
+    expect(found['stale-sessions'].count).toBe(0)
+    // The marker without a transcript is a leftover like a sidecar directory.
+    expect(found['orphan-sidecars'].examples).toEqual([
+      `~/.claude/projects/${DIR}/${UUID_D}.desktop-released.json`
+    ])
+  })
+
+  it('sweeps transcript, sidecar and marker together, and undo puts all three back', async () => {
+    const before = await hashTree(world.userRoot)
+    const done = await api.tidySweep(['desktop-released-sessions'])
+    expect(done.errors).toEqual([])
+    expect(done.data?.summary).toContain('2 conversations deleted in the desktop app')
+    for (const relative of [
+      `projects/${DIR}/${UUID_A}.jsonl`,
+      `projects/${DIR}/${UUID_A}`,
+      released(UUID_A),
+      `projects/${DIR}/${UUID_B}.jsonl`,
+      released(UUID_B)
+    ]) {
+      expect(await exists(inStore(relative)), relative).toBe(false)
+    }
+    // Untouched: the unreleased conversation and the orphan marker, which
+    // belongs to a category that was not chosen.
+    expect(await exists(inStore(`projects/${DIR}/${UUID_C}.jsonl`))).toBe(true)
+    expect(await exists(inStore(released(UUID_D)))).toBe(true)
+
+    const undone = await api.journalUndo(done.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('takes the marker along when one session is trashed by hand', async () => {
+    const done = await api.sessionTrash([`session:code:${DIR}/${UUID_B}`])
+    expect(done.errors).toEqual([])
+    expect(done.data?.stepCount).toBe(2)
+    expect(await exists(inStore(`projects/${DIR}/${UUID_B}.jsonl`))).toBe(false)
+    expect(await exists(inStore(released(UUID_B)))).toBe(false)
   })
 })
 

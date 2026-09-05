@@ -24,6 +24,7 @@ const LABEL: Record<TidyCategory, string> = {
   'dead-projects': 'Projects that are gone',
   'stale-sessions': 'Old conversations',
   'empty-transcripts': 'Empty conversations',
+  'desktop-released-sessions': 'Conversations deleted in the desktop app',
   'orphan-sidecars': 'Leftover session folders',
   'orphan-session-env': 'Leftover session snapshots',
   'reclaimable-caches': 'Caches Claude rebuilds',
@@ -42,6 +43,8 @@ function hintFor(category: TidyCategory, staleAfterDays: number): string {
       return `Untouched for over ${staleAfterDays} days. Their session folders go too.`
     case 'empty-transcripts':
       return 'Conversations that recorded nothing at all.'
+    case 'desktop-released-sessions':
+      return 'The desktop app deleted these on its side; the transcript is still here. Their session folders go too.'
     case 'orphan-sidecars':
       return 'Session folders left behind after their conversation was removed.'
     case 'orphan-session-env':
