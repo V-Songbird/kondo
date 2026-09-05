@@ -67,7 +67,7 @@ which is how it selects a project row, whose text carries count chips:
 
 ```bash
 node .claude/skills/run-kondo/drive.mjs open apiserver
-#   opened X:Tempkondofixworkpiserverjust now1 skill · 3 sessions
+#   opened X:\Temp\kondofix\workpiserverjust now1 skill · 3 sessions
 ```
 
 `open Skills` still answers `no tab or row containing Skills`. The app opens
