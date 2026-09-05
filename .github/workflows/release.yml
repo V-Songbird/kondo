@@ -1,0 +1,74 @@
+name: release
+
+# A tag `v<version>` on main produces one installer per OS — NSIS, DMG,
+# AppImage — and attaches them to a DRAFT GitHub Release; publishing is a
+# person's click (docs/release.md). Artifacts are unsigned for now
+# (docs/adr/0011-unsigned-releases-for-now.md): no identity is looked up and no
+# certificate is read, so the workflow needs no secret beyond GITHUB_TOKEN.
+#
+# Before an installer is attached, the end-to-end smoke test drives the very
+# binary that was packaged (KONDO_E2E_BINARY), on the OSes whose unpacked
+# layout the test can spawn directly. The app must run fully offline
+# (SECURITY.md); a release build that reaches the network is a blocker, and the
+# smoke test runs against a fixture store with no network of any kind.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            binary: release/win-unpacked/Kondo.exe
+            files: release/*.exe
+          - os: macos-latest
+            binary: ''
+            files: release/*.dmg
+          - os: ubuntu-latest
+            binary: release/linux-unpacked/kondo
+            files: release/*.AppImage
+    runs-on: ${{ matrix.os }}
+    env:
+      # electron-builder must not go looking for a signing identity.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx electron-builder --publish never
+      - if: runner.os == 'Windows'
+        run: npm run test:e2e
+        env:
+          KONDO_E2E_BINARY: ${{ matrix.binary }}
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          xvfb-run -a npm run test:e2e
+        env:
+          KONDO_E2E_BINARY: ${{ matrix.binary }}
+      # The macOS app bundle's path carries the architecture; the dev-electron
+      # smoke already ran in ci.yml on this OS, so the packaged bundle is
+      # attached on the strength of the build succeeding.
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: ${{ matrix.files }}
+          generate_release_notes: false
+          body: |
+            Unsigned build — see the install notes in README.md.
+            Windows: SmartScreen will ask; choose "More info" → "Run anyway".
+            macOS: right-click the app → Open, or allow it under Privacy & Security.

@@ -2,6 +2,7 @@
   "name": "kondo",
   "private": true,
   "version": "0.5.0",
+  "author": "Victor Villegas",
   "description": "Keep your Claude tight — a local-first desktop app that manages Claude's sessions, skills, plugins, hooks, and settings.",
   "license": "MIT",
   "type": "module",
@@ -12,6 +13,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
+    "package": "npm run build && electron-builder --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc -b",
     "test": "vitest run",
@@ -48,6 +50,32 @@
     "files": [
       "out/**/*",
       "package.json"
-    ]
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "signtoolOptions": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development"
+    },
+    "publish": null
   }
 }

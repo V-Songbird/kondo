@@ -20,6 +20,11 @@ import { connect, waitForPage } from '../../.claude/skills/run-kondo/cdp.mjs'
  * three KONDO_*_ROOT variables point the locator at it (CLAUDE.md's one
  * repeated warning). `--no-sandbox` is passed only on Linux CI, where the
  * runner's kernel refuses Chromium's sandbox.
+ *
+ * KONDO_E2E_BINARY names a packaged executable (`release/win-unpacked/Kondo.exe`,
+ * `release/linux-unpacked/kondo`) to drive instead of the dev electron over
+ * `out/`: the release workflow runs the same assertions against what it is
+ * about to publish.
  */
 
 const repo = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
@@ -37,9 +42,10 @@ before(async () => {
   })
   const env = JSON.parse(printed)
 
-  const args = ['.', `--remote-debugging-port=${PORT}`]
+  const binary = process.env.KONDO_E2E_BINARY ?? electron
+  const args = [...(binary === electron ? ['.'] : []), `--remote-debugging-port=${PORT}`]
   if (process.platform === 'linux' && process.env.CI) args.push('--no-sandbox')
-  child = spawn(electron, args, {
+  child = spawn(binary, args, {
     cwd: repo,
     env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'pipe']

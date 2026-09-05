@@ -1,7 +1,7 @@
 # Releasing
 
-No release has shipped yet; this is the policy releases will follow, written
-now so packaging decisions do not accrete by accident.
+This is the policy releases follow, written before the first one so packaging
+decisions did not accrete by accident. The first tag is the owner's to push.
 
 ## Versioning
 
@@ -17,19 +17,24 @@ Every release gets a CHANGELOG section and a git tag `v<version>`.
 - The app must run fully offline; a release build making any network request
   is a release blocker (SECURITY.md).
 
-## Signing — decide before v0.2
+## Signing — decided
 
-Unsigned builds scare users on both Windows (SmartScreen) and macOS
-(Gatekeeper; unnotarized apps need a Privacy & Security override — skilldex's
-README documents that pain well). Options, to be resolved in an ADR when
-releases begin: buy certificates (macOS Developer ID + notarization; Windows
-OV/EV), ship unsigned with honest install docs, or Windows-unsigned +
-macOS-notarized. Until then, `npm run build` artifacts are for local use.
+Unsigned for now: [ADR-0011](adr/0011-unsigned-releases-for-now.md). The
+workflow looks up no identity and reads no certificate, README tells users
+what SmartScreen and Gatekeeper will say, and the ADR names what changes the
+decision.
 
 ## Release steps
 
-1. `npm version <bump>` on a clean `main`; CHANGELOG section finalized.
-2. CI green on all three OSes.
-3. Tag push triggers the packaging workflow; artifacts attach to a draft
-   GitHub Release.
-4. Smoke-test one artifact per OS against a fixture store, then publish.
+1. `npm version <bump> --no-git-tag-version` on a clean `main`; move the
+   CHANGELOG's `[Unreleased]` items under the new version; commit.
+2. CI green on all three OSes (`verify` and `smoke` jobs).
+3. `git tag v<version> && git push --tags`. The `release` workflow builds the
+   NSIS installer, the DMG and the AppImage, runs the end-to-end smoke against
+   the packaged binary on Windows and Linux, and attaches everything to a
+   **draft** GitHub Release.
+4. Download one artifact per OS and run it against a fixture store
+   (`.claude/skills/run-kondo/fixture.mjs` prints the three env values); a
+   blank window or any network request is a blocker.
+5. Publish the draft. `npm run package` builds the same artifacts locally,
+   unsigned, when a check is wanted before the tag.

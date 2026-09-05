@@ -69,14 +69,28 @@ machine; nothing is ever sent anywhere.
 ## Status
 
 Pre-release, v0.5. Everything above ships and has been run against a real
-store of 11,517 projects and 1.6 GB of transcripts. No packaged build has
-been published yet — see [docs/release.md](docs/release.md) — so running it
-means cloning and `npm run dev`. What comes next is in
-[ROADMAP.md](ROADMAP.md): per-project MCP toggles, switching a global skill
-off for one project, the desktop store's caches, packaged releases, and
-end-to-end tests.
+store of 11,517 projects and 1.6 GB of transcripts. Installers are built by
+CI from a version tag and published as drafts a person promotes
+([docs/release.md](docs/release.md)). What comes next is in
+[ROADMAP.md](ROADMAP.md).
 
-## Getting started
+## Install
+
+Packaged builds — an NSIS installer for Windows, a DMG for macOS, an AppImage
+for Linux — are attached to each
+[GitHub Release](../../releases). They are **unsigned** for now
+([ADR-0011](docs/adr/0011-unsigned-releases-for-now.md)), so:
+
+- **Windows** — SmartScreen will say the publisher is unknown. Choose *More
+  info* → *Run anyway*.
+- **macOS** — Gatekeeper will refuse the first open. Right-click the app and
+  choose *Open*, or allow it under *System Settings → Privacy & Security*.
+- **Linux** — `chmod +x Kondo-*.AppImage` and run it.
+
+Kondo makes no network request of any kind, so nothing checks in after
+install; updates are a new download.
+
+## Getting started from source
 
 Requires Node 22+ (an `.nvmrc` is provided; `fnm use` or `nvm use` picks it up).
 
@@ -86,6 +100,8 @@ npm run dev        # launch the app with hot reload
 npm test           # run the test suite
 npm run typecheck  # strict TypeScript across app and electron
 npm run build      # typecheck + production build
+npm run test:e2e   # the built app, launched against a fixture store and driven
+npm run package    # unsigned installers under release/ (electron-builder)
 ```
 
 ## Documentation
