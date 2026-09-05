@@ -21,6 +21,7 @@ spelling, and no string a user can read is ever left on the left-hand one.
 | Stale session | Untouched N+ days (N from `staleAfterDays` on the seam) |
 | Orphan | Leftover |
 | Desktop-released session | Conversation deleted in the desktop app |
+| Desktop caches (`desktop-caches`) | Caches the desktop app rebuilds |
 | Skill duplicate group | Skills kept twice |
 | Trash a duplicate copy | Move this copy to trash |
 | Settings layer | Settings file |

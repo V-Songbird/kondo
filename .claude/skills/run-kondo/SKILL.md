@@ -188,6 +188,14 @@ The fixture sits under a temp directory, so the sweep's "Throwaway folders"
 row counts its two transcript projects. That is the category doing its job,
 not a fixture bug.
 
+The desktop half of the fixture carries three Chromium cache directories
+(`Cache`, `Code Cache`, one inside `Partitions/cowork-file-preview`) beside a
+`Local Storage` and a `vm_bundles` that must never be offered, so Clean up's
+"Caches the desktop app rebuilds" row reads 3 items. It carries no `lockfile`
+and no `Singleton*` marker, so the row is not blocked; on the owner's machine
+with the desktop app open it reads "The Claude desktop app is running…" and
+its checkbox is dark.
+
 `hush@acme` is there for that empty case alone. Its install root at
 `plugins/cache/acme/hush/1.0.0` holds a `commands/` file and **no `skills/`
 directory at all** — an absent directory is a different case from an empty

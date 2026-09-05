@@ -67,6 +67,7 @@ import {
   scanTidyCandidates,
   tidyPlan,
   toTidyPreview,
+  type TidyBlocks,
   type TidyCandidates
 } from './tidy'
 
@@ -414,11 +415,12 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
    */
   const tidyCandidates = async (
     c: Collector
-  ): Promise<{ scan: Scan<SessionInventory>; candidates: TidyCandidates }> => {
+  ): Promise<{ scan: Scan<SessionInventory>; candidates: TidyCandidates; blocked: TidyBlocks }> => {
     const { scan } = await inventory()
     const shared = context(c)
     const armed = armedHookScripts(await shared.layers(), locator, await shared.projects())
-    return { scan, candidates: await scanTidyCandidates(locator, scan.data, now(), armed, c) }
+    const tidy = await scanTidyCandidates(locator, scan.data, now(), armed, c)
+    return { scan, candidates: tidy.candidates, blocked: tidy.blocked }
   }
 
   return {
@@ -764,9 +766,9 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
     async tidyPreview(): Promise<Scan<TidyPreview>> {
       const c = collector()
-      const { scan, candidates } = await tidyCandidates(c)
+      const { scan, candidates, blocked } = await tidyCandidates(c)
       return {
-        data: toTidyPreview(candidates),
+        data: toTidyPreview(candidates, blocked),
         errors: [...scan.errors, ...c.errors],
         unknown: [...scan.unknown, ...c.unknown]
       }
@@ -782,7 +784,18 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       // sweep moves the set the user confirmed rather than one rediscovered
       // a moment later. An item that vanished in between refuses the whole
       // plan in `mutate` — all of the preview or none of it.
-      const plan = tidyPlan((await tidyCandidates(c)).candidates, chosen)
+      const { candidates, blocked } = await tidyCandidates(c)
+      // A blocked category refuses the whole sweep before a byte moves: the
+      // desktop app holding its caches open would fail the plan part way.
+      const held = chosen.find((category) => blocked[category] !== undefined)
+      if (held !== undefined) {
+        return {
+          data: null,
+          errors: [{ code: 'not-permitted', path: held, message: blocked[held] as string }],
+          unknown: []
+        }
+      }
+      const plan = tidyPlan(candidates, chosen)
       // Nothing to sweep is the ordinary answer on a tidy store, not an
       // error: no journal entry, and not a byte touched.
       if (plan === null) return finish<JournalEntryInfo | null>(null, c)

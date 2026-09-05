@@ -97,6 +97,11 @@ Decision, two halves:
   `skillUsage` record was read, `null` when there was no record — the same
   rule `ProjectRowCounts.hooks` and `mcpServers` already follow. A view badges
   on `true`, never on the absence of a record.
+- A category the store will not let kondo sweep right now says so on the
+  preview (entry 063). `TidyCategoryPreview.blocked` carries the sentence —
+  the desktop app holding its caches open is the case — and the sweep refuses
+  a blocked category before a byte moves, so the preview and the sweep agree
+  the way they do about counts.
 - A project's view of a global entity is its own DTO, attributed to the
   project (entry 062). `InheritedSkillState` pairs a user-scope `SkillInfo`
   with the `projectId` looking at it, what that project's layers say

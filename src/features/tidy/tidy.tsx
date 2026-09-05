@@ -28,6 +28,7 @@ const LABEL: Record<TidyCategory, string> = {
   'orphan-sidecars': 'Leftover session folders',
   'orphan-session-env': 'Leftover session snapshots',
   'reclaimable-caches': 'Caches Claude rebuilds',
+  'desktop-caches': 'Caches the desktop app rebuilds',
   'superseded-plugin-versions': 'Old plugin versions',
   'orphan-plugin-residue': 'Leftovers from removed plugins',
   'unarmed-hook-scripts': 'Hook scripts nothing runs'
@@ -51,6 +52,8 @@ function hintFor(category: TidyCategory, staleAfterDays: number): string {
       return 'Saved settings for conversations Claude no longer has a record of.'
     case 'reclaimable-caches':
       return 'Claude builds these again the next time it runs.'
+    case 'desktop-caches':
+      return 'Browser caches inside the Claude desktop app’s data folder. The app builds them again on its next launch.'
     case 'superseded-plugin-versions':
       return 'Older copies of plugins you still have. The version in use stays.'
     case 'orphan-plugin-residue':
@@ -155,7 +158,7 @@ export function Tidy() {
                         <input
                           type="checkbox"
                           className="cursor-pointer disabled:cursor-not-allowed"
-                          disabled={entry.count === 0 || busy}
+                          disabled={entry.count === 0 || entry.blocked !== null || busy}
                           checked={selected.includes(entry.category)}
                           onChange={() => pick(entry.category)}
                         />
@@ -165,6 +168,12 @@ export function Tidy() {
                         <div className="text-xs text-mut">
                           {hintFor(entry.category, scan.data.staleAfterDays)}
                         </div>
+                        {/* Why it cannot be swept right now, on screen and not
+                            in a tooltip: a dark checkbox with no reason reads
+                            as a broken app. */}
+                        {entry.blocked !== null && (
+                          <div className="text-xs text-warn">{entry.blocked}</div>
+                        )}
                       </td>
                       <td className="text-right">
                         {entry.count === 0 ? '—' : entry.count.toLocaleString()}

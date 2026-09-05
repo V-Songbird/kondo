@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
@@ -12,6 +13,7 @@ import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
 import { tildify } from './display'
 import {
   directorySize,
+  isEnoent,
   mapPool,
   relativeTo,
   safeReaddir,
@@ -50,9 +52,111 @@ interface Candidate {
   bytes: number
   /** Tildified, for the preview's examples. */
   display: string
+  /** The mutation store the paths are relative to; the user store unless said. */
+  store?: string
 }
 
 export type TidyCandidates = Record<TidyCategory, Candidate[]>
+
+/** Why a category cannot be swept right now, per category that has a reason. */
+export type TidyBlocks = Partial<Record<TidyCategory, string>>
+
+export interface TidyScan {
+  candidates: TidyCandidates
+  blocked: TidyBlocks
+}
+
+/**
+ * Chromium's own caches, rebuilt on the next launch — what "clear cache" means
+ * in any Electron app. A fixed allowlist, as `RECLAIMABLE` is: `IndexedDB`,
+ * `Local Storage`, `Session Storage` and the rest sit beside them and hold the
+ * app's state, and the desktop store's own directories (`vm_bundles`,
+ * `pending-uploads`, sessions) are not caches at all (domain.md).
+ */
+const CHROMIUM_CACHES = [
+  'Cache',
+  'Code Cache',
+  'GPUCache',
+  'DawnGraphiteCache',
+  'DawnWebGPUCache',
+  'Shared Dictionary'
+] as const
+const PARTITIONS = 'Partitions'
+
+const DESKTOP_APP_RUNNING =
+  'The Claude desktop app is running and holds its caches open. Quit it, then clean up.'
+
+/**
+ * Whether the desktop app has its data directory in use. Windows first:
+ * Electron keeps `lockfile` open with exclusive access while it runs, so an
+ * open for writing fails with EBUSY — verified on the owner's machine with
+ * the app up. Elsewhere Chromium leaves `SingletonLock` / `SingletonSocket` /
+ * `SingletonCookie` behind while running (and after a crash — the honest
+ * error is refusing a sweep that would have worked, not the reverse).
+ */
+export async function desktopAppBusy(locator: StoreLocator): Promise<string | null> {
+  const root = locator.desktopRoot
+  if (root === null) return null
+  try {
+    const handle = await fs.open(path.join(root, 'lockfile'), 'r+')
+    await handle.close()
+  } catch (cause) {
+    if (!isEnoent(cause)) return DESKTOP_APP_RUNNING
+  }
+  for (const marker of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+    try {
+      await fs.lstat(path.join(root, marker))
+      return DESKTOP_APP_RUNNING
+    } catch {
+      // not there: keep looking
+    }
+  }
+  return null
+}
+
+/**
+ * The desktop store's Chromium caches, at its root and inside each partition,
+ * as `desktop`-store candidates. Empty directories reclaim nothing and are
+ * left out, as the user store's are.
+ */
+async function scanDesktopCaches(
+  locator: StoreLocator,
+  candidates: TidyCandidates,
+  c: Collector
+): Promise<void> {
+  const root = locator.desktopRoot
+  if (root === null) return
+  const rootDisplay = tildify(root, locator.home)
+  const homes: Array<{ relative: string; display: string }> = [{ relative: '', display: rootDisplay }]
+  const partitionsDisplay = `${rootDisplay}/${PARTITIONS}`
+  for (const entry of await safeReaddir(path.join(root, PARTITIONS), partitionsDisplay, c)) {
+    if (!entry.isDirectory()) continue
+    homes.push({
+      relative: `${PARTITIONS}/${entry.name}`,
+      display: `${partitionsDisplay}/${entry.name}`
+    })
+  }
+  for (const home of homes) {
+    const dir = home.relative === '' ? root : path.join(root, ...home.relative.split('/'))
+    const present = new Set(
+      (await safeReaddir(dir, home.display, c))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+    )
+    for (const name of CHROMIUM_CACHES) {
+      if (!present.has(name)) continue
+      const display = `${home.display}/${name}`
+      const bytes = await directorySize(path.join(dir, name), display, c)
+      if (bytes === 0) continue
+      candidates['desktop-caches'].push({
+        store: 'desktop',
+        paths: [home.relative === '' ? name : `${home.relative}/${name}`],
+        bytes,
+        display
+      })
+    }
+  }
+}
 
 /**
  * The user-store directories domain.md marks as caches and support state;
@@ -101,7 +205,7 @@ export async function scanTidyCandidates(
    */
   armed: ReadonlySet<string>,
   c: Collector
-): Promise<TidyCandidates> {
+): Promise<TidyScan> {
   const root = locator.userRoot
   const candidates: TidyCandidates = {
     'scratch-projects': [],
@@ -112,6 +216,7 @@ export async function scanTidyCandidates(
     'orphan-sidecars': [],
     'orphan-session-env': [],
     'reclaimable-caches': [],
+    'desktop-caches': [],
     'superseded-plugin-versions': [],
     'orphan-plugin-residue': [],
     'unarmed-hook-scripts': []
@@ -252,8 +357,12 @@ export async function scanTidyCandidates(
   await scanSessionEnv(locator, inventory, candidates, c)
   await scanPluginResidue(locator, candidates, c)
   await scanUnarmedHookScripts(locator, armed, candidates, c)
+  await scanDesktopCaches(locator, candidates, c)
 
-  return candidates
+  const blocked: TidyBlocks = {}
+  const busy = candidates['desktop-caches'].length > 0 ? await desktopAppBusy(locator) : null
+  if (busy !== null) blocked['desktop-caches'] = busy
+  return { candidates, blocked }
 }
 
 /**
@@ -421,14 +530,15 @@ async function scanPluginResidue(
 }
 
 /** The dry run itself: counts and bytes per category, and nothing moved. */
-export function toTidyPreview(candidates: TidyCandidates): TidyPreview {
+export function toTidyPreview(candidates: TidyCandidates, blocked: TidyBlocks = {}): TidyPreview {
   const categories: TidyCategoryPreview[] = tidyCategories.map((category) => {
     const items = candidates[category]
     return {
       category,
       count: items.length,
       bytes: items.reduce((sum, item) => sum + item.bytes, 0),
-      examples: items.slice(0, EXAMPLES).map((item) => item.display)
+      examples: items.slice(0, EXAMPLES).map((item) => item.display),
+      blocked: blocked[category] ?? null
     }
   })
   return {
@@ -457,6 +567,7 @@ const LABEL: Record<TidyCategory, readonly [one: string, many: string]> = {
   'orphan-sidecars': ['leftover session folder', 'leftover session folders'],
   'orphan-session-env': ['leftover session snapshot', 'leftover session snapshots'],
   'reclaimable-caches': ['cache directory', 'cache directories'],
+  'desktop-caches': ['desktop app cache', 'desktop app caches'],
   'superseded-plugin-versions': ['superseded plugin version', 'superseded plugin versions'],
   'orphan-plugin-residue': ['leftover plugin file', 'leftover plugin files'],
   'unarmed-hook-scripts': ['hook script nothing runs', 'hook scripts nothing runs']
@@ -476,7 +587,7 @@ export function tidyPlan(
   const categories = tidyCategories.filter((category) => chosen.includes(category))
   const steps: PlannedStep[] = categories.flatMap((category) =>
     candidates[category].flatMap((item) =>
-      item.paths.map((from) => ({ type: 'trash' as const, store: 'user', from }))
+      item.paths.map((from) => ({ type: 'trash' as const, store: item.store ?? 'user', from }))
     )
   )
   if (steps.length === 0) return null

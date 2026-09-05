@@ -161,6 +161,28 @@ export async function directorySize(
   display: string,
   c: Collector
 ): Promise<number> {
+  // One recursive readdir for the whole tree, then the stats in parallel: a
+  // Chromium cache of 19,000 files measured in 0.75 s this way against 2.5 s
+  // one stat at a time (entry 063). Symbolic links are listed, never followed.
+  let entries: Dirent[]
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true, recursive: true })
+  } catch {
+    // A tree the one call cannot list whole is walked the slow way, so the
+    // directory that refuses is the one reported and the rest still counts.
+    return directorySizeStepwise(dir, display, c)
+  }
+  const files = entries.filter((entry) => entry.isFile())
+  const sizes = await mapPool(files, 64, async (entry) => {
+    const parent = entry.parentPath
+    const child = path.join(parent, entry.name)
+    const info = await safeStat(child, `${display}/${path.relative(dir, child).split(path.sep).join('/')}`, c)
+    return info?.size ?? 0
+  })
+  return sizes.reduce((sum, size) => sum + size, 0)
+}
+
+async function directorySizeStepwise(dir: string, display: string, c: Collector): Promise<number> {
   let total = 0
   const entries = await safeReaddir(dir, display, c)
   for (const entry of entries) {
@@ -168,7 +190,7 @@ export async function directorySize(
     const childDisplay = `${display}/${entry.name}`
     if (entry.isSymbolicLink()) continue
     if (entry.isDirectory()) {
-      total += await directorySize(child, childDisplay, c)
+      total += await directorySizeStepwise(child, childDisplay, c)
     } else if (entry.isFile()) {
       const info = await safeStat(child, childDisplay, c)
       if (info) total += info.size

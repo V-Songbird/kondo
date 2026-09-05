@@ -855,3 +855,94 @@ describe('session-env snapshots and plugin residue', () => {
     }
   })
 })
+
+/**
+ * The desktop store's Chromium caches (entry 063): offered from the root and
+ * from inside each partition, never the state beside them, moved into kondo's
+ * trash under the `desktop` store, and refused whole while the app has its
+ * directory in use.
+ */
+describe('desktop app caches (entry 063)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, { 'settings.json': '{}' })
+    await writeFileTree(world.desktopRoot, {
+      'Cache/f_000001': 'x'.repeat(2048),
+      'Code Cache/js/index': 'y'.repeat(1024),
+      'GPUCache/data_0': 'g'.repeat(64),
+      'Partitions/cowork-file-preview/Cache/data_0': 'z'.repeat(512),
+      'Partitions/cowork-file-preview/Code Cache/wasm/index': 'w'.repeat(256),
+      // State that sits beside the caches and is never a candidate.
+      'Local Storage/leveldb/000003.log': 'state',
+      'IndexedDB/https_claude.ai_0.indexeddb.leveldb/CURRENT': 'MANIFEST-000001',
+      'Partitions/cowork-file-preview/Local Storage/leveldb/000001.log': 'state',
+      'vm_bundles/claudevm.bundle/disk.img': 'not a cache',
+      'pending-uploads/one.png': 'png',
+      'local-agent-mode-sessions/device/account/local_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.json': '{}'
+    })
+    // An empty cache directory reclaims nothing and is not offered.
+    await fs.mkdir(path.join(world.desktopRoot, 'DawnGraphiteCache'), { recursive: true })
+    api = createWorkspace({
+      locator: world.locator,
+      platform: process.platform,
+      now: () => NOW,
+      guessExists: async () => false
+    })
+  })
+  afterEach(async () => {
+    await world.cleanup()
+  })
+
+  it('offers the Chromium caches at the root and inside each partition, and nothing else', async () => {
+    const found = byCategory((await api.tidyPreview()).data)
+    const caches = found['desktop-caches']
+    expect(caches.blocked).toBeNull()
+    expect(caches.count).toBe(5)
+    expect(caches.bytes).toBe(2048 + 1024 + 64 + 512 + 256)
+    const offered = (await api.tidyPreview()).data.categories.flatMap((entry) => entry.examples)
+    for (const kept of ['Local Storage', 'IndexedDB', 'vm_bundles', 'pending-uploads', 'local-agent-mode-sessions']) {
+      expect(offered.some((example) => example.includes(kept)), kept).toBe(false)
+    }
+  })
+
+  it('moves them into kondo\u2019s trash under the desktop store, and undo puts every byte back', async () => {
+    const before = await hashTree(world.desktopRoot)
+    const done = await api.tidySweep(['desktop-caches'])
+    expect(done.errors).toEqual([])
+    expect(done.data?.stepCount).toBe(5)
+    expect(done.data?.summary).toContain('5 desktop app caches')
+    expect(await exists(path.join(world.desktopRoot, 'Cache'))).toBe(false)
+    expect(await exists(path.join(world.desktopRoot, 'Partitions', 'cowork-file-preview', 'Cache'))).toBe(false)
+    // The state beside them did not move.
+    expect(await exists(path.join(world.desktopRoot, 'Local Storage', 'leveldb', '000003.log'))).toBe(true)
+    expect(await exists(path.join(world.desktopRoot, 'vm_bundles', 'claudevm.bundle', 'disk.img'))).toBe(true)
+    // Displaced bytes live under the desktop store's own trash segment.
+    const trashed = await fs.readdir(path.join(world.kondoDataRoot, 'trash'), { recursive: true })
+    expect(trashed.some((entry) => String(entry).split(path.sep).includes('desktop'))).toBe(true)
+
+    const undone = await api.journalUndo(done.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(await hashTree(world.desktopRoot)).toBe(before)
+  })
+
+  it('refuses the category while the desktop app has its directory in use', async () => {
+    // Chromium leaves a Singleton marker while it runs (and Electron holds
+    // `lockfile` open on Windows): either is the app saying "mine".
+    await writeFileTree(world.desktopRoot, { SingletonLock: '' })
+    const found = byCategory((await api.tidyPreview()).data)
+    expect(found['desktop-caches'].count).toBe(5)
+    expect(found['desktop-caches'].blocked).toContain('desktop app is running')
+    // Every other category is unaffected.
+    expect(found['reclaimable-caches'].blocked).toBeNull()
+
+    const before = await hashTree(world.desktopRoot)
+    const refused = await api.tidySweep(['desktop-caches'])
+    expect(refused.data).toBeNull()
+    expect(refused.errors.map((error) => error.code)).toEqual(['not-permitted'])
+    expect(await hashTree(world.desktopRoot)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
+  })
+})

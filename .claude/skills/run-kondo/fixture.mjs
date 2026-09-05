@@ -143,7 +143,16 @@ await write(userRoot, {
 // mirror flag has something to find (entry 034).
 await write(desktopRoot, {
   'local-agent-mode-sessions/device-1/account-1/local_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.json':
-    '{}'
+    '{}',
+  // Chromium caches at the root and inside a partition, for the Clean up
+  // page's "Caches the desktop app rebuilds" row (entry 063). No lockfile and
+  // no Singleton* marker, so the fixture app reads as not running.
+  'Cache/f_000001': 'x'.repeat(2048),
+  'Code Cache/js/index': 'y'.repeat(1024),
+  'Partitions/cowork-file-preview/Cache/data_0': 'z'.repeat(512),
+  // State beside them that must never be offered.
+  'Local Storage/leveldb/000003.log': 'state',
+  'vm_bundles/claudevm.bundle/disk.img': 'not a cache'
 })
 
 // Ships inside a plugin, so kondo's skills catalogue must not list it. Two of

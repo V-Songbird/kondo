@@ -329,20 +329,26 @@ scan and a mutation can never disagree about where an entry lives.
 
 ## Desktop store
 
-Electron app data. Mostly standard Chromium/Electron directories (`Cache`,
-`IndexedDB`, `Local Storage`, `Partitions`, …) ✅ that kondo reports only as
-bulk size. The Claude-specific parts ✅:
+Electron app data — 10.9 GB on the owner's machine on 2026-09-05 ✅, against
+1.6 GB for the Claude Code store. Observed top-level entries, by what they
+are:
 
-- `local-agent-mode-sessions/<device-or-install-uuid>/<account-uuid>/` —
-  desktop/cowork sessions:
-  - `local_<session-uuid>.json` + `local_<session-uuid>/` per session ✅
-  - `agent/`, `artifacts.json`, `cowork-*-cache.json` ✅
-- `Claude Extensions`, `Claude Extensions Settings` ✅ — desktop extensions.
-- `ant-device-registry.json`, `ant-did`, `bridge-state.json`,
-  `buddy-tokens.json` ✅ — device/identity state. **Read-never**: kondo lists
-  names and sizes but does not open identity or token files.
-- Cloud sessions (claude.ai) have no local files unless mirrored here; kondo
-  only sees what is on disk.
+| Entry | What it is | Kondo |
+|---|---|---|
+| `vm_bundles/` (`claudevm.bundle/`, `warm/`) | 9.3 GB ✅ — the cowork VM image and its warm copy. Whether the app re-downloads a missing bundle is not established ◇. | Reported. **Never offered**: not a cache until proven one. |
+| `claude-code/<version>/`, `claude-code-vm/<version>/` | 416 MB + 205 MB ✅ — the Claude Code CLI the desktop app bundles, one directory per version (2.1.258 and 2.1.260 seen; only the newer has a `-vm` twin). The older version looks superseded ◇, the way a plugin's cache versions are. | Reported. Not offered until the app's rollback behaviour is known. |
+| `Code Cache/`, `Cache/`, `GPUCache/`, `DawnGraphiteCache/`, `DawnWebGPUCache/`, `Shared Dictionary/` | 317 MB + 157 MB + … ✅ — Chromium's own caches; the app rebuilds each on its next launch, which is what "clear cache" means in any Electron app. | The `desktop-caches` tidy category (entry 063), at the root and inside each `Partitions/<name>/`. |
+| `Partitions/<name>/` | 129 MB ✅ — one Chromium profile per isolated web view (`cowork-artifact-<ids>`, `cowork-file-preview`, `launch-preview-cowork-shared`, `launch-preview-static`), each with the same cache directories beside its `Local Storage`, `IndexedDB`, `Network`, `Preferences`. | Only the cache directories inside are offered. |
+| `local-agent-mode-sessions/<device-or-install-uuid>/<account-uuid>/` | 287 MB ✅ — desktop/cowork sessions: `local_<session-uuid>.json` + `local_<session-uuid>/` per session, `agent/`, `artifacts.json`, `cowork-*-cache.json`. | Read for the mirror flag and the desktop session listing. Never swept. |
+| `claude-code-sessions/<uuid>/`, `scratch-workspaces/`, `git-shadow/`, `git-worktrees.json` | 9 MB + … ✅ — cowork's working state: the CLI sessions it drove, the scratch checkouts it works in, shadow git data. | Reported only. |
+| `logs/` (14 files), `sentry/`, `Crashpad/` | 56 MB ✅ — the app's own logs, error reports and crash dumps. | Reported only ◇ — a candidate once the app's retention is known. |
+| `pending-uploads/` | 22 MB, 60 PNGs ✅ — pasted images awaiting upload. | **Never offered**: in-flight user data. |
+| `IndexedDB/`, `Local Storage/`, `Session Storage/`, `WebStorage/`, `File System/`, `blob_storage/`, `Network/`, `DIPS*`, `SharedStorage*`, `InterestGroups/`, `VideoDecodeStats/`, `Local State`, `Preferences`, `shared_proto_db/`, `fcache` | Chromium's state stores ✅. | Reported only; state, not cache. |
+| `Claude Extensions/`, `Claude Extensions Settings/`, `ChromeNativeHost/`, `design/`, `document-baselines/`, `extensions-*.json`, `mcp-user-tool-toggles.json`, `cowork-enabled-cli-ops.json`, `claude_desktop_config.json`, `config.json`, `window-state.json` | The desktop app's own configuration and features ✅. | Reported only. |
+| `ant-device-registry.json`, `ant-did`, `bridge-state.json`, `buddy-tokens.json`, `lockfile` | Device/identity state and Electron's single-instance lock ✅. **Read-never** for the identity and token files: names and sizes only. `lockfile` is opened for writing once per tidy preview — never read — because Electron holds it with exclusive access while the app runs (EBUSY on Windows, verified with the app up), which is how kondo knows not to sweep caches the app has open; on macOS and Linux a `SingletonLock` / `SingletonSocket` / `SingletonCookie` beside it means the same (and may be left behind by a crash ◇, in which case kondo refuses a sweep that would have worked). | The `desktop-caches` block. |
+
+Cloud sessions (claude.ai) have no local files unless mirrored here; kondo
+only sees what is on disk.
 
 ## Cross-store facts
 

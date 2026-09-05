@@ -829,6 +829,14 @@ export const tidyCategories = [
   /** Support directories domain.md marks reclaimable; Claude rebuilds them. */
   'reclaimable-caches',
   /**
+   * Chromium's own caches inside the Claude desktop app's data directory —
+   * `Cache`, `Code Cache`, `GPUCache`, the two Dawn caches and `Shared
+   * Dictionary`, at the root and inside each `Partitions/<name>/` — which the
+   * app rebuilds on its next launch (domain.md). Nothing else in that store is
+   * offered: session data, uploads and the VM bundle are not caches.
+   */
+  'desktop-caches',
+  /**
    * `plugins/cache/<mp>/<plugin>/<version>/` trees that are not the version
    * `installed_plugins.json` points at. The installed `installPath` is never
    * a candidate — that one is the live code Claude loads.
@@ -864,6 +872,12 @@ export interface TidyCategoryPreview {
   bytes: number
   /** Display paths of the first few, so the count is inspectable. */
   examples: string[]
+  /**
+   * Why this category cannot be swept right now, or null when it can. The
+   * desktop caches are the case: while the desktop app runs it holds them
+   * open, so a sweep would fail part way, and the preview says so instead.
+   */
+  blocked: string | null
 }
 
 export interface TidyPreview {
