@@ -4,6 +4,7 @@ import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { LastChange } from '../../ui/last-change'
 import { formatBytes, formatCount, joinErrors } from '../../lib/format'
+import { SkillDuplicates } from './duplicates'
 
 /**
  * The tidy sweep, preview first. The table is computed by main without moving
@@ -226,6 +227,10 @@ export function Tidy() {
           )
         }}
       </AsyncView>
+
+      {/* Its own read and its own undo: a skill copy goes one at a time, not
+          as a category of the sweep above. */}
+      <SkillDuplicates />
     </div>
   )
 }

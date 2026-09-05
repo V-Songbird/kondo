@@ -425,21 +425,21 @@ function ProjectPage({
                 count={detail.agents.length}
                 empty="No agents here — nothing in this scope's agents folder."
               >
-                <PlacedList entries={detail.agents} />
+                <PlacedList entries={detail.agents} destinations={elsewhere} busy={busy} run={run} />
               </Section>
               <Section
                 title="Commands"
                 count={detail.commands.length}
                 empty="No commands here — nothing in this scope's commands folder."
               >
-                <PlacedList entries={detail.commands} />
+                <PlacedList entries={detail.commands} destinations={elsewhere} busy={busy} run={run} />
               </Section>
               <Section
                 title="Rules"
                 count={detail.rules.length}
                 empty="No rules here — nothing in this scope's rules folder."
               >
-                <PlacedList entries={detail.rules} />
+                <PlacedList entries={detail.rules} destinations={elsewhere} busy={busy} run={run} />
               </Section>
               {row.global && (
                 <Section
@@ -447,7 +447,16 @@ function ProjectPage({
                   count={detail.outputStyles.length}
                   empty="No output styles here — nothing in ~/.claude/output-styles."
                 >
-                  <PlacedList entries={detail.outputStyles} />
+                  {/* ADR-0006: Claude reads output styles from the user store
+                      only, so there is no scope to offer. Said in the column
+                      rather than by an empty picker. */}
+                  <PlacedList
+                    entries={detail.outputStyles}
+                    destinations={[]}
+                    nowhere="Claude reads output styles from ~/.claude only, so there is nowhere to move one."
+                    busy={busy}
+                    run={run}
+                  />
                 </Section>
               )}
 
@@ -632,24 +641,79 @@ function HookScriptCell({ script }: { script: HookScript | null }) {
 }
 
 /**
- * Agents, commands, rules and output styles. Read-only in every scope
- * (ADR-0006), which is why there is no control in this list: Claude loads
- * them by presence and ships no convention for benching one.
+ * Agents, commands, rules and output styles. Moving one is putting its file
+ * in the other scope's directory, which is exactly how Claude loads it there,
+ * so the picker is the same one a skill has and lands on the same generic
+ * seat (`entityMutate`, ADR-0004). Neither toggle has a mechanism (ADR-0006):
+ * Claude loads these by presence and ships no convention for benching one.
+ * The matrix says so in one sentence, the same for every row, so it is said
+ * once beneath the table rather than on every line.
  */
-function PlacedList({ entries }: { entries: PlacedEntryInfo[] }) {
+function PlacedList({
+  entries,
+  destinations,
+  nowhere,
+  busy,
+  run
+}: {
+  entries: PlacedEntryInfo[]
+  destinations: Destination[]
+  /** Why there is no picker at all, for the kind with a single scope. */
+  nowhere?: string
+  busy: boolean
+  run: (call: (api: KondoApi) => Promise<Scan<JournalEntryInfo | null>>) => Promise<void>
+}) {
+  const benched = entries[0]?.capabilities.disable.reason ?? null
   return (
-    <ul className="space-y-1">
-      {entries.map((entry) => (
-        <li key={entry.id} className="flex gap-3">
-          <span className="w-56 shrink-0 truncate font-mono" title={entry.origin}>
-            {entry.name}
-          </span>
-          <span className="truncate text-mut" title={entry.description ?? undefined}>
-            {entry.description ?? '—'}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-2">
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Move to</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => (
+            <tr key={entry.id}>
+              <td className="font-mono" title={entry.origin}>
+                {entry.name}
+              </td>
+              <td className="max-w-md text-mut" title={entry.description ?? undefined}>
+                {entry.description ?? '—'}
+              </td>
+              <td>
+                {nowhere !== undefined ? (
+                  <Refusal reason={nowhere} />
+                ) : (
+                  <select
+                    value=""
+                    disabled={!entry.capabilities.move.allowed || busy}
+                    className="max-w-xs cursor-pointer rounded-md border border-edge bg-transparent px-2 py-0.5 text-xs text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                    onChange={(event) => {
+                      const targetId = event.target.value
+                      if (targetId !== '') {
+                        void run((api) => api.entityMutate(entry.id, { op: 'move', targetId }))
+                      }
+                    }}
+                  >
+                    <option value="">Move to…</option>
+                    {destinations.map((destination) => (
+                      <option key={destination.id} value={destination.id}>
+                        {destination.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <Refusal reason={entry.capabilities.move.reason} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Refusal reason={benched} />
+    </div>
   )
 }
 

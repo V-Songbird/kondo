@@ -164,6 +164,20 @@ empty but valid as a destination, and two plugins that ship skills
 differently — `foreman@acme` ships two, neither of which may appear in the
 skills list, and `hush@acme` ships none.
 
+Two skill names repeat on purpose, one per verdict of the Clean up page's
+"Skills kept twice" section: `api-notes` is byte-identical in the user store
+and in `apiserver`, so it reads `identical copies` and either copy may go to
+the trash; `db-migrate` shares its name across the same two scopes with
+different bytes, so it reads `same name, different contents` and both
+buttons stay disabled. The user store also holds an agent (`planner`) and an
+output style (`terse`), and `apiserver` an agent (`reviewer`) and a command
+(`deploy`), so every placed kind has a row with a move picker — the output
+style's column says there is nowhere to move one instead.
+
+The fixture sits under a temp directory, so the sweep's "Throwaway folders"
+row counts its two transcript projects. That is the category doing its job,
+not a fixture bug.
+
 `hush@acme` is there for that empty case alone. Its install root at
 `plugins/cache/acme/hush/1.0.0` holds a `commands/` file and **no `skills/`
 directory at all** — an absent directory is a different case from an empty
