@@ -742,8 +742,22 @@ function SkillTable({
   skills: SkillInfo[]
   destinations: Destination[]
   busy: boolean
-  run: (call: (api: KondoApi) => Promise<Scan<JournalEntryInfo | null>>) => Promise<void>
+  run: (
+    call: (api: KondoApi) => Promise<Scan<JournalEntryInfo | null>>,
+    retry?: () => void
+  ) => Promise<void>
 }) {
+  /**
+   * A toggle is a settings edit (ADR-0006), and the layer it lands in may not
+   * exist yet: main asks first, and the retry is the same request with the
+   * user's yes on it — the file is created only then.
+   */
+  const toggle = (skill: SkillInfo, operation: ToggleOperation, confirm = false): void => {
+    void run(
+      (api) => api.entityMutate(skill.id, { op: operation, confirm }),
+      () => toggle(skill, operation, true)
+    )
+  }
   return (
     <table className="tbl">
       <thead>
@@ -801,7 +815,7 @@ function SkillTable({
                   type="button"
                   disabled={reason !== null || busy}
                   className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
-                  onClick={() => void run((api) => api.skillToggle(skill.id, operation))}
+                  onClick={() => toggle(skill, operation)}
                 >
                   {operation === 'disable' ? 'Disable' : 'Enable'}
                 </button>

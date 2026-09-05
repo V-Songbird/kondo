@@ -140,10 +140,15 @@ const STORE_IS_NOT_A_TOGGLE =
  * the settings layer for hooks and plugins, and the store for sessions.
  */
 const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
-  // ~/.claude/skills ⇄ ~/.claude/skills.disabled, and the project-scoped
-  // equivalent (domain.md). Every scope a user placed a skill in by hand can
-  // also hand it on, so `move` is allowed wherever the skill is the user's —
-  // it is the one operation that reads the *source* row and writes elsewhere.
+  // A live skill toggles through `skillOverrides` in its scope's settings
+  // layer (ADR-0006, entry 045): `disable` states `off`, `enable` withdraws
+  // it — see `skillCapabilities`, which flips the two once an override is in
+  // force. The `*-disabled` rows are skills already parked in
+  // `skills.disabled/`, kondo's own bench and not a Claude convention; nothing
+  // new goes there, and the one thing offered is the way back into `skills/`.
+  // Every scope a user placed a skill in by hand can also hand it on, so
+  // `move` is allowed wherever the skill is the user's — it is the one
+  // operation that reads the *source* row and writes elsewhere.
   skill: {
     user: { enable: deny(ALREADY_ENABLED), disable: ALLOW, move: ALLOW, trash: ALLOW },
     'user-disabled': {
@@ -258,11 +263,14 @@ export function skillCapabilities(
 ): Capabilities {
   const row = capabilitiesFor('skill', scope)
   if (override === null || override.value !== 'off') return row
+  // An `off` in force is the disabled state itself, so the toggle offered is
+  // the one that withdraws it (entry 045). For a benched skill that is also
+  // switched off, `enable` still means the way back into `skills/` first —
+  // the row stays as it is, and the override is dealt with on the next press.
+  const benched = scope === 'user-disabled' || scope === 'project-disabled'
   return {
     ...row,
-    enable: deny(
-      `${override.layerPath} switches this skill off with skillOverrides; moving it back into skills/ would not turn it on.`
-    ),
+    enable: benched ? row.enable : ALLOW,
     disable: deny(
       `${override.layerPath} already switches this skill off with skillOverrides.`
     )

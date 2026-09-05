@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { KondoApi, ToggleOperation } from '../shared/contract'
@@ -19,10 +20,13 @@ import {
 } from './helpers'
 
 /**
- * Enable and disable a skill through Claude's own convention (ADR-0006): the
- * skill directory moves between `skills` and `skills.disabled` in its own
- * scope, journaled first and therefore reversible (ADR-0001). Plugin-shipped
- * skills are refused by the capability matrix, not by the UI.
+ * Enable and disable a skill through Claude's own convention (ADR-0006,
+ * entry 045): `skillOverrides[<name>] = "off"` spliced into a settings layer
+ * of the skill's scope, and the member taken away again to enable — journaled
+ * first and therefore reversible (ADR-0001). A skill already parked in
+ * `skills.disabled/` (kondo's old bench) is offered the way back into
+ * `skills/`. Plugin-shipped skills are refused by the capability matrix, not
+ * by the UI.
  */
 
 // A project path is reconstructed from its flattened directory name, which
@@ -76,23 +80,42 @@ describe('skill enable/disable (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // User scope
 
-  it('moves a user skill into skills.disabled and leaves it nowhere else', async () => {
+  it('disables a user skill by writing skillOverrides off into settings.json, moving nothing', async () => {
+    const settings = path.join(world.userRoot, 'settings.json')
+    const before = await fs.readFile(settings, 'utf8')
     const result = await api.skillToggle('skill:user:alpha-skill', 'disable')
     expect(result.errors).toEqual([])
-    expect(result.data?.op).toBe('move')
+    expect(result.data?.op).toBe('settings-edit')
+    expect(result.data?.summary).toContain('settings.json')
 
-    expect(await exists(path.join(world.userRoot, 'skills.disabled', 'alpha-skill', 'SKILL.md')))
-      .toBe(true)
-    expect(await exists(path.join(world.userRoot, 'skills', 'alpha-skill'))).toBe(false)
-    // A disable is a move, not a trash: nothing was displaced into kondo's.
-    expect((await api.trashSize()).data.entryCount).toBe(0)
+    // The directory did not move: Claude's switch is the settings key.
+    expect(await exists(path.join(world.userRoot, 'skills', 'alpha-skill', 'SKILL.md'))).toBe(true)
+    expect(await exists(path.join(world.userRoot, 'skills.disabled', 'alpha-skill'))).toBe(false)
 
-    const ids = await idsFrom()
-    expect(ids).toContain('skill:user-disabled:alpha-skill')
-    expect(ids).not.toContain('skill:user:alpha-skill')
+    // One member added; the key that was there keeps its bytes.
+    const after = await fs.readFile(settings, 'utf8')
+    expect(JSON.parse(after)).toEqual({
+      enabledPlugins: { 'alpha@acme': true },
+      skillOverrides: { 'alpha-skill': 'off' }
+    })
+    expect(after).toContain(before.slice(before.indexOf('"enabledPlugins"'), before.indexOf('}')))
+
+    const alpha = (await api.skillsList()).data.find((skill) => skill.id === 'skill:user:alpha-skill')
+    expect(alpha?.enabled).toBe(false)
+    expect(alpha?.override?.value).toBe('off')
+    // The row now offers the way back, which is the withdrawal of that member.
+    expect(alpha?.capabilities.enable.allowed).toBe(true)
+    expect(alpha?.capabilities.disable.allowed).toBe(false)
+
+    const on = await api.skillToggle('skill:user:alpha-skill', 'enable')
+    expect(on.errors).toEqual([])
+    expect(JSON.parse(await fs.readFile(settings, 'utf8'))).toEqual({
+      enabledPlugins: { 'alpha@acme': true },
+      skillOverrides: {}
+    })
   })
 
-  it('moves a disabled user skill back into skills', async () => {
+  it('moves a skill parked in skills.disabled back into skills', async () => {
     const result = await api.skillToggle('skill:user-disabled:beta-skill', 'enable')
     expect(result.errors).toEqual([])
 
@@ -114,40 +137,49 @@ describe('skill enable/disable (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // Project scope
 
-  it.runIf(TMP_OK)('toggles a project skill inside its own project only', async () => {
+  it.runIf(TMP_OK)('toggles a project skill in its own settings.local.json, asking before creating it', async () => {
     const projectId = 'skill:project/X--work-proj:delta-skill'.replace(
       'X--work-proj',
       flattenPath(workdir)
     )
     expect(await idsFrom()).toContain(projectId)
+    const local = path.join(claudeDir, 'settings.local.json')
 
+    // No layer file yet: nothing licenses conjuring one out of a toggle.
     const userBefore = await hashTree(world.userRoot)
-    const disabled = await api.skillToggle(projectId, 'disable')
+    const asked = await api.skillToggle(projectId, 'disable')
+    expect(asked.data).toBeNull()
+    expect(asked.errors.map((error) => error.code)).toEqual(['needs-confirmation'])
+    expect(await exists(local)).toBe(false)
+
+    const disabled = await api.entityMutate(projectId, { op: 'disable', confirm: true })
     expect(disabled.errors).toEqual([])
-
-    expect(await exists(path.join(claudeDir, 'skills.disabled', 'delta-skill', 'SKILL.md')))
-      .toBe(true)
-    expect(await exists(path.join(claudeDir, 'skills', 'delta-skill'))).toBe(false)
-    // The user scope is a different store and was not touched.
-    expect(await hashTree(world.userRoot)).toBe(userBefore)
-
-    const disabledId = projectId.replace('skill:project/', 'skill:project-disabled/')
-    expect(await idsFrom()).toContain(disabledId)
-
-    const enabled = await api.skillToggle(disabledId, 'enable')
-    expect(enabled.errors).toEqual([])
+    expect(JSON.parse(await fs.readFile(local, 'utf8'))).toEqual({
+      skillOverrides: { 'delta-skill': 'off' }
+    })
+    // Still in skills/, still the same id; the user scope was not touched.
     expect(await exists(path.join(claudeDir, 'skills', 'delta-skill', 'SKILL.md'))).toBe(true)
     expect(await idsFrom()).toContain(projectId)
+    expect(await hashTree(world.userRoot)).toBe(userBefore)
+    const delta = (await api.skillsList()).data.find((skill) => skill.id === projectId)
+    expect(delta?.enabled).toBe(false)
+
+    const enabled = await api.skillToggle(projectId, 'enable')
+    expect(enabled.errors).toEqual([])
+    expect(JSON.parse(await fs.readFile(local, 'utf8'))).toEqual({ skillOverrides: {} })
+    expect((await api.skillsList()).data.find((skill) => skill.id === projectId)?.enabled).toBe(
+      true
+    )
   })
 
   it.runIf(TMP_OK)('never writes outside the project .claude directory', async () => {
     const touched: string[] = []
     const restores = recordWrites(touched)
     try {
-      await api.skillToggle(
-        `skill:project/${flattenPath(workdir)}:delta-skill`,
-        'disable'
-      )
+      await api.entityMutate(`skill:project/${flattenPath(workdir)}:delta-skill`, {
+        op: 'disable',
+        confirm: true
+      })
     } finally {
       for (const restore of restores) restore()
     }
@@ -194,7 +226,7 @@ describe('skill enable/disable (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // Ordering (ADR-0001) and the seam (ADR-0008)
 
-  it('appends the journal entry before the skill directory moves', async () => {
+  it('appends the journal entry before the settings file is written', async () => {
     const ordered: string[] = []
     const restores = recordWrites(ordered)
     try {
@@ -207,10 +239,10 @@ describe('skill enable/disable (ADR-0006)', () => {
     const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
     const journalAt = ordered.indexOf(journalFile)
     const storeAt = ordered.findIndex((target) =>
-      target.startsWith(path.join(world.userRoot, 'skills'))
+      target.startsWith(path.join(world.userRoot, 'settings.json'))
     )
     expect(journalAt, 'the journal file was never opened').toBeGreaterThanOrEqual(0)
-    expect(storeAt, 'the skill directory was never touched').toBeGreaterThanOrEqual(0)
+    expect(storeAt, 'the settings file was never touched').toBeGreaterThanOrEqual(0)
     expect(journalAt).toBeLessThan(storeAt)
   })
 

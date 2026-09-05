@@ -1143,7 +1143,7 @@ export async function scanMcpServers(
 // skillOverrides — Claude's per-skill switch
 
 /** Claude's documented per-skill switch (domain.md); an object of names. */
-const SKILL_OVERRIDES = 'skillOverrides'
+export const SKILL_OVERRIDES = 'skillOverrides'
 
 /**
  * The four values Claude's settings schema admits (domain.md). Anything else

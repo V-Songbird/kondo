@@ -38,8 +38,12 @@ import {
   editMember,
   hooksFromLayers,
   newSettingsSource,
+  overrideChain,
   PLACEMENTS,
   pluginStateIn,
+  SKILL_OVERRIDES,
+  skillOverrideIn,
+  spliceMember,
   readSettingsLayers,
   scanMcpServers,
   scanPlacedEntries,
@@ -291,16 +295,16 @@ function benchTarget(entity: SkillInfo, operation: ToggleOperation): string | nu
   return dir === null ? null : `${dir}/${entity.name}${rule.suffix}`
 }
 
-function skillTogglePlan(entity: SkillInfo, operation: ToggleOperation): PlanResult {
-  const decision = entity.capabilities[operation]
-  if (!decision.allowed) {
-    return refused(
-      'not-permitted',
-      decision.reason ?? `kondo cannot ${operation} this skill.`
-    )
-  }
+/**
+ * Leaving the bench. `skills.disabled/` is kondo's own parking spot, not a
+ * convention Claude reads (ADR-0006, settled 2026-09-03), so nothing new is
+ * ever put there — but a skill already sitting in it stays readable as the
+ * `*-disabled` scope, and the one thing to offer it is the way back into
+ * `skills/`, which is the move this has always been.
+ */
+function benchReturnPlan(entity: SkillInfo): PlanResult {
   const placement = placementOf('skill', entity)
-  const to = benchTarget(entity, operation)
+  const to = benchTarget(entity, 'enable')
   if (placement === null || to === null) {
     return refused('not-permitted', `kondo cannot tell what store ${entity.name} lives in.`)
   }
@@ -310,9 +314,122 @@ function skillTogglePlan(entity: SkillInfo, operation: ToggleOperation): PlanRes
       op: 'move',
       kind: 'skill',
       entityId: entity.id,
-      summary: `${operation === 'enable' ? 'Enable' : 'Disable'} skill ${entity.name} (${entity.scope})`,
+      summary: `Enable skill ${entity.name} (${entity.scope}): back into skills/`,
       steps: [{ type: 'move', store: placement.store, from: placement.at, to }]
     }
+  }
+}
+
+/**
+ * The store change behind a skill toggle, in Claude's own words (ADR-0006):
+ * `skillOverrides[<name>] = "off"` in a settings layer of the skill's scope
+ * disables it, and taking that member away enables it again — a statement
+ * withdrawn rather than an `"on"` stated, the way `pluginClearPlan` clears a
+ * plugin. Both are the same splice `enabledPlugins` uses, so every other key
+ * in the file keeps its bytes.
+ *
+ * Which file: for a disable, the highest-precedence layer of the scope that
+ * already speaks about this skill, else that scope's `settings.local.json` —
+ * the file Claude's own `/skills` writes — and for the user scope the one
+ * user layer. A layer that is not on disk is asked about first
+ * (`needs-confirmation`), as the plugin toggle does. For an enable, every
+ * layer in the skill's chain that says `off` loses that member in ONE plan,
+ * so the skill actually comes back on and one undo puts every statement back.
+ */
+async function skillTogglePlan(
+  entity: SkillInfo,
+  operation: ToggleOperation,
+  confirm: boolean,
+  context: KindContext
+): Promise<PlanResult> {
+  const decision = entity.capabilities[operation]
+  if (!decision.allowed) {
+    return refused(
+      'not-permitted',
+      decision.reason ?? `kondo cannot ${operation} this skill.`
+    )
+  }
+  if (entity.scope === 'user-disabled' || entity.scope === 'project-disabled') {
+    return benchReturnPlan(entity)
+  }
+
+  const layers = await context.layers()
+  const keyPath = [SKILL_OVERRIDES, entity.name]
+  const write = (
+    layer: SettingsLayer,
+    content: string
+  ): { type: 'write'; store: string; at: string; content: string } => ({
+    type: 'write',
+    store: layer.store,
+    at: layer.relative,
+    content
+  })
+  const unreadable = (layer: SettingsLayer): PlanResult =>
+    refused(
+      'parse-failed',
+      `${layer.info.path} did not read back as a JSON object; kondo will not rewrite it.`
+    )
+  const unsplicable = (layer: SettingsLayer): PlanResult =>
+    refused(
+      'bad-request',
+      `kondo cannot edit skillOverrides in ${layer.info.path} without reformatting it.`
+    )
+
+  if (operation === 'disable') {
+    const layer = destinationLayer(
+      layers,
+      entity.projectId,
+      (candidate) => skillOverrideIn(candidate, entity.name) !== null
+    )
+    if (!layer) {
+      return refused('not-permitted', `No settings layer speaks for ${entity.name}'s scope.`)
+    }
+    const summary = `Disable skill ${entity.name} (${entity.scope}) in ${layer.info.path}`
+    if (!layer.info.exists) {
+      if (!confirm) {
+        return refused(
+          'needs-confirmation',
+          `${layer.info.path} does not exist yet. Confirm to create it holding just this key.`
+        )
+      }
+      const fresh = spliceMember('{}\n', keyPath, '"off"')
+      if (fresh === null) return unsplicable(layer)
+      return settingsEdit(entity, summary, [write(layer, fresh)])
+    }
+    if (layer.source === null || layer.parsed === null) return unreadable(layer)
+    const next = spliceMember(layer.source, keyPath, '"off"')
+    if (next === null) return unsplicable(layer)
+    return settingsEdit(entity, summary, [write(layer, next)])
+  }
+
+  const steps: Array<{ type: 'write'; store: string; at: string; content: string }> = []
+  const cleared: string[] = []
+  for (const layer of overrideChain(layers, entity.projectId)) {
+    if (skillOverrideIn(layer, entity.name) !== 'off') continue
+    if (layer.source === null || layer.parsed === null) return unreadable(layer)
+    const next = spliceMember(layer.source, keyPath, null)
+    if (next === null) return unsplicable(layer)
+    steps.push(write(layer, next))
+    cleared.push(layer.info.path)
+  }
+  if (steps.length === 0) {
+    return refused('not-permitted', `No settings layer switches ${entity.name} off.`)
+  }
+  return settingsEdit(
+    entity,
+    `Enable skill ${entity.name} (${entity.scope}): stop switching it off in ${cleared.join(', ')}`,
+    steps
+  )
+}
+
+function settingsEdit(
+  entity: SkillInfo,
+  summary: string,
+  steps: Array<{ type: 'write'; store: string; at: string; content: string }>
+): PlanResult {
+  return {
+    ok: true,
+    plan: { op: 'settings-edit', kind: 'skill', entityId: entity.id, summary, steps }
   }
 }
 
@@ -367,7 +484,9 @@ const skill: EntityKindDefinition<SkillInfo> = {
     if (request.op === 'move') {
       return movePlan('skill', entity, request.targetId ?? '', context.skills(), context)
     }
-    return request.op === 'trash' ? skillTrashPlan(entity) : skillTogglePlan(entity, request.op)
+    return request.op === 'trash'
+      ? skillTrashPlan(entity)
+      : skillTogglePlan(entity, request.op, request.confirm === true, context)
   }
 }
 
@@ -852,26 +971,23 @@ async function pluginTogglePlan(
 // Handing a plugin from one settings layer to another scope
 
 /**
- * Which of a scope's layers receives the `true`: the highest-precedence one
- * that already states a value, else that scope's `settings.local.json`. The
- * same policy `projectPluginStates` picks a toggle's target by, so a plugin
- * arriving in a scope lands in the file that scope's own control writes —
- * and, like it, the renderer never chooses the file (ADR-0006).
+ * Which of a scope's layers receives a statement: the highest-precedence one
+ * that already `speaks` about the thing, else that scope's
+ * `settings.local.json` — the file Claude's own `/skills` writes and the one
+ * `projectPluginStates` picks a toggle's target by — and for the user scope
+ * its one layer. A plugin or a skill arriving in a scope thus lands in the
+ * file that scope's own control writes, and the renderer never chooses the
+ * file (ADR-0006).
  */
 function destinationLayer(
   layers: SettingsLayer[],
   owner: string | null,
-  key: string
+  speaks: (layer: SettingsLayer) => boolean
 ): SettingsLayer | null {
   const mine = layers
     .filter((layer) => layer.info.projectId === owner)
     .sort((a, b) => SCOPE_ORDER[a.info.layer] - SCOPE_ORDER[b.info.layer])
-  return (
-    mine.find((layer) => pluginStateIn(layer, key) !== null) ??
-    mine.find((layer) => layer.info.layer === 'local') ??
-    mine[0] ??
-    null
-  )
+  return mine.find(speaks) ?? mine.find((layer) => layer.info.layer === 'local') ?? mine[0] ?? null
 }
 
 /**
@@ -940,7 +1056,7 @@ async function pluginMovePlan(
   }
 
   const owner = destinationId === USER_DESTINATION ? null : destinationId
-  const to = destinationLayer(layers, owner, key)
+  const to = destinationLayer(layers, owner, (layer) => pluginStateIn(layer, key) !== null)
   if (to === null) {
     return refused('bad-request', `${target.label} has no settings file kondo can write.`)
   }

@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it } from 'vitest'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { KondoApi, SkillInfo } from '../shared/contract'
 import { collector } from '../electron/main/workspace/scan'
@@ -175,15 +176,55 @@ describe('skillOverrides (entry 029)', () => {
     expect(error?.message).toContain('skillOverrides')
   })
 
-  it('refuses to enable a benched skill an override switches off, by layer', async () => {
+  it('brings a benched skill back into skills/ first, then offers to withdraw the override', async () => {
+    // The bench is kondo's own parking spot (ADR-0006): the way out of it is
+    // the move back, whatever a layer says. Once back, the row is a live
+    // skill switched off by an override, and its enable withdraws that.
     await override('user', { 'beta-skill': 'off' })
-    const result = await api.entityMutate('skill:user-disabled:beta-skill', { op: 'enable' })
+    const back = await api.entityMutate('skill:user-disabled:beta-skill', { op: 'enable' })
+    expect(back.errors).toEqual([])
+    expect(back.data?.op).toBe('move')
 
-    expect(result.data).toBeNull()
-    const error = result.errors[0]
-    expect(error?.code).toBe('not-permitted')
-    expect(error?.message).toContain('settings.json')
-    expect(error?.message).toContain('would not turn it on')
+    const beta = byName((await api.skillsList()).data, 'beta-skill')
+    expect(beta.scope).toBe('user')
+    expect(beta.enabled).toBe(false)
+    expect(beta.capabilities.enable.allowed).toBe(true)
+    expect(beta.capabilities.disable.allowed).toBe(false)
+    expect(beta.capabilities.disable.reason).toContain('settings.json')
+
+    const on = await api.entityMutate('skill:user:beta-skill', { op: 'enable' })
+    expect(on.errors).toEqual([])
+    expect(on.data?.op).toBe('settings-edit')
+    expect(byName((await api.skillsList()).data, 'beta-skill').enabled).toBe(true)
+  })
+
+  it('enables by withdrawing every off in the chain, in one undoable plan (entry 045)', async () => {
+    await override('user', { 'delta-skill': 'off', 'alpha-skill': 'name-only' })
+    await override('local', { 'delta-skill': 'off' })
+    const id = `skill:project/${flattenPath(workdir)}:delta-skill`
+    expect(byName((await api.skillsList()).data, 'delta-skill').enabled).toBe(false)
+
+    const before = {
+      user: await fs.readFile(path.join(world.userRoot, 'settings.json'), 'utf8'),
+      local: await fs.readFile(path.join(workdir, '.claude', 'settings.local.json'), 'utf8')
+    }
+    const result = await api.entityMutate(id, { op: 'enable' })
+    expect(result.errors).toEqual([])
+    expect(result.data?.stepCount).toBe(2)
+    expect(result.data?.summary).toContain('settings.local.json')
+    expect(result.data?.summary).toContain('settings.json')
+
+    // Both statements gone, every other key kept byte for byte.
+    const user = JSON.parse(await fs.readFile(path.join(world.userRoot, 'settings.json'), 'utf8'))
+    expect(user.skillOverrides).toEqual({ 'alpha-skill': 'name-only' })
+    expect(byName((await api.skillsList()).data, 'delta-skill').enabled).toBe(true)
+
+    const undone = await api.journalUndo(result.data?.id ?? '')
+    expect(undone.errors).toEqual([])
+    expect(await fs.readFile(path.join(world.userRoot, 'settings.json'), 'utf8')).toBe(before.user)
+    expect(await fs.readFile(path.join(workdir, '.claude', 'settings.local.json'), 'utf8')).toBe(
+      before.local
+    )
   })
 
   it('still allows the toggle when no override stands in the way', async () => {

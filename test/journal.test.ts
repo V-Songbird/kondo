@@ -107,7 +107,7 @@ describe('the journal and trash surface (ADR-0001)', () => {
     expect(newest.summary).toContain('beta-skill')
     expect(newest.entityId).toBe('skill:user:beta-skill')
     expect(newest.kind).toBe('skill')
-    expect(newest.op).toBe('move')
+    expect(newest.op).toBe('settings-edit')
     expect(newest.stepCount).toBeGreaterThan(0)
     expect(newest.undoneBy).toBeNull()
     expect(newest.isUndo).toBe(false)

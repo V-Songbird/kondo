@@ -72,11 +72,11 @@ preferences, scan cache — never the truth about the user's Claude setup.
   `/skills` writes `skillOverrides` into the *local* layer. So the answer to
   the question this ADR left open is the same in every scope:
 
-  | Scope | Disable convention Claude honours | What kondo does today |
+  | Scope | Disable convention Claude honours | What kondo writes (entry 045) |
   |---|---|---|
-  | user | `skillOverrides` in `~/.claude/settings.json` | moves the directory to `~/.claude/skills.disabled/` |
-  | project | `skillOverrides` in that project's settings layer | moves it to `<project>/.claude/skills.disabled/` |
-  | local | `skillOverrides` in `settings.local.json` — where `/skills` writes | nothing |
+  | user | `skillOverrides` in `~/.claude/settings.json` | `skillOverrides[<name>] = "off"` in `~/.claude/settings.json` |
+  | project | `skillOverrides` in that project's settings layer | the same key in the project layer that already speaks about the skill, else `settings.local.json` |
+  | local | `skillOverrides` in `settings.local.json` — where `/skills` writes | the default destination above — kondo and `/skills` write the same file |
   | plugin | none reachable by the user's layers (below) | refused, unchanged |
 
   The 2026-09-02 entry above is corrected on two further points. Claude pins a
@@ -100,6 +100,24 @@ preferences, scan cache — never the truth about the user's Claude setup.
   needs already exists — `spliceMember(source, [member, key], literal)` in
   `user-store.ts` takes the member name as a parameter, so `enabledPlugins`
   and `skillOverrides` share one editor and no second one is to be added.
+- Written 2026-09-05 (entry 045). The skill toggle is now a settings edit in
+  Claude's own words: `disable` splices `skillOverrides[<name>] = "off"` into
+  a layer of the skill's scope, `enable` takes that member away from every
+  layer in the skill's chain that says `off` — one plan, so one undo puts
+  every statement back — and nothing new is ever moved into
+  `skills.disabled/`. The member is withdrawn rather than set to `"on"`, the
+  way the plugin control's "follows global" withdraws a statement instead of
+  writing `false`: an absent key is Claude's default, and stating the
+  default would be a second convention. The destination file is chosen the
+  way the plugin toggle chooses it — the highest-precedence layer of the
+  scope that already speaks about the skill, else `settings.local.json`,
+  which is where Claude's own `/skills` writes — and a layer not yet on disk
+  is asked about first (`needs-confirmation`). A skill still parked in
+  `skills.disabled/` keeps its `*-disabled` scope and is offered one thing:
+  the way back into `skills/`. If an override also says `off`, the next press
+  withdraws it — two honest steps rather than one that does both. The matrix
+  reflects the state rather than the directory: a live skill under an `off`
+  has `enable` allowed and `disable` refused naming the layer.
 
 ## Amendment, 2026-09-03 — a hook does not toggle, but it does move
 
