@@ -71,7 +71,11 @@ usage):
 
 One file beside the store, ~2 MB, 87 top-level keys ✅, rewritten by Claude
 during every session. Kondo reads it as one parse per inventory and keeps
-only the parts named here (ADR-0009):
+only the parts named here (ADR-0009). Because it is rewritten under kondo,
+the cached inventory stats this file (mtime and size) and the `projects/`
+directory on every read and rebuilds when either moved (entry 056,
+ADR-0007) — a project entry Claude adds or a directory another tool removes
+is seen without a restart:
 
 - `projects` ✅ — an object keyed by the **absolute path** of every directory
   Claude Code has run in (4,335 keys observed; 4,309 spelled with `/` on

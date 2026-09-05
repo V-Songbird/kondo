@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
   ConfigOrphan,
@@ -97,6 +98,31 @@ const PLUGIN_ID_PREFIX = 'plugin:'
 interface InventoryState {
   scan: Scan<SessionInventory>
   verified: VerifiedProject[]
+  /** What `inventoryFingerprint` read when this inventory was built. */
+  fingerprint: string
+}
+
+/**
+ * The cheapest honest reading of "has the store moved on": the mtime and
+ * size of the two things the inventory is built from — Claude's registry,
+ * which names the projects, and the `projects/` directory, whose entries are
+ * the transcript half. Two stats per call, no directory walked (ADR-0007).
+ * A file that is not there is a state too, and differs from one that is.
+ */
+async function inventoryFingerprint(locator: StoreLocator): Promise<string> {
+  const mark = async (target: string): Promise<string> => {
+    try {
+      const stat = await fs.stat(target)
+      return `${stat.mtimeMs}:${stat.size}`
+    } catch {
+      return 'absent'
+    }
+  }
+  const [registry, projects] = await Promise.all([
+    mark(locator.userConfigFile),
+    mark(path.join(locator.userRoot, 'projects'))
+  ])
+  return `${registry}|${projects}`
 }
 
 export function createWorkspace(options: WorkspaceOptions): KondoApi {
@@ -118,14 +144,23 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     return project ? path.join(project.absPath, '.claude') : null
   })
 
-  const inventory = (refresh = false): Promise<InventoryState> => {
-    if (!inventoryState || refresh) {
+  /**
+   * The cached inventory, rebuilt when asked to, when a mutation dropped it,
+   * or when the store it was read from has changed under it. Claude rewrites
+   * `~/.claude.json` during every session (ADR-0010) and other tools add and
+   * remove project directories, so a cache that only its own writes could
+   * invalidate would report a project set nobody else has anymore.
+   */
+  const inventory = async (refresh = false): Promise<InventoryState> => {
+    const fingerprint = await inventoryFingerprint(locator)
+    const held = inventoryState === null ? null : await inventoryState
+    if (held === null || refresh || held.fingerprint !== fingerprint) {
       inventoryState = (async () => {
         const scan = await scanSessionInventory(locator, platform, options.guessExists)
-        return { scan, verified: verifyProjects(scan.data.projects) }
+        return { scan, verified: verifyProjects(scan.data.projects), fingerprint }
       })()
     }
-    return inventoryState
+    return inventoryState as Promise<InventoryState>
   }
 
   /**

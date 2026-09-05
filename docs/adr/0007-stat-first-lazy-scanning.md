@@ -65,3 +65,12 @@ Decision: scanning happens in two tiers.
   and MCP servers are `null` in the listing and counted in the detail. The
   honest null is the point; reading every project's `settings.json` to draw a
   list is exactly the startup cost this ADR exists to refuse.
+- The cached inventory is not trusted past the store it was read from
+  (entry 056). Every `inventory()` call stats the two things the inventory is
+  built from — `~/.claude.json` and the `projects/` directory — and rebuilds
+  when either's mtime or size moved, so a registry entry Claude wrote after
+  kondo started is seen without a restart and without a full rescan. Two
+  stats per call is the tier-1 price; the rebuild itself is the same tier-1
+  readdir the first read was. A rescan the user asks for (entry 051) re-reads
+  the detail pane as well as the list, because both are projections of that
+  one inventory and must never disagree about the project set.

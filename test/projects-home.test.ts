@@ -181,6 +181,46 @@ describe('the projects home', () => {
     expect(row?.path).toBe(slashed(storeless))
   })
 
+  it('notices a registry written after the first read, without a refresh flag', async () => {
+    const before = await api.storesOverview()
+    expect(before.data.sessions.projectCount).toBe(2)
+
+    // Something else — Claude itself, during a session (ADR-0010) — adds a
+    // project entry. No mutation of kondo's own ran, so nothing dropped the
+    // cache; the store having moved on is what must be noticed.
+    const added = path.join(world.base, 'work', 'fresh')
+    await writeFileTree(added, { '.claude/settings.json': '{}' })
+    const registry = JSON.parse(await fs.readFile(world.locator.userConfigFile, 'utf8')) as {
+      projects: Record<string, unknown>
+    }
+    registry.projects[added] = {}
+    await fs.writeFile(world.locator.userConfigFile, JSON.stringify(registry, null, 2), 'utf8')
+
+    const after = await api.storesOverview()
+    expect(after.data.sessions.projectCount).toBe(3)
+    const list = await api.projectsList()
+    expect(list.data.some((row) => row.path === slashed(added))).toBe(true)
+    // The Storage card and the list read the same inventory, so the global
+    // detail agrees with the list it sits beside.
+    const detail = await api.projectDetail(GLOBAL_ROW)
+    expect(detail.data?.storage?.sessions.projectCount).toBe(3)
+  })
+
+  it('reports a registry key that went dead after the first read as a leftover', async () => {
+    await api.projectsList()
+    const gone = path.join(world.base, 'work', 'vanished')
+    const registry = JSON.parse(await fs.readFile(world.locator.userConfigFile, 'utf8')) as {
+      projects: Record<string, unknown>
+    }
+    registry.projects[gone] = {}
+    await fs.writeFile(world.locator.userConfigFile, JSON.stringify(registry, null, 2), 'utf8')
+
+    const orphans = await api.configOrphansPreview()
+    expect(orphans.data.map((row) => `${row.kind}:${row.name}`)).toContain(
+      `project-entry:${slashed(gone)}`
+    )
+  })
+
   it('reads one project and returns only what belongs to it', async () => {
     const detail = await api.projectDetail(projectId)
     expect(detail.errors).toEqual([])

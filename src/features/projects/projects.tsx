@@ -59,6 +59,10 @@ export function Projects() {
   const list = useScan((api) => api.projectsList())
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
+  // Bumped by Rescan so the detail pane re-reads too: the list and the
+  // Storage card are projections of one inventory (ADR-0007) and must not
+  // disagree about the project set after a rescan.
+  const [rescans, setRescans] = useState(0)
 
   return (
     <div className="flex h-full min-h-0 gap-6">
@@ -73,7 +77,12 @@ export function Projects() {
           <button
             type="button"
             className="cursor-pointer rounded-md border border-edge px-3 py-1.5 text-mut hover:text-ink"
-            onClick={() => void window.kondo?.projectsList(true).then(() => list.reload())}
+            onClick={() =>
+              void window.kondo?.projectsList(true).then(() => {
+                list.reload()
+                setRescans((count) => count + 1)
+              })
+            }
           >
             Rescan
           </button>
@@ -116,6 +125,7 @@ export function Projects() {
         {list.scan && (
           <ProjectPage
             id={picked ?? list.scan.data[0]?.id ?? ''}
+            generation={rescans}
             destinations={destinationsFrom(list.scan.data)}
             onChanged={list.reload}
           />
@@ -186,14 +196,17 @@ interface Pending {
 
 function ProjectPage({
   id,
+  generation,
   destinations,
   onChanged
 }: {
   id: string
+  /** Changes when the list was rescanned, so this pane re-reads with it. */
+  generation: number
   destinations: Destination[]
   onChanged: () => void
 }) {
-  const state = useScan((api) => api.projectDetail(id), [id])
+  const state = useScan((api) => api.projectDetail(id), [id, generation])
   const [busy, setBusy] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
