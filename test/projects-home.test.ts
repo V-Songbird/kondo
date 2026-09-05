@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { slashed } from '../electron/main/workspace/display'
-import { STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
+import { isScratchProjectName, STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
 import type { KondoApi } from '../shared/contract'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
@@ -179,6 +180,22 @@ describe('the projects home', () => {
     expect(row?.counts.skills).toBe(0)
     // A display path: forward slashes on every OS (ADR-0008 keeps splitting out of the renderer).
     expect(row?.path).toBe(slashed(storeless))
+  })
+
+  it('names a row by its last path segment, with the parent beside it (entry 060)', async () => {
+    const list = await api.projectsList()
+    const row = list.data.find((entry) => entry.id === projectId)
+    expect(row?.name).toBe(path.basename(workdir))
+    expect(row?.parent).toBe(slashed(path.dirname(workdir)))
+    expect(row?.location).toBe('here')
+    // The fixture lives under the OS temp root, so the sweep's name rule calls
+    // it throwaway — the row must say what the rule says, not what a test
+    // would like: the two surfaces fold and sweep the same directories.
+    expect(row?.throwaway).toBe(isScratchProjectName(flattenPath(workdir), os.tmpdir()))
+    const global = list.data.find((entry) => entry.global)
+    expect(global?.name).toBe('Global')
+    expect(global?.parent).toBeNull()
+    expect(global?.location).toBe('here')
   })
 
   it('notices a registry written after the first read, without a refresh flag', async () => {

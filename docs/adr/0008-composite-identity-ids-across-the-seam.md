@@ -97,6 +97,13 @@ Decision, two halves:
   `skillUsage` record was read, `null` when there was no record — the same
   rule `ProjectRowCounts.hooks` and `mcpServers` already follow. A view badges
   on `true`, never on the absence of a record.
+- A row's name is a display string built main-side (entry 060).
+  `ProjectRow.name` is the last segment of the real directory and
+  `ProjectRow.parent` the directory above it, both through `slashed`; the
+  renderer shows them and never splits `label` or `path` to get them.
+  `ProjectRow.location` carries ADR-0009's three-state answer and
+  `ProjectRow.throwaway` the tidy sweep's name rule, so the list can fold
+  both kinds of row away without asking a second scan.
 - A store fact travels as a fact, and the verdict on it lives in one place
   (entry 059). `SessionSummary.releasedByDesktop` says the desktop app left
   its released marker beside the transcript; whether that makes the session

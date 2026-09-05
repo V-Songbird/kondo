@@ -218,9 +218,14 @@ scan and a mutation can never disagree about where an entry lives.
   never verified — which is not evidence of anything). Only `gone` makes a
   cleanup candidate.
 - Scale is real: **9,171 project directories** observed on one machine ✅
-  (9,031 of them under a temp directory — benchmark and scratchpad runs).
-  Scanning must be stat-based and lazy; never parse every transcript up front
-  (ADR-0007).
+  (9,031 of them under a temp directory — benchmark and scratchpad runs);
+  11,517 registry-plus-directory members on 2026-09-05, 8,498 of them
+  throwaway by name and 50 gone from disk. Scanning must be stat-based and
+  lazy; never parse every transcript up front (ADR-0007), and a listing must
+  not put one row per member on screen: the projects home names a row by the
+  last path segment with the parent beneath (`ProjectRow.name` / `parent`,
+  built in `workspace.ts`), folds throwaway and gone rows behind a count
+  (`ProjectRow.throwaway` / `location`), and pages the rest (entry 060).
 - Inside a project directory ✅:
   - `<session-uuid>.jsonl` — the transcript, append-only JSONL.
   - `<session-uuid>/` — optional sibling directory (subagent transcripts,

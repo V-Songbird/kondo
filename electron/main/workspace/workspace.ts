@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import type {
   ConfigOrphan,
@@ -58,7 +59,7 @@ import {
 } from './user-store'
 import { desktopStoreReport } from './desktop-store'
 import { slashed, tildify } from './display'
-import { isStale, STALE_AFTER_DAYS } from './analysis'
+import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
 import { createMutations } from './mutations'
 import {
   readCategories,
@@ -250,11 +251,36 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     return project ? path.join(project.absPath, '.claude') : null
   }
 
+  /**
+   * The three display strings a row is named by, built here so the renderer
+   * never splits a path (ADR-0008). With no real path the flattened directory
+   * name stands for all three halves.
+   */
+  const naming = (
+    project: { guessedPath: string | null; dirName: string }
+  ): Pick<ProjectRow, 'label' | 'name' | 'parent' | 'path'> => {
+    if (project.guessedPath === null) {
+      return { label: project.dirName, name: project.dirName, parent: null, path: null }
+    }
+    const full = slashed(project.guessedPath)
+    const parent = slashed(path.dirname(project.guessedPath))
+    return {
+      label: full,
+      name: path.basename(project.guessedPath) || full,
+      parent: parent === full ? null : parent,
+      path: full
+    }
+  }
+
   const globalRow = async (c: Collector): Promise<ProjectRow> => ({
     id: GLOBAL_ROW,
     label: 'Global',
+    name: 'Global',
+    parent: null,
     path: tildify(locator.userRoot, locator.home),
     global: true,
+    location: 'here',
+    throwaway: false,
     hasStore: true,
     sessionCount: 0,
     lastActivityMs: 0,
@@ -409,9 +435,10 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         const root = await storeRoot(project.dirName)
         return {
           id: project.id,
-          label: project.guessedPath === null ? project.dirName : slashed(project.guessedPath),
-          path: project.guessedPath === null ? null : slashed(project.guessedPath),
+          ...naming(project),
           global: false,
+          location: project.location,
+          throwaway: isScratchProjectName(project.dirName, os.tmpdir()),
           hasStore: project.hasStore,
           sessionCount: project.sessionCount,
           lastActivityMs: project.lastActivityMs,
@@ -450,9 +477,10 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         const project = rows.find((candidate) => candidate.id === id)
         row = {
           id,
-          label: project?.guessedPath == null ? dirName : slashed(project.guessedPath),
-          path: project?.guessedPath == null ? null : slashed(project.guessedPath),
+          ...naming(project ?? { guessedPath: null, dirName }),
           global: false,
+          location: project?.location ?? 'unlocated',
+          throwaway: isScratchProjectName(dirName, os.tmpdir()),
           hasStore: project?.hasStore ?? false,
           sessionCount: project?.sessionCount ?? 0,
           lastActivityMs: project?.lastActivityMs ?? 0,

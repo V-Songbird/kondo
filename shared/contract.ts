@@ -892,10 +892,33 @@ export interface ProjectRow {
   id: string
   /** The project's real directory, its flattened name, or `Global`. */
   label: string
+  /**
+   * What the row is called on screen: the last segment of the real directory
+   * (`kondo` for `D:/Projects/kondo`), the flattened name when kondo has no
+   * path, or `Global`. Built main-side — the renderer never splits a path
+   * (ADR-0008). On a real store every label shares a long prefix, so the
+   * name is what tells rows apart at a glance.
+   */
+  name: string
+  /** The directory the project sits in, as a display path, or null. */
+  parent: string | null
   /** Display path of the store this row covers (tildified), or null. */
   path: string | null
   /** True for the one row that is the user store. */
   global: boolean
+  /**
+   * Whether the project's directory is still there (ADR-0009). A `gone` row
+   * has nothing to open, so the projects home folds those away behind a count
+   * by default — 11,4xx of 11,5xx rows on the owner's store.
+   */
+  location: ProjectLocation
+  /**
+   * Named like a run Claude did for itself — under the OS temp root, or with
+   * a `.claude-worktrees` / `.claude-jobs` segment — the same rule Clean up's
+   * Throwaway folders row uses. Folded away with the `gone` rows by default:
+   * 8,498 of 11,518 rows on the owner's store.
+   */
+  throwaway: boolean
   /**
    * There is a `.claude` directory to read. False rows still render, with
    * zero counts — a project kondo can name and cannot look inside (ADR-0005).

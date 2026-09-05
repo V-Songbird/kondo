@@ -1,4 +1,5 @@
 import { Fragment, useState, type ReactNode } from 'react'
+import { listView, PAGE } from './project-rows'
 import type {
   HookScript,
   HookScriptStatus,
@@ -63,6 +64,10 @@ export function Projects() {
   // Storage card are projections of one inventory (ADR-0007) and must not
   // disagree about the project set after a rescan.
   const [rescans, setRescans] = useState(0)
+  // Throwaway runs and projects whose directory is gone fold behind a count
+  // unless asked for, and the rest come a page at a time (project-rows.ts).
+  const [showFolded, setShowFolded] = useState(false)
+  const [limit, setLimit] = useState(PAGE)
 
   return (
     <div className="flex h-full min-h-0 gap-6">
@@ -70,7 +75,10 @@ export function Projects() {
         <div className="flex gap-2">
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setLimit(PAGE)
+            }}
             placeholder="Filter projects…"
             className="min-w-0 flex-1 rounded-md border border-edge bg-inset px-3 py-1.5 outline-none placeholder:text-mut focus:border-accent"
           />
@@ -89,18 +97,12 @@ export function Projects() {
         </div>
         <AsyncView state={list}>
           {(scan) => {
-            const needle = query.trim().toLowerCase()
             // The global row is never filtered out: it is where the user
             // store lives, not one more project to search among.
-            const rows = scan.data.filter(
-              (row) => row.global || row.label.toLowerCase().includes(needle)
-            )
-            // Only the global row surviving means the filter matched no
-            // project — a list of one that looks like a bug unless it says so.
-            const matched = rows.filter((row) => !row.global)
+            const view = listView(scan.data, { query, showFolded, limit })
             return (
               <ul className="min-h-0 flex-1 space-y-1 overflow-auto pr-1">
-                {rows.map((row) => (
+                {view.shown.map((row) => (
                   <li key={row.id}>
                     <ProjectButton
                       row={row}
@@ -109,11 +111,46 @@ export function Projects() {
                     />
                   </li>
                 ))}
-                {matched.length === 0 && (
+                {/* Only the global row surviving means the filter matched no
+                    project — a list of one that looks like a bug unless it says so. */}
+                {!view.matched && (
                   <li className="px-3 py-2 text-mut">
-                    {needle === ''
+                    {query.trim() === ''
                       ? 'Claude has not recorded any project on this machine yet.'
                       : `No project matches “${query.trim()}”.`}
+                  </li>
+                )}
+                {view.more > 0 && (
+                  <li>
+                    <button
+                      type="button"
+                      className="w-full cursor-pointer rounded-md px-3 py-2 text-left text-xs text-mut hover:bg-inset/60 hover:text-ink"
+                      onClick={() => setLimit((current) => current + PAGE)}
+                    >
+                      Show {formatCount(Math.min(view.more, PAGE), 'more project')} of{' '}
+                      {view.more.toLocaleString()} left
+                    </button>
+                  </li>
+                )}
+                {(view.hidden > 0 || showFolded) && (
+                  <li className="px-3 py-2 text-xs text-mut">
+                    {/* Nothing to open in a throwaway run or a project whose
+                        folder is gone; Clean up is where those are dealt with. */}
+                    {showFolded
+                      ? 'Showing throwaway runs and projects whose folder is gone. '
+                      : `${formatCount(view.hidden, 'project')} Claude records ${
+                          view.hidden === 1 ? 'is a throwaway run or is' : 'are throwaway runs or are'
+                        } no longer on disk — Clean up lists them. `}
+                    <button
+                      type="button"
+                      className="cursor-pointer underline hover:text-ink"
+                      onClick={() => {
+                        setShowFolded((current) => !current)
+                        setLimit(PAGE)
+                      }}
+                    >
+                      {showFolded ? 'Hide them' : 'Show them'}
+                    </button>
                   </li>
                 )}
               </ul>
@@ -168,13 +205,18 @@ function ProjectButton({
       }`}
     >
       <div className="flex items-baseline justify-between gap-2">
+        {/* The name, not the whole path: on a real store every path shares a
+            long prefix and the name is the part a truncation used to cut. */}
         <span className={`truncate ${row.global ? 'font-semibold text-accent' : 'font-mono'}`}>
-          {row.label}
+          {row.name}
         </span>
         {row.lastActivityMs > 0 && (
           <span className="shrink-0 text-[11px] text-mut">{formatAgo(row.lastActivityMs)}</span>
         )}
       </div>
+      {row.parent !== null && (
+        <div className="truncate font-mono text-[10px] text-mut/70">{row.parent}</div>
+      )}
       <div className="truncate text-[11px] text-mut">
         {/* A project kondo can name and cannot look inside is still a project
             (ADR-0005), and says so rather than showing a row of zeroes. */}
