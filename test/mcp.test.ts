@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { slashed } from '../electron/main/workspace/display'
 import path from 'node:path'
 import { capabilitiesFor } from '../electron/main/workspace/capabilities'
 import { collector } from '../electron/main/workspace/scan'
@@ -86,7 +87,7 @@ describe('mcp server discovery', () => {
     expect(byName.get('user-wide')?.transport).toBe('http')
     expect(byName.get('user-wide')?.source).toBe('~/.claude.json')
     expect(byName.get('live-local')?.source).toBe('~/.claude.json')
-    expect(byName.get('committed')?.source).toBe(path.join(live, '.mcp.json'))
+    expect(byName.get('committed')?.source).toBe(slashed(path.join(live, '.mcp.json')))
     expect(byName.get('committed')?.transport).toBe('stdio')
     expect(byName.get('user-wide')?.project).toBeNull()
     expect(byName.get('live-local')?.project).toBe(flattenPath(live))

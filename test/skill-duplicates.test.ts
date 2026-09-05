@@ -162,6 +162,15 @@ describe('duplicate skills across scopes', () => {
     // Absent from the record entirely.
     expect(neverUsed('skill:user:twin-skill')).toBe(true)
   })
+
+  it('answers null for every skill when there is no skillUsage record to read', async () => {
+    // A registry with no `skillUsage` key at all: kondo cannot tell, which is
+    // not the same as Claude having counted nothing (ADR-0005).
+    await fs.writeFile(world.locator.userConfigFile, JSON.stringify({ projects: {} }), 'utf8')
+    const skills = (await api.skillsList()).data
+    expect(skills.length).toBeGreaterThan(0)
+    for (const skill of skills) expect(skill.neverUsed).toBeNull()
+  })
 })
 
 describe('trashing one skill (ADR-0001)', () => {

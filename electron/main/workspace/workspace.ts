@@ -56,8 +56,8 @@ import {
   type VerifiedProject
 } from './user-store'
 import { desktopStoreReport } from './desktop-store'
-import { tildify } from './display'
-import { isStale } from './analysis'
+import { slashed, tildify } from './display'
+import { isStale, STALE_AFTER_DAYS } from './analysis'
 import { createMutations } from './mutations'
 import {
   readCategories,
@@ -374,8 +374,8 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         const root = await storeRoot(project.dirName)
         return {
           id: project.id,
-          label: project.guessedPath ?? project.dirName,
-          path: project.guessedPath,
+          label: project.guessedPath === null ? project.dirName : slashed(project.guessedPath),
+          path: project.guessedPath === null ? null : slashed(project.guessedPath),
           global: false,
           hasStore: project.hasStore,
           sessionCount: project.sessionCount,
@@ -415,8 +415,8 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         const project = rows.find((candidate) => candidate.id === id)
         row = {
           id,
-          label: project?.guessedPath ?? dirName,
-          path: project?.guessedPath ?? null,
+          label: project?.guessedPath == null ? dirName : slashed(project.guessedPath),
+          path: project?.guessedPath == null ? null : slashed(project.guessedPath),
           global: false,
           hasStore: project?.hasStore ?? false,
           sessionCount: project?.sessionCount ?? 0,
@@ -483,6 +483,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
           settings: mine(layers),
           plugins: projectPluginStates(plugins ?? [], owner),
           sessions,
+          staleAfterDays: STALE_AFTER_DAYS,
           storage: overview?.data ?? null
         },
         c

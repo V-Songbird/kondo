@@ -85,3 +85,19 @@ Decision, two halves:
   `McpServerInfo` carries `project`, the flattened path — and it is done in
   the main process, which is where flattening is understood. The renderer
   still never splits an id.
+- Display paths are display strings, not paths (entry 049). Every `path`,
+  `origin`, `source`, `label` and summary the seam carries is built by
+  `tildify` in `display.ts`, which uses forward slashes on every OS whether
+  or not the path sits under home — so a `/child` segment an adapter appends
+  can never mix separators, and the renderer never splits one. The real OS
+  path stays main-side (`SessionProject.guessedPath`, `ProjectRecord.absPath`)
+  and is what a mutation resolves against.
+- Evidence a DTO cannot produce is `null`, never a default (entry 048).
+  `SkillInfo.neverUsed` is `boolean | null`: `true`/`false` when Claude's
+  `skillUsage` record was read, `null` when there was no record — the same
+  rule `ProjectRowCounts.hooks` and `mcpServers` already follow. A view badges
+  on `true`, never on the absence of a record.
+- A threshold a flag was computed from travels beside the flag (entry 050).
+  `SessionSummary.stale` is a verdict; `ProjectDetail.staleAfterDays` is the
+  number behind it, as `TidyPreview.staleAfterDays` was already, so no view
+  writes the constant into its own text.

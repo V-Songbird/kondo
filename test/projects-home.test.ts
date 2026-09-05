@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { slashed } from '../electron/main/workspace/display'
+import { STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
 import type { KondoApi } from '../shared/contract'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
@@ -175,7 +177,8 @@ describe('the projects home', () => {
     const row = list.data.find((entry) => entry.id === `project:code:${flattenPath(storeless)}`)
     expect(row?.hasStore).toBe(false)
     expect(row?.counts.skills).toBe(0)
-    expect(row?.path).toBe(storeless)
+    // A display path: forward slashes on every OS (ADR-0008 keeps splitting out of the renderer).
+    expect(row?.path).toBe(slashed(storeless))
   })
 
   it('reads one project and returns only what belongs to it', async () => {
@@ -190,6 +193,9 @@ describe('the projects home', () => {
     expect(data?.rules.map((entry) => entry.name)).toEqual(['local'])
     // Output styles are a user-store kind; a project has no directory for one.
     expect(data?.outputStyles).toEqual([])
+    // The threshold behind every row's `stale`, so the pill names the same
+    // number the Clean up screen does rather than a literal of its own.
+    expect(data?.staleAfterDays).toBe(STALE_AFTER_DAYS)
     // Every entry attributes to this project and no other (ADR-0008).
     for (const entry of [...(data?.skills ?? []), ...(data?.agents ?? [])]) {
       expect(entry.projectId).toBe(projectId)

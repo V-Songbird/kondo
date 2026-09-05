@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { slashed } from '../electron/main/workspace/display'
 import fsp from 'node:fs/promises'
 import type { PathLike } from 'node:fs'
 import path from 'node:path'
@@ -642,7 +643,7 @@ describe('configuration orphans (ADR-0010)', () => {
       'enabled-plugin:ghost@acme',
       'enabled-plugin:phantom@acme',
       `mcp-declaration:ghost-server`,
-      `project-entry:${dead}`,
+      `project-entry:${slashed(dead)}`,
       'skill-override:vanished-skill'
     ].sort())
   })
@@ -663,7 +664,7 @@ describe('configuration orphans (ADR-0010)', () => {
 
   it('splices a dead registry entry out and leaves every other byte alone', async () => {
     const before = await readRegistry()
-    const result = await api.configOrphansRemove([await orphan('project-entry', dead)])
+    const result = await api.configOrphansRemove([await orphan('project-entry', slashed(dead))])
     expect(result.errors).toEqual([])
     expect(result.data?.stepCount).toBe(1)
 
@@ -702,7 +703,7 @@ describe('configuration orphans (ADR-0010)', () => {
 
   it('takes a project entry and its declaration out as one member, not two', async () => {
     const result = await api.configOrphansRemove([
-      await orphan('project-entry', dead),
+      await orphan('project-entry', slashed(dead)),
       await orphan('mcp-declaration', 'ghost-server')
     ])
     expect(result.errors).toEqual([])
@@ -717,7 +718,7 @@ describe('configuration orphans (ADR-0010)', () => {
     const settings = await readSettings()
 
     const result = await api.configOrphansRemove([
-      await orphan('project-entry', dead),
+      await orphan('project-entry', slashed(dead)),
       await orphan('skill-override', 'vanished-skill')
     ])
     expect(result.errors).toEqual([])
@@ -732,7 +733,7 @@ describe('configuration orphans (ADR-0010)', () => {
   })
 
   it('refuses to undo onto a registry Claude has since rewritten', async () => {
-    const result = await api.configOrphansRemove([await orphan('project-entry', dead)])
+    const result = await api.configOrphansRemove([await orphan('project-entry', slashed(dead))])
     expect(result.errors).toEqual([])
 
     // Claude, mid-session, writing the same 2 MB file (ADR-0009).

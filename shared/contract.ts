@@ -401,8 +401,13 @@ export interface SkillInfo extends EntityIdentity {
    * counted a use of this name (ADR-0006 — kondo reads Claude's record rather
    * than keeping one of its own). Only whether the name appears crosses the
    * seam; the counts and timestamps behind it stay in the main process.
+   *
+   * Null when there is no record to read — `~/.claude.json` missing,
+   * unreadable, or without a `skillUsage` key. That is not evidence of
+   * disuse, so a listing must not badge on it (ADR-0005: no data is not
+   * bad data).
    */
-  neverUsed: boolean
+  neverUsed: boolean | null
   /**
    * The `project:code:<dirName>` id of the project this skill belongs to, or
    * null for a user-scope or plugin-shipped one. Attribution travels as this
@@ -949,6 +954,11 @@ export interface ProjectDetail {
   plugins: ProjectPluginState[]
   /** Empty on the global row: a session belongs to the project it recorded. */
   sessions: SessionSummary[]
+  /**
+   * The day count behind `SessionSummary.stale`, so the flag a row wears
+   * names the same threshold `TidyPreview.staleAfterDays` does.
+   */
+  staleAfterDays: number
   /**
    * What the store holds, on the global row only — the numbers the old size
    * dashboard was. A project's `.claude` is not a store kondo measures.

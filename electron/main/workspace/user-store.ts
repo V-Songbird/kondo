@@ -1530,14 +1530,16 @@ const SKILL_USAGE = 'skillUsage'
 export async function scanSkillUsage(
   locator: StoreLocator,
   c: Collector
-): Promise<ReadonlySet<string>> {
+): Promise<ReadonlySet<string> | null> {
   const raw = await safeReadJson(
     locator.userConfigFile,
     tildify(locator.userConfigFile, locator.home),
     c
   )
   const usage = asObject(asObject(raw)?.[SKILL_USAGE] ?? null)
-  if (usage === null) return new Set()
+  // No record is not an empty record: the first says kondo cannot tell, the
+  // second says Claude has counted nothing. Only the second may badge a skill.
+  if (usage === null) return null
   return new Set(
     Object.entries(usage)
       .filter(([, record]) => {
@@ -1558,8 +1560,8 @@ interface SkillDirRead {
   owner: string | null
   /** The layers that speak for this scope, highest precedence first. */
   chain: readonly SettingsLayer[]
-  /** The names `scanSkillUsage` found; read, never re-read, per listing. */
-  used: ReadonlySet<string>
+  /** The names `scanSkillUsage` found, or null when there was no record to read. */
+  used: ReadonlySet<string> | null
   /** What Claude prefixes this scope's names with there: `<plugin>:` or ''. */
   usagePrefix: string
 }
@@ -1593,7 +1595,7 @@ async function readSkillDir(
       override,
       // Claude's own record, read straight (ADR-0006): a name it has never
       // counted is one nothing has ever loaded.
-      neverUsed: !read.used.has(`${read.usagePrefix}${record.name}`),
+      neverUsed: read.used === null ? null : !read.used.has(`${read.usagePrefix}${record.name}`),
       // ADR-0008: the owning project travels as a field. The renderer joins
       // on it rather than splitting `skill:project/<flat>:<name>` apart.
       projectId: read.owner
@@ -1728,7 +1730,7 @@ export async function scanSkills(
   locator: StoreLocator,
   projects: VerifiedProject[],
   layers: SettingsLayer[],
-  used: ReadonlySet<string>,
+  used: ReadonlySet<string> | null,
   c: Collector
 ): Promise<SkillInfo[]> {
   // Both of Claude's skill directories come off the placement table, so the
@@ -1820,7 +1822,7 @@ export async function scanSkills(
 export async function scanPluginSkills(
   locator: StoreLocator,
   record: PluginRecord,
-  used: ReadonlySet<string>,
+  used: ReadonlySet<string> | null,
   c: Collector
 ): Promise<SkillInfo[]> {
   if (record.installAbs === null) return []

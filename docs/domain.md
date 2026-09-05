@@ -98,7 +98,9 @@ only the parts named here (ADR-0009):
   badge (entry 032): a name with no key, or a key whose `usageCount` is 0,
   has never been loaded. Only that boolean crosses the seam — the counts and
   timestamps are how often and when a user works, and stay in the main
-  process.
+  process. No `skillUsage` key at all (or no readable `~/.claude.json`) is a
+  third state, carried as `null` (entry 048): kondo cannot tell, and badges
+  nothing.
 - Everything else (`oauthAccount`, `userID`, `machineID`, experiment caches)
   is identity or telemetry and is **read-never**.
 

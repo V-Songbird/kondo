@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { slashed } from '../electron/main/workspace/display'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type {
@@ -139,7 +140,7 @@ describe('hooks, their scripts, and the scripts nothing arms', () => {
     // is the directory Claude runs its hooks in.
     const guard = find(hooks, 'PostToolUse').script!
     expect(guard.status).toBe('present')
-    expect(guard.path).toBe(path.join(workdir, '.claude', 'hooks', 'guard.sh'))
+    expect(guard.path).toBe(slashed(path.join(workdir, '.claude', 'hooks', 'guard.sh')))
     expect(find(hooks, 'SubagentStop').script).toEqual({
       path: OUTSIDE,
       status: 'unverifiable'

@@ -519,6 +519,7 @@ function ProjectPage({
                   <SessionTable
                     projectId={row.id}
                     sessions={detail.sessions}
+                    staleAfterDays={detail.staleAfterDays}
                     busy={busy}
                     onTrash={(ids) => void run((api) => api.sessionTrash(ids))}
                   />
@@ -687,7 +688,7 @@ function SkillTable({
                 {/* Claude's own skillUsage record, not a count kondo keeps.
                     A hint about a skill worth a second look — never a claim
                     that it should go. */}
-                {skill.neverUsed && (
+                {skill.neverUsed === true && (
                   <span
                     className="pill ml-2 text-mut"
                     title="Claude has never recorded a use of this skill."
@@ -753,11 +754,14 @@ function SkillTable({
 function SessionTable({
   projectId,
   sessions,
+  staleAfterDays,
   busy,
   onTrash
 }: {
   projectId: string
   sessions: SessionSummary[]
+  /** The day count behind `stale`, from the same detail payload as the rows. */
+  staleAfterDays: number
   busy: boolean
   onTrash: (ids: string[]) => void
 }) {
@@ -866,7 +870,7 @@ function SessionTable({
                   <td className="text-mut">{formatAgo(session.mtimeMs)}</td>
                   <td>
                     {session.stale && (
-                      <span className="pill mr-1 text-warn">untouched 30+ days</span>
+                      <span className="pill mr-1 text-warn">untouched {staleAfterDays}+ days</span>
                     )}
                     {session.hasSidecar && <span className="pill mr-1">session folder</span>}
                     {session.mirroredIn !== null && (

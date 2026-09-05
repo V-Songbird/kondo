@@ -97,7 +97,7 @@ export interface KindContext {
    * read at most once — a listing and a duplicate group both ask, and the
    * registry is opened for the pair of them.
    */
-  skillUsage(): Promise<ReadonlySet<string>>
+  skillUsage(): Promise<ReadonlySet<string> | null>
   /**
    * The session ids the desktop store holds, read at most once — the join
    * behind `SessionSummary.mirroredIn`. Readdir only, so a listing that asks
@@ -121,7 +121,7 @@ export function createKindContext(sources: KindContextSources): KindContext {
   let layers: Promise<SettingsLayer[]> | null = null
   let plugins: Promise<PluginRecord[]> | null = null
   let skills: Promise<SkillInfo[]> | null = null
-  let usage: Promise<ReadonlySet<string>> | null = null
+  let usage: Promise<ReadonlySet<string> | null> | null = null
   let stems: Promise<ReadonlySet<string>> | null = null
 
   const context: KindContext = {
