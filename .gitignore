@@ -22,6 +22,8 @@ coverage/
 .claude/*
 !.claude/settings.json
 !.claude/rules/
+# memory/ is the shared auto memory (colony): one fact per file, index in MEMORY.md
+!.claude/memory/
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/run-kondo/
