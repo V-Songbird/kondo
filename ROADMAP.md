@@ -118,20 +118,42 @@ Each is a tidy category or a listing with a reversible trash step behind it.
   staleness threshold on the seam (050), and the run-kondo fixture and driver
   that made each of them visible (043, 046, 052, 057).
 
+## Shipped — the real-store audit, 2026-09-05
+
+Running kondo read-only against a store of 11,517 projects and 10.9 GB of
+desktop data turned up what the fixture never could. Each finding became an
+entry and shipped the same day:
+
+- A projects home that works at that scale: rows named by their last path
+  segment, throwaway runs and gone projects folded behind a count, the rest
+  paged (060).
+- Transcript-less directories holding Claude's `memory/` are no longer swept
+  as throwaway (058); the desktop app's `.desktop-released.json` markers are
+  recognised and the conversations it deleted are their own Clean up
+  category (059).
+- Two switches the shape promised and the code refused: an MCP server off
+  per project through Claude's own disable lists (061), and a global skill
+  off for one project from that project's page (062).
+- The desktop store named entry by entry in domain.md, and its Chromium
+  caches as a Clean up category that refuses while the app runs (063).
+- Version 0.5.0 stamped into the footer and README (064), an end-to-end smoke
+  driving the built app in CI (065), and packaged installers from a tag,
+  unsigned for now under ADR-0011 (066).
+
 ## Now
 
-Every entry the roadmap holds is done. What comes next is chosen from
-Later, or from what using the app against a real store turns up.
+Every entry the roadmap holds is done. The first release is the owner's to
+cut ([docs/release.md](docs/release.md)); what comes after is chosen from
+Later, or from what the released app turns up.
 
 ## Later
 
-- Desktop-app store depth: artifacts, cowork caches, per-account session
-  browsing.
+- Desktop-app store depth beyond the caches: whether `vm_bundles/` (9.3 GB)
+  and superseded `claude-code/<version>/` directories are rebuilt, and a
+  category for each once known; per-account session browsing; artifacts.
 - Time analytics: worked time per session (active spans, not wall clock),
   timelines per project and per week.
-- Packaged releases via electron-builder + GitHub Releases; code signing and
-  macOS notarization ([docs/release.md](docs/release.md)).
-- End-to-end tests driving the built app.
+- Code signing and macOS notarization, when ADR-0011's conditions hold.
 - A permission-denied adapter fixture, the one case docs/testing.md names and
   no test covers — it has no reliable cross-platform recipe yet.
 

@@ -27,6 +27,25 @@ mutations, v0.3 the project view, v0.4 move everything, v0.5 clean my
   on its side, and kondo now recognises the marker, moves it with the
   transcript, and offers the released conversations as their own category
   (101 of them, 125 MB, on the owner's store).
+- Switch an MCP server off per project: the project page's MCP servers table
+  gets Enable/Disable, written as Claude's own `disabledMcpServers` /
+  `disabledMcpjsonServers` list in `~/.claude.json` under the same digest
+  guard Leftovers uses. The user scope has no such list and says so.
+- Switch a global skill off for one project: a project page lists the skills
+  it inherits from Global with "Off here" / "Follows global", writing
+  `skillOverrides` into that project's own settings layer and never the
+  user's.
+- "Caches the desktop app rebuilds" on Clean up: Chromium's caches inside the
+  Claude desktop app's data directory, at the root and in each partition (28
+  of them, 636 MB, on the owner's machine). Blocked, with the reason on
+  screen, while the desktop app is running and holds them open.
+- The version in the footer comes from `package.json`, now 0.5.0.
+- An end-to-end smoke test (`npm run test:e2e`) that launches the built app
+  against the fixture store and drives it over Chromium's debugging port; CI
+  runs it on all three OSes.
+- Packaged installers — NSIS, DMG, AppImage — built by CI from a version tag
+  and attached to a draft GitHub Release, unsigned for now (ADR-0011), with
+  install notes in README.
 - Read-only core: cross-platform store discovery and scanning of sessions,
   skills, plugins, hooks, and settings across the Claude Code user store,
   per-project `.claude` directories, and the Claude desktop app store.
@@ -155,6 +174,9 @@ mutations, v0.3 the project view, v0.4 move everything, v0.5 clean my
   unrecognised: `.desktop-released.json` markers and `.benchmarks/` inside a
   project directory, `chrome/` and `plans/` at the store root. 105 unknown
   files became 4 on the owner's store.
+- Measuring a directory walks it with one recursive readdir and parallel
+  stats instead of one stat at a time: the Clean up preview on the owner's
+  store went from 9.3 s to 2.2 s.
 - The cached project inventory notices a registry rewritten by something
   else: every read stats `~/.claude.json` and `projects/` and rebuilds when
   either moved, so a dead project entry Claude added after kondo started
