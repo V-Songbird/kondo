@@ -225,9 +225,14 @@ scan and a mutation can never disagree about where an entry lives.
     tool state, a `custom-title.json`). A sibling without its `.jsonl` is an
     orphan.
   - `memory/` — the project's persistent memory files. 17 directories held
-    only `memory/` and 23 held no transcript at all ✅ — leftovers of
-    projects no longer worked on. A directory with no transcript at all is a
-    *scratch project* and the tidy sweep offers it whole (entry 030).
+    only `memory/` and 23 held no transcript at all ✅ (24 of 8,641 on
+    2026-09-05, two of them live projects — `D:\Projects\Knowledge\GRFEditor`
+    among them — whose memory is the only thing Claude has recorded there).
+    So "no transcript" is not "scratch" (entry 058): the tidy sweep offers a
+    transcript-less directory whole only when it also holds no `memory/` and
+    its path is *unlocated* — nothing recorded, nothing behind it. One whose
+    path is `gone` is a dead project; one holding `memory/` under a live or
+    unlocated path is Claude's record of a project and is offered nowhere.
   - Occasional top-level `.json` files ◇ (five seen in one directory; not
     yet understood, reported as unknown).
 - Transcript lines are typed events. First line observed with keys `type`,

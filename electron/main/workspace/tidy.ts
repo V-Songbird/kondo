@@ -130,14 +130,28 @@ export async function scanTidyCandidates(
     // the registry names and `projects/` does not has nothing here to move,
     // however dead its path is.
     if (!project.sources.includes('transcripts')) continue
-    if (isScratchProjectName(project.dirName, tmpRoot) || project.sessions.length === 0) {
-      // Transcript-less covers the memory-only directory too: whatever else
-      // is in there, no conversation was ever recorded against it.
+    if (isScratchProjectName(project.dirName, tmpRoot)) {
+      // A temp root, a worktree or a job: scratch by name, whatever it holds
+      // and wherever its path is now.
       trees.set(project.dirName, 'scratch-projects')
     } else if (project.location === 'gone') {
       // `gone` and never `unlocated` — a name kondo could not reverse is not
-      // evidence of anything (ADR-0009).
+      // evidence of anything (ADR-0009). Holds for a transcript-less
+      // directory too: its project is dead, which is the truer label.
       trees.set(project.dirName, 'dead-projects')
+    } else if (
+      project.sessions.length === 0 &&
+      project.location === 'unlocated' &&
+      !project.hasMemory
+    ) {
+      // No transcript, no memory, and no path kondo can find: nothing was
+      // ever recorded against it and nothing stands behind it. The other
+      // transcript-less directories are offered nowhere (entry 058): one
+      // holding `memory/` is Claude's own record of a project it worked with
+      // — the owner's store had live projects whose only trace here was
+      // memory — and an unlocated name is not evidence of anything
+      // (ADR-0009). A project that is on disk is never litter by emptiness.
+      trees.set(project.dirName, 'scratch-projects')
     }
   }
 

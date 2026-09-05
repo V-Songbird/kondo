@@ -36,7 +36,8 @@ import { tildify } from './display'
 const TRANSCRIPT = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
 const UUID_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** Non-session entries that are normal inside a project directory. */
-const KNOWN_PROJECT_ENTRIES = new Set(['memory'])
+const MEMORY_DIR = 'memory'
+const KNOWN_PROJECT_ENTRIES = new Set([MEMORY_DIR])
 
 export interface SessionRecord {
   uuid: string
@@ -63,6 +64,13 @@ export interface ProjectRecord {
   guessedPath: string | null
   sessions: SessionRecord[]
   orphanDirs: string[]
+  /**
+   * The directory holds a `memory/` — Claude's persistent memory for the
+   * project. Evidence that Claude worked with the project even when no
+   * transcript is here, which is why a transcript-less directory with memory
+   * is never called scratch (entry 058).
+   */
+  hasMemory: boolean
   /** Which of the two halves of the union named it; never empty. */
   sources: ProjectSource[]
   /**
@@ -148,12 +156,15 @@ async function scanProject(
   const sessions: SessionRecord[] = []
   const sidecars = new Map<string, string>()
   const orphanCandidates: string[] = []
+  let hasMemory = false
 
   for (const entry of entries) {
     if (entry.isDirectory()) {
       if (UUID_DIR.test(entry.name)) {
         sidecars.set(entry.name.toLowerCase(), entry.name)
         orphanCandidates.push(entry.name)
+      } else if (entry.name === MEMORY_DIR) {
+        hasMemory = true
       } else if (!KNOWN_PROJECT_ENTRIES.has(entry.name)) {
         c.unknown.push(`${display}/${entry.name}`)
       }
@@ -188,7 +199,8 @@ async function scanProject(
     absPath,
     ...(await locate(dirName, home, platform, exists, registered, c)),
     sessions,
-    orphanDirs
+    orphanDirs,
+    hasMemory
   }
 }
 
@@ -213,6 +225,7 @@ async function registryProject(
     guessedPath: absPath,
     sessions: [],
     orphanDirs: [],
+    hasMemory: false,
     sources: ['registry'],
     // The registry named it, so a failed stat is evidence and not ignorance.
     location: pathExists ? 'here' : 'gone',

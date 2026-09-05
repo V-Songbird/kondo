@@ -368,8 +368,10 @@ describe('dead and scratch project directories', () => {
   /** A worktree and a job Claude checked out for itself. */
   const SCRATCH_WORKTREE = 'D--Projects-app--claude-worktrees-feature'
   const SCRATCH_JOBS = 'D--Projects-app--claude-jobs-run7'
-  /** Memory and nothing else: no conversation was ever recorded against it. */
-  const SCRATCH_EMPTY = 'D--Projects-notes'
+  /** Nothing at all: no conversation, no memory, and a name kondo cannot reverse. */
+  const SCRATCH_EMPTY = 'D--Projects-emptyrun'
+  /** Memory and nothing else, under a name kondo cannot reverse: left alone. */
+  const MEMORY_UNLOCATED = 'D--Projects-notes'
 
   const ROOT = path.parse(process.cwd()).root
   /** Registered, with transcripts, and no longer on disk. */
@@ -379,20 +381,28 @@ describe('dead and scratch project directories', () => {
   const DEAD_NO_TREE = path.join(ROOT, 'Projects', 'neverranhere')
   /** Neither: kondo cannot reverse the name, which is not evidence of death. */
   const LIVE = 'D--Projects-live'
+  /** Registered, on disk, and holding only `memory/`: a live project's memory. */
+  const MEMORY_LIVE_PATH = path.join(ROOT, 'Projects', 'knowledgebase')
+  const MEMORY_LIVE = flattenPath(MEMORY_LIVE_PATH)
+  /** Registered, gone, and holding only `memory/`: a dead project, not a scratch one. */
+  const MEMORY_GONE_PATH = path.join(ROOT, 'Projects', 'oldnotes')
+  const MEMORY_GONE = flattenPath(MEMORY_GONE_PATH)
 
-  const TREES = [SCRATCH_TMP, SCRATCH_WORKTREE, SCRATCH_JOBS, SCRATCH_EMPTY, DEAD]
+  const TREES = [SCRATCH_TMP, SCRATCH_WORKTREE, SCRATCH_JOBS, SCRATCH_EMPTY, DEAD, MEMORY_GONE]
 
   const inStore = (relative: string): string =>
     path.join(world.userRoot, ...relative.split('/'))
 
   beforeEach(async () => {
     world = await makeWorld()
-    await registerProjects(world, [DEAD_PATH, DEAD_NO_TREE])
+    await registerProjects(world, [DEAD_PATH, DEAD_NO_TREE, MEMORY_LIVE_PATH, MEMORY_GONE_PATH])
     await writeFileTree(world.userRoot, {
+      [`projects/${MEMORY_LIVE}/memory/MEMORY.md`]: '# what this project remembers',
+      [`projects/${MEMORY_GONE}/memory/MEMORY.md`]: '# remembered for a project now gone',
       [`projects/${SCRATCH_TMP}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
       [`projects/${SCRATCH_WORKTREE}/${UUID_B}.jsonl`]: healthyTranscript(UUID_B),
       [`projects/${SCRATCH_JOBS}/${UUID_C}.jsonl`]: healthyTranscript(UUID_C),
-      [`projects/${SCRATCH_EMPTY}/memory/notes.md`]: 'a note and no transcript',
+      [`projects/${MEMORY_UNLOCATED}/memory/notes.md`]: 'a note and no transcript',
       // Stale, and carrying an orphan: both are inside a tree that is going
       // anyway, so neither may be offered a second time on its own.
       [`projects/${DEAD}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
@@ -400,6 +410,7 @@ describe('dead and scratch project directories', () => {
       [`projects/${LIVE}/${UUID_B}.jsonl`]: healthyTranscript(UUID_B),
       'settings.json': '{}'
     })
+    await fs.mkdir(inStore(`projects/${SCRATCH_EMPTY}`), { recursive: true })
     await fs.utimes(inStore(`projects/${DEAD}/${UUID_A}.jsonl`), LONG_AGO, LONG_AGO)
     await fs.utimes(inStore(`projects/${LIVE}/${UUID_B}.jsonl`), FRESH, FRESH)
 
@@ -407,12 +418,31 @@ describe('dead and scratch project directories', () => {
       locator: world.locator,
       platform: process.platform,
       now: () => NOW,
-      // Every registered path fails its stat, so both keys read as gone.
-      guessExists: async () => false
+      // Every registered path but the live memory-only one fails its stat, so
+      // the other keys read as gone.
+      guessExists: async (target) => target === MEMORY_LIVE_PATH
     })
   })
   afterEach(async () => {
     await world.cleanup()
+  })
+
+  it('never offers a project that holds only memory/, on disk or unlocated (entry 058)', async () => {
+    // Transcript-less is not evidence of scratch: what the directory holds is
+    // Claude's memory for that project, and an unreversed name is not a death.
+    const named = (await api.tidyPreview()).data.categories.flatMap((entry) => entry.examples)
+    expect(named).not.toContain(`~/.claude/projects/${MEMORY_LIVE}`)
+    expect(named).not.toContain(`~/.claude/projects/${MEMORY_UNLOCATED}`)
+
+    expect((await api.tidySweep(ALL)).errors).toEqual([])
+    expect(await exists(inStore(`projects/${MEMORY_LIVE}/memory/MEMORY.md`))).toBe(true)
+    expect(await exists(inStore(`projects/${MEMORY_UNLOCATED}/memory/notes.md`))).toBe(true)
+  })
+
+  it('files a gone project that holds only memory/ under dead projects, not throwaway', async () => {
+    const found = byCategory((await api.tidyPreview()).data)
+    expect(found['dead-projects'].examples).toContain(`~/.claude/projects/${MEMORY_GONE}`)
+    expect(found['scratch-projects'].examples).not.toContain(`~/.claude/projects/${MEMORY_GONE}`)
   })
 
   it('offers every throwaway project folder whole, and only those', async () => {
@@ -429,8 +459,10 @@ describe('dead and scratch project directories', () => {
 
   it('offers a project the registry names and the disk has lost', async () => {
     const found = byCategory((await api.tidyPreview()).data)
-    expect(found['dead-projects'].count).toBe(1)
-    expect(found['dead-projects'].examples).toEqual([`~/.claude/projects/${DEAD}`])
+    expect(found['dead-projects'].count).toBe(2)
+    expect(found['dead-projects'].examples.slice().sort()).toEqual(
+      [`~/.claude/projects/${DEAD}`, `~/.claude/projects/${MEMORY_GONE}`].sort()
+    )
   })
 
   it('leaves an unlocated project alone, since an unreversed name is not a death', async () => {
@@ -473,10 +505,10 @@ describe('dead and scratch project directories', () => {
 
     const done = await api.tidySweep(['scratch-projects', 'dead-projects'])
     expect(done.errors).toEqual([])
-    // One step per directory: five trees, five steps, children included.
+    // One step per directory: six trees, six steps, children included.
     expect(done.data?.stepCount).toBe(TREES.length)
     expect(done.data?.summary).toContain('4 throwaway project folders')
-    expect(done.data?.summary).toContain('1 deleted project')
+    expect(done.data?.summary).toContain('2 deleted projects')
 
     for (const dir of TREES) {
       expect(await exists(inStore(`projects/${dir}`)), dir).toBe(false)
