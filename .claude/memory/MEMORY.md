@@ -6,3 +6,4 @@
 - [GitHub remote](kondo-github-remote.md) — private repo, no branch protection possible, jig misreports CI
 - [Owner vision](kondo-owner-vision.md) — project-first app, move/promote, clean ~/.claude; roadmap v0.3–v0.5 and ADR-0009 came from the 2026-09-02 audit
 - [Colony test](colony-test.md) — smoke test, exists only in the repo copy; delete once a session recalls it
+- [Foreman autonomous close](foreman-autonomous-close.md) — closing entries unattended, the two doc-gating jig guards, heredoc backslash trap
