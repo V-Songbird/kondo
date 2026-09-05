@@ -34,7 +34,7 @@ import {
   safeStat,
   type Collector
 } from './scan'
-import { capabilitiesFor, skillCapabilities } from './capabilities'
+import { capabilitiesFor, mcpCapabilities, skillCapabilities } from './capabilities'
 import { flattenProjectPath } from './projects'
 import { projectId } from './sessions'
 import { readFrontmatter } from './frontmatter'
@@ -976,7 +976,7 @@ function removeEdit(object: JsonObject, member: JsonMember): SpliceEdit {
 /** The file a team commits at the project root; the ADR-0002 exception. */
 const MCP_FILE = '.mcp.json'
 
-function asObject(value: unknown): Record<string, unknown> | null {
+export function asObject(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
@@ -994,7 +994,7 @@ function mcpDeclarations(container: unknown): Array<[string, Record<string, unkn
 }
 
 /** The string members of a disable list; anything else disables nothing. */
-function stringSet(value: unknown): ReadonlySet<string> {
+export function stringSet(value: unknown): ReadonlySet<string> {
   if (!Array.isArray(value)) return new Set()
   return new Set(value.filter((member): member is string => typeof member === 'string'))
 }
@@ -1020,10 +1020,11 @@ interface McpEntry {
 }
 
 function toMcpServer(entry: McpEntry): McpServerInfo {
+  const enabled = !entry.disabled.has(entry.name)
   return {
     id: `mcp:${entry.scope}:${entry.key}`,
     kind: 'mcp',
-    capabilities: capabilitiesFor('mcp', entry.scope),
+    capabilities: mcpCapabilities(entry.scope, enabled, entry.orphan),
     name: entry.name,
     scope: entry.scope,
     // Only the transport is taken off the declaration. `env` and `headers`
@@ -1032,7 +1033,7 @@ function toMcpServer(entry: McpEntry): McpServerInfo {
     transport: transportOf(entry.declaration),
     source: entry.source,
     project: entry.project,
-    enabled: !entry.disabled.has(entry.name),
+    enabled,
     orphan: entry.orphan
   }
 }

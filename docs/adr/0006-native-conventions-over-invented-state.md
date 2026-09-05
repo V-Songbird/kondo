@@ -100,6 +100,16 @@ preferences, scan cache — never the truth about the user's Claude setup.
   needs already exists — `spliceMember(source, [member, key], literal)` in
   `user-store.ts` takes the member name as a parameter, so `enabledPlugins`
   and `skillOverrides` share one editor and no second one is to be added.
+- Written 2026-09-05 (entry 061). An MCP server is switched off per project
+  the way Claude does it: its name goes into the project's
+  `disabledMcpServers` (declared in the registry entry) or
+  `disabledMcpjsonServers` (declared in `<project>/.mcp.json`) list in
+  `~/.claude.json`, and comes out again to enable. The list is one member,
+  so the toggle is one splice of its value and the rest of the registry
+  keeps its bytes; the step carries ADR-0010's digest guard because Claude
+  rewrites this file during a session. No list exists for the user scope,
+  so that row stays refused rather than kondo inventing one, and a
+  declaration never moves between files.
 - Written 2026-09-05 (entry 045). The skill toggle is now a settings edit in
   Claude's own words: `disable` splices `skillOverrides[<name>] = "off"` into
   a layer of the skill's scope, `enable` takes that member away from every

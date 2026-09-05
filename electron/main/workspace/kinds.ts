@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
   CapabilityOperation,
@@ -25,9 +26,17 @@ import type {
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
 import { digestTree, mapPool, relativeTo, type Collector } from './scan'
-import { applyEdits, digestSource, type MutationPlan, type PlannedStep, type SpliceEdit } from './mutations'
+import {
+  applyEdits,
+  digestSource,
+  USER_CONFIG_STORE,
+  type MutationPlan,
+  type PlannedStep,
+  type SpliceEdit
+} from './mutations'
+import { flattenProjectPath } from './projects'
 import { capabilitiesFor } from './capabilities'
-import { tildify } from './display'
+import { slashed, tildify } from './display'
 import { desktopSessions, desktopSessionStems } from './desktop-store'
 import { readFirstUserPrompt, summarizeTranscript } from './jsonl'
 import { openScanCache } from './scan-cache'
@@ -41,9 +50,11 @@ import {
   overrideChain,
   PLACEMENTS,
   pluginStateIn,
+  asObject,
   SKILL_OVERRIDES,
   skillOverrideIn,
   spliceMember,
+  stringSet,
   readSettingsLayers,
   scanMcpServers,
   scanPlacedEntries,
@@ -672,9 +683,108 @@ const mcp: EntityKindDefinition<McpServerInfo> = {
   read(id, context) {
     return findById(id, mcp.discover(context))
   },
-  async plan(entity, request) {
-    return matrixRefusal('mcp', entity.scope, request.op)
+  async plan(entity, request, context) {
+    if (request.op !== 'enable' && request.op !== 'disable') {
+      return matrixRefusal('mcp', entity.scope, request.op)
+    }
+    return mcpTogglePlan(entity, request.op, context)
   }
+}
+
+/** Which registry list gates a declaration, by where the declaration lives (domain.md). */
+const MCP_DISABLE_LIST: Record<string, string> = {
+  local: 'disabledMcpServers',
+  project: 'disabledMcpjsonServers'
+}
+
+/**
+ * The store change behind an MCP toggle, in Claude's own words (ADR-0006,
+ * entry 061): the project's entry in `~/.claude.json` carries a list of the
+ * servers switched off for it — `disabledMcpServers` for servers declared in
+ * that entry, `disabledMcpjsonServers` for those declared in the project's
+ * `.mcp.json` — and the toggle adds the name to, or takes it out of, that
+ * list. The whole list is one member, so the edit is one `spliceMember`-shaped
+ * change to its value and every other byte of the registry keeps its place;
+ * the step is a `splice` guarded by the digest of the text it was planned
+ * against, because Claude rewrites this file during every session
+ * (ADR-0010). `.mcp.json` itself is never written (ADR-0002).
+ */
+async function mcpTogglePlan(
+  entity: McpServerInfo,
+  operation: ToggleOperation,
+  context: KindContext
+): Promise<PlanResult> {
+  const decision = entity.capabilities[operation]
+  if (!decision.allowed) {
+    return refused(
+      'not-permitted',
+      decision.reason ?? `kondo cannot ${operation} this MCP server.`
+    )
+  }
+  const listKey = MCP_DISABLE_LIST[entity.scope]
+  if (listKey === undefined || entity.project === null) {
+    return refused('not-permitted', `${entity.name} is not gated by a project's disable list.`)
+  }
+
+  const { locator } = context
+  const display = tildify(locator.userConfigFile, locator.home)
+  let text: string
+  try {
+    text = await fs.readFile(locator.userConfigFile, 'utf8')
+  } catch (cause) {
+    return refused('read-failed', `${display} could not be read: ${describeCause(cause)}`)
+  }
+  let config: Record<string, unknown> | null
+  try {
+    config = asObject(JSON.parse(text))
+  } catch {
+    config = null
+  }
+  if (config === null) {
+    return refused('parse-failed', `${display} did not read back as a JSON object; kondo will not rewrite it.`)
+  }
+  // The entry is found by the same rule discovery joins on (ADR-0009): the
+  // first key whose flattened form is this project's directory name. The key
+  // is used exactly as the file spells it, never rebuilt from a path.
+  const projects = asObject(config['projects']) ?? {}
+  const key = Object.keys(projects).find((candidate) => flattenProjectPath(candidate) === entity.project)
+  if (key === undefined) {
+    return refused(
+      'not-permitted',
+      `${display} has no entry for this project, so there is no disable list to write.`
+    )
+  }
+  const current = stringSet((asObject(projects[key]) ?? {})[listKey])
+  const next =
+    operation === 'disable'
+      ? [...current, entity.name]
+      : [...current].filter((name) => name !== entity.name)
+  const edit = editMember(text, ['projects', key, listKey], JSON.stringify(next))
+  if (edit === null) {
+    return refused('bad-request', `kondo cannot edit ${listKey} in ${display} without reformatting it.`)
+  }
+  return {
+    ok: true,
+    plan: {
+      op: 'settings-edit',
+      kind: 'mcp',
+      entityId: entity.id,
+      summary: `${operation === 'enable' ? 'Enable' : 'Disable'} MCP server ${entity.name} for ${slashed(key)} in ${display}`,
+      steps: [
+        {
+          type: 'splice',
+          store: USER_CONFIG_STORE,
+          at: path.basename(locator.userConfigFile),
+          expectDigest: digestSource(text),
+          edits: [edit]
+        }
+      ]
+    }
+  }
+}
+
+function describeCause(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause)
 }
 
 /**

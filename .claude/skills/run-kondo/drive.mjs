@@ -108,17 +108,33 @@ try {
     say(await shoot('after-press'))
   } else if (command === 'open') {
     const label = quoted(rest.join(' '))
-    say(
-      await evaluate(`(() => {
-        const buttons = [...document.querySelectorAll('button,a')]
-        const tab =
-          buttons.find((element) => element.textContent.trim() === ${label}) ??
-          buttons.find((element) => element.textContent.includes(${label}))
-        if (!tab) return 'no tab or row containing ' + ${label}
-        tab.click()
-        return 'opened ' + tab.textContent.trim()
+    const openExpression = `(() => {
+      const buttons = [...document.querySelectorAll('button,a')]
+      const tab =
+        buttons.find((element) => element.textContent.trim() === ${label}) ??
+        buttons.find((element) => element.textContent.includes(${label}))
+      if (!tab) return null
+      tab.click()
+      return 'opened ' + tab.textContent.trim()
+    })()`
+    let opened = await evaluate(openExpression)
+    if (opened === null) {
+      // The projects list folds throwaway and gone rows away by default, and
+      // the fixture sits under the OS temp root, so its rows are folded on a
+      // fresh launch: unfold, let React render, and look again.
+      const unfolded = await evaluate(`(() => {
+        const button = [...document.querySelectorAll('button')]
+          .find((element) => element.textContent.trim() === 'Show them')
+        if (!button) return false
+        button.click()
+        return true
       })()`)
-    )
+      if (unfolded) {
+        await settle(400)
+        opened = await evaluate(openExpression)
+      }
+    }
+    say(opened ?? 'no tab or row containing ' + rest.join(' '))
     await settle(1200)
     say(await shoot(`tab-${rest.join('-').toLowerCase()}`))
   } else if (command === 'pick') {

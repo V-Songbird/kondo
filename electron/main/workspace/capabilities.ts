@@ -104,9 +104,16 @@ const SESSIONS_ARE_SWEPT =
 // ADR-0009: an MCP server is declared in `~/.claude.json` or in a project's
 // `.mcp.json`, and kondo can write neither safely yet — the registry is
 // rewritten by Claude mid-session, so a whole-file write would discard its
-// changes. Entry 031 brings the splice step that makes this row movable.
-const MCP_IS_READ_ONLY =
-  'kondo reads MCP servers but does not write ~/.claude.json or .mcp.json yet.'
+// changes. Entry 031 brought the splice step and entry 061 wired the toggle
+// to it: a project's `disabledMcpServers` / `disabledMcpjsonServers` list in
+// `~/.claude.json` is Claude's own per-project switch (domain.md). The user
+// scope has no such list, and a declaration is never moved between files.
+const MCP_USER_HAS_NO_SWITCH =
+  'Claude has no disable list for a user-scope MCP server; remove the declaration from ~/.claude.json to stop it.'
+const MCP_STAYS_PUT =
+  'An MCP server is declared where Claude reads it; kondo does not move declarations between files.'
+const MCP_PROJECT_IS_GONE =
+  'The folder this declaration points at is gone; Leftovers removes the whole entry instead.'
 // ADR-0006: an agent, command, rule or output style is loaded because its
 // file is there. Claude ships no `.disabled` sibling for these directories
 // and no settings key that benches one, so kondo has no faithful mechanism
@@ -201,9 +208,19 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
   // Read-only in every scope, and refused here rather than in a view, so an
   // id from the listing cannot be mutated by whatever gets hold of one.
   mcp: {
-    user: neither(MCP_IS_READ_ONLY),
-    local: neither(MCP_IS_READ_ONLY),
-    project: neither(MCP_IS_READ_ONLY)
+    user: neither(MCP_USER_HAS_NO_SWITCH),
+    local: {
+      enable: deny(ALREADY_ENABLED),
+      disable: ALLOW,
+      move: deny(MCP_STAYS_PUT),
+      trash: deny(NOT_KONDOS_TO_REMOVE)
+    },
+    project: {
+      enable: deny(ALREADY_ENABLED),
+      disable: ALLOW,
+      move: deny(MCP_STAYS_PUT),
+      trash: deny(NOT_KONDOS_TO_REMOVE)
+    }
   },
   // The four hand-placed kinds (domain.md). Same answer in every scope, and
   // a project store has no `output-styles` directory to give that kind one —
@@ -257,6 +274,19 @@ export function scopesFor(kind: EntityKind): readonly string[] {
  * Only `off` narrows anything. `name-only` and `user-invocable-only` leave
  * the skill loaded (domain.md), so a bench move still means what it means.
  */
+/**
+ * The mcp row narrowed by what the project's disable list already says
+ * (entry 061): a listed server offers `enable`, an unlisted one `disable`, and
+ * a declaration whose project folder is gone offers neither — its whole entry
+ * is a configuration orphan, and Leftovers is where that goes (ADR-0010).
+ */
+export function mcpCapabilities(scope: string, enabled: boolean, orphan: boolean): Capabilities {
+  const row = capabilitiesFor('mcp', scope)
+  if (scope === 'user') return row
+  if (orphan) return { ...row, enable: deny(MCP_PROJECT_IS_GONE), disable: deny(MCP_PROJECT_IS_GONE) }
+  return enabled ? row : { ...row, enable: ALLOW, disable: deny(ALREADY_DISABLED) }
+}
+
 export function skillCapabilities(
   scope: string,
   override: SkillOverrideState | null

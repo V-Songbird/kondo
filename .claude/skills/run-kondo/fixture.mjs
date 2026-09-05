@@ -170,7 +170,10 @@ await write(projA, {
   // One agent and one command, so the project page has a placed entry with a
   // move picker in each direction (entry 044).
   '.claude/agents/reviewer.md': entry('reviewer', 'Reviews a diff for the team'),
-  '.claude/commands/deploy.md': entry('deploy', 'Ships the current branch')
+  '.claude/commands/deploy.md': entry('deploy', 'Ships the current branch'),
+  // The committed, shared declaration file — the one file outside .claude
+  // kondo may open (ADR-0002), and never writes.
+  '.mcp.json': JSON.stringify({ mcpServers: { linter: { command: 'npx', args: ['lint-mcp'] } } })
 })
 await write(projB, { '.claude/skills/.keep': '' })
 await write(projC, { '.claude/settings.json': '{}' })
@@ -188,7 +191,16 @@ await fs.writeFile(
   JSON.stringify(
     {
       projects: {
-        [projA]: { mcpServers: {} },
+        // Two registry-declared servers, one switched off, and a disable
+        // list for the .mcp.json one below (entry 061).
+        [projA]: {
+          mcpServers: {
+            apidb: { command: 'node', args: ['db.mjs'] },
+            search: { type: 'http', url: 'https://example.invalid/search' }
+          },
+          disabledMcpServers: ['search'],
+          disabledMcpjsonServers: []
+        },
         [projB]: {},
         [projC]: {},
         [goneProject]: {

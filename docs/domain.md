@@ -136,10 +136,14 @@ whose registry path is no longer on disk is reported with `orphan: true` —
 the dead-project signal in its MCP form, and what `configOrphansPreview`
 offers to splice out (ADR-0010). Discovery is tier-1 (ADR-0007): one registry
 parse, one `stat` per registry entry that actually declares a server, one
-`.mcp.json` read per verified project. The kind is read-only in all three
-scopes; the capability matrix refuses enable, disable and move. Entry 031
-shipped the splice step `~/.claude.json` can survive, so the obstacle is no
-longer the write path — nothing has yet wired an MCP toggle to it.
+`.mcp.json` read per verified project. The two disable lists are also what
+kondo's toggle writes (entry 061): `disable` adds the name to the project's
+`disabledMcpServers` (a `local` declaration) or `disabledMcpjsonServers` (a
+`project` one) and `enable` takes it out, each as one splice of that list's
+value under the ADR-0010 digest guard, so a registry Claude rewrote in
+between refuses rather than loses. The user scope has no list and stays
+read-only; a declaration is never moved between files and `.mcp.json` is
+never written (ADR-0002).
 
 `~/.claude/.mcp.json` also exists inside the user store (empty `mcpServers`
 on the observed machine ✅) and is **not** one of the three scopes above;

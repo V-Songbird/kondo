@@ -367,7 +367,7 @@ function ProjectPage({
           return (
             <div className="space-y-4">
               <div>
-                <h1 className="text-lg font-semibold">{row.label}</h1>
+                <h1 className="text-lg font-semibold">{row.name}</h1>
                 <div className="font-mono text-xs text-mut">
                   {row.path ?? 'kondo cannot tell where this project is.'}
                 </div>
@@ -514,10 +514,21 @@ function ProjectPage({
                       <th>Where</th>
                       <th>Transport</th>
                       <th>Declared in</th>
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
-                    {detail.mcpServers.map((server) => (
+                    {detail.mcpServers.map((server) => {
+                      // The matrix decides direction and permission (ADR-0006):
+                      // the project's disable list in ~/.claude.json is the
+                      // switch, and a scope with no such list says so on screen.
+                      const operation: ToggleOperation = server.capabilities.disable.allowed
+                        ? 'disable'
+                        : 'enable'
+                      const reason = server.capabilities[operation].allowed
+                        ? null
+                        : server.capabilities[operation].reason
+                      return (
                       <tr key={server.id} className={server.enabled ? '' : 'opacity-60'}>
                         <td className="font-mono">
                           {server.name}
@@ -541,8 +552,22 @@ function ProjectPage({
                         >
                           {server.source}
                         </td>
+                        <td className="text-right">
+                          <button
+                            type="button"
+                            disabled={reason !== null || busy}
+                            className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                            onClick={() =>
+                              void run((api) => api.entityMutate(server.id, { op: operation }))
+                            }
+                          >
+                            {operation === 'disable' ? 'Disable' : 'Enable'}
+                          </button>
+                          <Refusal reason={reason} />
+                        </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </Section>

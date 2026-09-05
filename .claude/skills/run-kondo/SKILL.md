@@ -74,6 +74,12 @@ node .claude/skills/run-kondo/drive.mjs open apiserver
 on the first row, `Global`, so a check against global skills needs no click at
 all; `open Global` gets back to it.
 
+The projects list folds throwaway runs and gone projects behind one count
+(entry 060), and the fixture lives under the OS temp root, so every fixture
+project is folded on a fresh launch. `open` presses `Show them` for you when
+its first look finds no row; a hand-written `eval` has to click that button
+itself before a project row exists in the DOM.
+
 `pick` exists because assigning `select.value` does nothing here: React
 tracks the value node, so the choice only registers through the prototype's
 native setter plus a bubbling `change` event. That is the one piece of this
@@ -191,7 +197,7 @@ saved, 3 never worked in` on a fresh fixture:
 
 | key | on disk | under `projects/` | what it is for |
 | --- | --- | --- | --- |
-| `work/apiserver` | yes | yes, 3 sessions | the ordinary project; declares `mcpServers: {}` |
+| `work/apiserver` | yes | yes, 3 sessions | the ordinary project; declares two MCP servers in the registry (`search` switched off) and one in its `.mcp.json` (`linter`), so the MCP servers table has both toggle directions |
 | `work/website` | yes | yes, 1 session | an empty but valid move destination |
 | `work/cli` | yes | no | registry-only member: the counts differ because of it, and it is a move destination with no store |
 | `work/removed` | no | no | dead project; still declares two MCP servers, so Leftovers has `mcp-declaration` rows |
