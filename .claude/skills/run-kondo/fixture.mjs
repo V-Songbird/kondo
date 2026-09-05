@@ -10,16 +10,13 @@ import path from 'node:path'
  *
  *   node fixture.mjs [baseDirectory]
  *
- * The base must contain no hyphen. Claude Code names a project directory by
- * flattening its absolute path with '-', and kondo reconstructs the original
- * by unflattening — a hyphen in the real path cannot round-trip, the project
- * fails to verify, and it then never appears as a move destination.
+ * Every project with a transcript directory is also registered in the
+ * fixture's `~/.claude.json`, so kondo resolves its real path from the
+ * registry (ADR-0009) and never has to un-flatten the directory name. That is
+ * why a hyphen in the base path is fine here.
  */
 
 const BASE = (process.argv[2] ?? 'X:/Temp/kondofix').split(path.sep).join('/')
-if (path.basename(BASE).includes('-') || BASE.includes('-')) {
-  throw new Error(`base path must hold no hyphen, or projects will not verify: ${BASE}`)
-}
 
 const home = path.join(BASE, 'home')
 const userRoot = path.join(home, '.claude')
@@ -27,6 +24,10 @@ const desktopRoot = path.join(BASE, 'desktop')
 const dataRoot = path.join(BASE, 'kondo-data')
 const projA = path.join(BASE, 'work', 'apiserver')
 const projB = path.join(BASE, 'work', 'website')
+// Registered and on disk, but has never had a session: no directory under
+// projects/. It is the registry-only member that makes the projects home's
+// two counts differ (entry 038), and a move destination with no store.
+const projC = path.join(BASE, 'work', 'cli')
 
 const BACKSLASH = String.fromCharCode(92)
 
@@ -152,11 +153,14 @@ await write(projA, {
   '.claude/skills/db-migrate/SKILL.md': skill('db-migrate', 'Project-scoped migration helper')
 })
 await write(projB, { '.claude/skills/.keep': '' })
+await write(projC, { '.claude/settings.json': '{}' })
 
 // Claude Code's own registry, a sibling of the store rather than a file
-// inside it (ADR-0009). `projA` is on disk and must never be called a
-// leftover; the other two are gone, and one of them still declares two MCP
-// servers, so the Leftovers view has every orphan kind to group.
+// inside it (ADR-0009). The three `work/` projects are on disk and must never
+// be called leftovers — `cli` has no transcript directory, so it is the
+// registry-only half of the project union. The other two keys are gone from
+// disk (dead projects), and one of them still declares two MCP servers, so the
+// Leftovers view has every orphan kind to group.
 const goneProject = path.join(BASE, 'work', 'removed')
 const goneSite = path.join(BASE, 'work', 'oldsite')
 await fs.writeFile(
@@ -165,6 +169,8 @@ await fs.writeFile(
     {
       projects: {
         [projA]: { mcpServers: {} },
+        [projB]: {},
+        [projC]: {},
         [goneProject]: {
           mcpServers: {
             apiserver: { command: 'node', args: ['server.mjs'] },

@@ -61,20 +61,18 @@ node .claude/skills/run-kondo/drive.mjs eval "document.title"  # anything else
 `open` clicks a nav tab, and the nav has exactly four: `Projects`,
 `Clean up`, `Leftovers`, `History`. Skills and plugins are not among them —
 they are `Section`s inside the Projects view, showing whichever row the left
-list has selected. `open Skills` answers `no tab named Skills`.
-
-`open` matches a button's whole text, and a project row's text carries its
-count chips — `Global3 skills · 1 settings file` on a fresh fixture, and the
-counts move as you mutate — so it cannot select one.
-Selecting a row is an `eval`:
+list has selected. `open` tries a whole-text match first, so a nav tab always
+wins, then falls back to the first button whose text contains the argument —
+which is how it selects a project row, whose text carries count chips:
 
 ```bash
-node .claude/skills/run-kondo/drive.mjs eval \
-  "(() => { const row = [...document.querySelectorAll('li button')].find((b) => b.textContent.includes('apiserver')); if (!row) return 'no project row matching apiserver'; row.click(); return 'opened ' + row.textContent.trim() })()"
+node .claude/skills/run-kondo/drive.mjs open apiserver
+#   opened X:Tempkondofixworkpiserverjust now1 skill · 3 sessions
 ```
 
-The app opens on the first row, `Global`, so a check against global skills
-needs no click at all.
+`open Skills` still answers `no tab or row containing Skills`. The app opens
+on the first row, `Global`, so a check against global skills needs no click at
+all; `open Global` gets back to it.
 
 `pick` exists because assigning `select.value` does nothing here: React
 tracks the value node, so the choice only registers through the prototype's
@@ -82,28 +80,37 @@ native setter plus a bubbling `change` event. That is the one piece of this
 you would otherwise rediscover.
 
 Its row argument is a substring, and it takes the first row that contains it.
-Name the skill, not its location — several rows share a location.
+A row is the widest element around a `<select>` that holds no other
+`<select>` — a `<tr>` in the Skills table, a div in the Plugins section — so
+`pick` reaches both. Name the skill or plugin, not its location; several rows
+share a location.
 
 The worked example above runs as written against a fresh fixture:
 `open Projects` remounts the view on its first row, `Global`, and
 `commit-writer` is a global skill, so `pick commit-writer apiserver` moves it
 to the apiserver project and the banner offers Undo.
 
-`pick` scans `tbody tr`, so it reaches the tables in the selected project's
-detail — Skills among them. The Plugins section is not a table: its rows are
-divs, so `pick foreman off` answers `no row containing foreman`. A plugin's
-three-way position is buttons, so `press` does reach it, but the labels change
-with the scope: `On`/`Off`/`Not set` on Global, `On here`/`Off here`/`Follows
-global` on a project. List them rather than guess:
+A plugin move is a settings edit, and when the destination layer file does
+not exist yet the app asks first: `pick foreman cli` from the Global row
+renders `…settings.local.json does not exist yet. Confirm to create it` with
+`Create it` / `Cancel`, and nothing is journaled until `press "Create it"`.
+On a project row the plugin's `Move to…` select is disabled unless that
+project is the place turning the plugin on, and `pick` says so:
+`select is disabled: …`.
+
+A plugin's three-way position is buttons, so `press` reaches it too, but the
+labels change with the scope: `On`/`Off`/`Not set` on Global, `On here`/`Off
+here`/`Follows global` on a project. List them rather than guess:
 
 ```bash
-node .claude/skills/run-kondo/drive.mjs eval \
-  "JSON.stringify([...document.querySelectorAll('button')].map((b) => b.textContent.trim()))"
+node .claude/skills/run-kondo/drive.mjs eval   "JSON.stringify([...document.querySelectorAll('button')].map((b) => b.textContent.trim()))"
 ```
 
-The button for the position a plugin is already in is disabled, and `press`
-says `button is disabled: Not set` rather than pretending it clicked. The
-plugin row's own `Move to…` select is out of `pick`'s reach for now.
+`press` matches by trimmed substring, first match wins, so `press "Sweep 5
+items"` reaches `Sweep 5 items · 442 B`. Keep the argument specific enough:
+`press On` would hit `On here` before `On`. The button for the position a
+plugin is already in is disabled, and `press` says `button is disabled: …`
+rather than pretending it clicked.
 
 ### Reading the bridge directly
 
@@ -123,7 +130,9 @@ The id shape is `plugin:<name>@<marketplace>` (ADR-0008). With no argument it
 answers `bad-request`, not an empty list — an empty `data` really does mean
 the plugin ships none.
 
-Set `KONDO_SHOTS` to choose where screenshots land.
+Set `KONDO_SHOTS` to choose where screenshots land. Unset, every command
+writes under the OS temp directory (`kondo-shots/`), never into the working
+directory, so a miss cannot leave a PNG in the repo.
 
 **Read every screenshot you take.** A blank frame is a failed launch, not a
 passing check.
@@ -161,12 +170,26 @@ directory at all** — an absent directory is a different case from an empty
 one, and the absent one is what `pluginSkills` must answer with an empty
 list and no error. Do not add `skills/` there to tidy the tree up.
 
-Two things it has to get right, both of which cost an afternoon once:
+The fixture also writes Claude's registry, `home/.claude.json` (a sibling of
+the store, ADR-0009), with five keys, so the project set is the union the
+projects home counts — `5 projects Claude has on record`, `2 with sessions
+saved, 3 never worked in` on a fresh fixture:
 
-- **No hyphen anywhere in the base path.** Claude Code names a project
-  directory by flattening its absolute path with `-`, and kondo unflattens to
-  reconstruct it. A hyphen cannot round-trip, so the project fails to verify
-  and never appears as a move destination. `fixture.mjs` refuses such a path.
-- **A project needs both halves.** A transcript directory under
-  `projects/<flattened>/` *and* a real `.claude` directory at the path that
-  name reconstructs to. Either alone leaves it unverified.
+| key | on disk | under `projects/` | what it is for |
+| --- | --- | --- | --- |
+| `work/apiserver` | yes | yes, 3 sessions | the ordinary project; declares `mcpServers: {}` |
+| `work/website` | yes | yes, 1 session | an empty but valid move destination |
+| `work/cli` | yes | no | registry-only member: the counts differ because of it, and it is a move destination with no store |
+| `work/removed` | no | no | dead project; still declares two MCP servers, so Leftovers has `mcp-declaration` rows |
+| `work/oldsite` | no | no | dead project with nothing else attached |
+
+`settings.json` carries `ghost@acme` under `enabledPlugins` and
+`retired-helper` under `skillOverrides`, neither of which anything ships, so
+Leftovers has every orphan kind to group. `foreman@acme` and `commit-writer`
+are the live pair beside them and must never be listed there.
+
+Because every project with a transcript directory is registered, kondo takes
+its real path from the registry and never un-flattens the directory name, so
+the base path may hold a hyphen. A project that is **not** registered still
+needs both halves — a `projects/<flattened>/` directory and a real `.claude`
+directory at the path that name reconstructs to — or it stays unverified.

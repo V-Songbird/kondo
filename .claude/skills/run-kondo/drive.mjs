@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 
 /**
  * A one-shot CDP driver for a running kondo window.
@@ -9,16 +11,22 @@ import fs from 'node:fs/promises'
  * the state that matters lives in the app, not in here.
  *
  *   node drive.mjs shoot <name>              screenshot to <name>.png
- *   node drive.mjs open <TabLabel>           click a sidebar tab, then shoot
+ *   node drive.mjs open <TabLabel|rowText>  click a nav tab or a project row, then shoot
  *   node drive.mjs eval <expression>         evaluate in the page, print JSON
  *   node drive.mjs pick <rowText> <option>   choose a <select> option in a row
  *   node drive.mjs press <buttonText>        click a button by its text
  *
- * `shoot` writes into $KONDO_SHOTS if set, else the working directory.
+ * `open` takes the button whose whole text equals the argument first (a nav
+ * tab), then the first whose text contains it (a project row, whose text
+ * carries count chips). `press` and `pick` match by trimmed substring, first
+ * match wins. Every screenshot lands in $KONDO_SHOTS if set, else under the
+ * OS temp directory — never in the working directory, which is usually the
+ * repo.
  */
 
 const PORT = process.env.KONDO_CDP_PORT ?? '9222'
-const SHOTS = process.env.KONDO_SHOTS ?? '.'
+const SHOTS = process.env.KONDO_SHOTS ?? path.join(os.tmpdir(), 'kondo-shots')
+await fs.mkdir(SHOTS, { recursive: true })
 
 const targets = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
 const page = targets.find((target) => target.type === 'page')
@@ -63,7 +71,7 @@ const evaluate = async (expression) => {
 
 const shoot = async (name) => {
   const { data } = await send('Page.captureScreenshot', { format: 'png' })
-  const file = `${SHOTS}/${name.replace(/\.png$/, '')}.png`
+  const file = path.join(SHOTS, `${name.replace(/\.png$/, '').replace(/[^A-Za-z0-9._-]+/g, '-')}.png`)
   await fs.writeFile(file, Buffer.from(data, 'base64'))
   return file
 }
@@ -89,8 +97,8 @@ try {
     say(
       await evaluate(`(() => {
         const target = [...document.querySelectorAll('button,a')]
-          .find((element) => element.textContent.trim() === ${label})
-        if (!target) return 'no button matching ' + ${label}
+          .find((element) => element.textContent.trim().includes(${label}))
+        if (!target) return 'no button containing ' + ${label}
         if (target.disabled) return 'button is disabled: ' + ${label}
         target.click()
         return 'pressed ' + ${label}
@@ -102,11 +110,13 @@ try {
     const label = quoted(rest.join(' '))
     say(
       await evaluate(`(() => {
-        const tab = [...document.querySelectorAll('button,a')]
-          .find((element) => element.textContent.trim() === ${label})
-        if (!tab) return 'no tab named ' + ${label}
+        const buttons = [...document.querySelectorAll('button,a')]
+        const tab =
+          buttons.find((element) => element.textContent.trim() === ${label}) ??
+          buttons.find((element) => element.textContent.includes(${label}))
+        if (!tab) return 'no tab or row containing ' + ${label}
         tab.click()
-        return 'opened ' + ${label}
+        return 'opened ' + tab.textContent.trim()
       })()`)
     )
     await settle(1200)
@@ -118,11 +128,18 @@ try {
     // bubbling `change` is what makes React see the choice.
     say(
       await evaluate(`(() => {
-        const row = [...document.querySelectorAll('tbody tr')]
-          .find((candidate) => candidate.textContent.includes(${quoted(row)}))
-        if (!row) return 'no row containing ' + ${quoted(row)}
-        const select = row.querySelector('select')
-        if (!select) return 'row has no select'
+        // A row is the widest ancestor of a <select> that holds no other
+        // <select>: a <tr> in the Skills table, a div in the Plugins section.
+        const rowOf = (select) => {
+          let node = select
+          while (node.parentElement && node.parentElement.querySelectorAll('select').length === 1) {
+            node = node.parentElement
+          }
+          return node
+        }
+        const select = [...document.querySelectorAll('select')]
+          .find((candidate) => rowOf(candidate).textContent.includes(${quoted(row)}))
+        if (!select) return 'no row with a select containing ' + ${quoted(row)}
         if (select.disabled) return 'select is disabled: ' + (select.title || 'no reason given')
         const choice = [...select.options]
           .find((candidate) => candidate.textContent.includes(${quoted(option.join(' '))}))
