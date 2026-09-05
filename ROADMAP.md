@@ -18,7 +18,8 @@ longer exist, the same skill kept twice. Every change stays undoable.
 
 v0.1 and v0.2 built the machinery for that — reversible writes, the kind
 registry, native conventions — with the screens organised by kind rather
-than by project. v0.3 turns the screens around.
+than by project. v0.3 turned the screens around, v0.4 made everything movable, and v0.5
+put the clean-up categories behind reversible steps.
 
 ## Shipped — v0.1, the read-only core
 
@@ -50,7 +51,7 @@ Landed in `a5c9505` ([plan](docs/plans/v1-read-only-core.md)).
 - The jig session guards, and the fixes and decisions that followed
   (008–017, 022).
 
-## Now — v0.3, the project view
+## Shipped — v0.3, the project view
 
 In dependency order. The first is the foundation everything else keys on.
 
@@ -73,7 +74,7 @@ In dependency order. The first is the foundation everything else keys on.
   collapses to Projects · Clean up · History; undo offered where the change
   was made (026).
 
-## Next — v0.4, move everything
+## Shipped — v0.4, move everything
 
 - Plugin move between projects as one two-layer settings edit (027).
 - One `plan(entity, request)` seat in the registry and a generic mutate
@@ -86,8 +87,12 @@ In dependency order. The first is the foundation everything else keys on.
   amendment).
 - Hooks attributed to their project, with missing-script and unarmed-script
   signals; hook move between layers (036).
+- Agents, commands and rules get the move picker on the project page, and
+  output styles say why they have none (044).
+- The skill toggle writes `skillOverrides` — Claude's own per-skill switch —
+  instead of parking directories in `skills.disabled/` (045, ADR-0006).
 
-## Next — v0.5, clean my `~/.claude`
+## Shipped — v0.5, clean my `~/.claude`
 
 Each is a tidy category or a listing with a reversible trash step behind it.
 
@@ -105,6 +110,18 @@ Each is a tidy category or a listing with a reversible trash step behind it.
   prompts behind the ADR-0007 tier-2 cache (034).
 - UI words: the glossary's user-facing labels applied, empty states, refusal
   reasons inline rather than in tooltips (037).
+- The Leftovers view over the configuration orphans (040), and "Skills kept
+  twice" on Clean up over the duplicate groups (047).
+- The fixes the views turned up: the inventory notices an external registry
+  write and Rescan re-reads the detail pane (051, 056), one separator for
+  every display path (049), no never-used badge without a record (048), the
+  staleness threshold on the seam (050), and the run-kondo fixture and driver
+  that made each of them visible (043, 046, 052, 057).
+
+## Now
+
+Every entry the roadmap holds is done. What comes next is chosen from
+Later, or from what using the app against a real store turns up.
 
 ## Later
 

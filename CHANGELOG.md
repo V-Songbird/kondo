@@ -89,6 +89,25 @@ All notable changes to kondo are documented here. The format follows
   resolved; now 1,443 do, and the rest are directories Claude has forgotten.
   Every per-project feature (project skills, settings layers, plugin chips,
   skill move destinations) sees those projects for the first time.
+- Agents, commands and rules move between scopes from the project page: each
+  row has the same "Move to" picker a skill has, landing on the generic
+  `entityMutate` seat, with the matrix's toggle refusal said once beneath the
+  table. Output styles show why there is nowhere to move one instead of an
+  empty picker.
+- "Skills kept twice" on Clean up: every skill name held in more than one
+  scope, grouped with a verdict — identical copies, same name with different
+  contents, or a copy that could not be read — and a per-copy trash control
+  offered only for an identical group. Each copy is one journal entry with
+  the undo beside it.
+- A skill row's disable now speaks Claude's own convention: `skillOverrides`
+  set to `off` in the scope's settings layer (the file that already names
+  the skill, else `settings.local.json`, the one `/skills` writes), asking
+  first when that file does not exist. Enable withdraws that member from
+  every layer in the skill's chain in one undoable step. A skill already
+  parked in `skills.disabled/` is offered the way back into `skills/`.
+- The run-kondo fixture registers its projects in a `~/.claude.json` of its
+  own, with a registry-only project, two dead ones and a duplicate skill per
+  verdict, so every union-shaped view can be seen against it.
 
 ### Changed
 
@@ -109,6 +128,19 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- The cached project inventory notices a registry rewritten by something
+  else: every read stats `~/.claude.json` and `projects/` and rebuilds when
+  either moved, so a dead project entry Claude added after kondo started
+  reaches Leftovers without a restart. Rescan also re-reads the detail pane,
+  so the Storage card and the project list never disagree about the set.
+- Every display path uses forward slashes on every OS, including paths
+  outside the home directory, so a fixture store or a project path no longer
+  reads `X:\Temp\...\plugins/cache/...`.
+- The "never used" badge no longer fires on every skill when `~/.claude.json`
+  holds no `skillUsage` record at all: no record is now `null` on the seam,
+  and only an actual zero count badges a row.
+- The sessions pill names the staleness threshold from the seam instead of a
+  `30` written into the JSX.
 - The cached session inventory is now dropped after a tidy sweep or an undo
   whether or not it finished: a sweep that failed part way had already moved
   transcripts the cache still listed, so the next preview showed them and

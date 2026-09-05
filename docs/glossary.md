@@ -18,8 +18,10 @@ spelling, and no string a user can read is ever left on the left-hand one.
 | Delete (kondo displacing a file) | Move to trash |
 | Dry run | Preview |
 | Sidecar | Session folder |
-| Stale session | Untouched 30+ days |
+| Stale session | Untouched N+ days (N from `staleAfterDays` on the seam) |
 | Orphan | Leftover |
+| Skill duplicate group | Skills kept twice |
+| Trash a duplicate copy | Move this copy to trash |
 | Settings layer | Settings file |
 | Scope | Where it applies |
 | Winning / effective layer | In effect |
