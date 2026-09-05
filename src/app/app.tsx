@@ -55,7 +55,9 @@ export function App() {
         ))}
         {/* Every write is journaled and reversible (ADR-0001), which is the
             promise worth putting where the old "read-only" claim was. */}
-        <div className="mt-auto px-2 text-[11px] text-mut">every change is undoable · v0.1</div>
+        <div className="mt-auto px-2 text-[11px] text-mut">
+          every change is undoable · v{__KONDO_VERSION__}
+        </div>
       </nav>
       <main className="min-w-0 flex-1 overflow-auto p-6">
         <Body />

@@ -11,6 +11,8 @@ declare global {
     /** Absent when the renderer runs outside Electron (plain vite). */
     kondo?: KondoApi
   }
+  /** package.json's version, stamped in by electron.vite.config.ts `define`. */
+  const __KONDO_VERSION__: string
 }
 
 export {}

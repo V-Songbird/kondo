@@ -15,30 +15,50 @@ machine; nothing is ever sent anywhere.
 
 ## What it does
 
+- **Projects first** — one row per project Claude knows about, the global
+  store above them, and for the one you pick a page with everything attached
+  to it: skills, plugins, hooks, agents, commands, rules, MCP servers,
+  settings files, sessions. Throwaway runs and projects whose folder is gone
+  fold away behind a count.
 - **Sessions** — one inventory across every store: Claude Code's
   `~/.claude/projects` and the desktop app's session directories. See per
   project how many sessions exist, how large they are, which are stale,
-  empty, orphaned, or duplicated — the same session id held in both stores,
-  or two sessions of one project opening with near-identical prompts. Pick
-  any set and move it to kondo's trash in one undoable step. (Worked time is
-  still on the roadmap, not in the build.)
-- **Skills** — a single catalog of global and per-project skills. Enable or
-  disable without deleting. Move a skill between scopes or from one project to
-  another.
+  empty, orphaned, deleted on the desktop side, or duplicated — the same
+  session id held in both stores, or two sessions of one project opening
+  with near-identical prompts. Pick any set and move it to kondo's trash in
+  one undoable step. (Worked time is still on the roadmap, not in the build.)
+- **Skills** — global and per-project, with what `skillUsage` says about
+  each. Disable with Claude's own `skillOverrides` switch, move a skill
+  between scopes or from one project to another, and thin out a skill kept
+  twice once its copies prove identical.
 - **Plugins** — what is installed, from which marketplace, at which version,
-  enabled where. Toggle globally or per project.
-- **Hooks** — every hook that will fire, and which settings file arms it.
+  enabled where. Toggle globally or per project; hand one from one scope to
+  another as a single undoable edit.
+- **Agents, commands, rules, output styles** — listed per scope, movable
+  between scopes the way a skill is.
+- **Hooks** — every hook that will fire, which settings file arms it, and
+  whether the script it names is still there.
+- **MCP servers** — user, project and `.mcp.json` declarations, read-only.
 - **Settings** — the layered view: user, project, local. See what wins and why.
-- **Housekeeping** — reclaim space from stale sessions and dead caches. Kondo
-  trashes, journals, and can undo. It never hard-deletes.
+- **Clean up** — reclaim space by category: throwaway folders, projects that
+  are gone, old and empty conversations, conversations the desktop app
+  deleted, leftover session folders and snapshots, caches Claude rebuilds,
+  old plugin versions and residue, hook scripts nothing runs. Preview first;
+  one undoable step.
+- **Leftovers** — dead lines in Claude's configuration files: registry
+  entries and MCP declarations for folders that no longer exist, plugin
+  switches for plugins no longer installed, skill settings for skills no
+  scope ships. Spliced out byte-exactly, undoable.
+- **History** — every change kondo made, with Undo beside each, and the
+  trash's size. Kondo never hard-deletes until you empty the trash.
 
 ## Principles
 
 1. **Local-first, zero network.** No telemetry, no sync, no phoning home.
 2. **Read-only by default.** Every mutation is explicit, journaled, and
    reversible ([ADR-0001](docs/adr/0001-mutations-are-reversible.md)).
-3. **Native conventions over invented state.** Disabling a skill uses Claude's
-   own `skills.disabled` convention; toggling a plugin edits `enabledPlugins`
+3. **Native conventions over invented state.** Disabling a skill writes
+   Claude's own `skillOverrides` key; toggling a plugin edits `enabledPlugins`
    in the right settings file. Kondo keeps no shadow database of your intent
    ([ADR-0006](docs/adr/0006-native-conventions-over-invented-state.md)).
 4. **Project privacy boundary.** Claude-only files, nothing else
@@ -48,13 +68,13 @@ machine; nothing is ever sent anywhere.
 
 ## Status
 
-Pre-release, v0.2 in progress. Kondo scans sessions, skills, plugins, hooks
-and settings; enables and disables skills and plugins; moves skills between
-global and project scope; and sweeps stale sessions and caches. Every change
-is journaled and undoable from the Journal tab, and nothing is deleted until
-you empty kondo's trash. What comes next — a project-first home, MCP servers
-and agents, and cleanup of dead projects and orphaned configuration — is in
-[ROADMAP.md](ROADMAP.md).
+Pre-release, v0.5. Everything above ships and has been run against a real
+store of 11,517 projects and 1.6 GB of transcripts. No packaged build has
+been published yet — see [docs/release.md](docs/release.md) — so running it
+means cloning and `npm run dev`. What comes next is in
+[ROADMAP.md](ROADMAP.md): per-project MCP toggles, switching a global skill
+off for one project, the desktop store's caches, packaged releases, and
+end-to-end tests.
 
 ## Getting started
 

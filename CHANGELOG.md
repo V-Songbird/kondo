@@ -6,10 +6,27 @@ All notable changes to kondo are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-05
+
+The first version stamped as such. It collects everything since the
+scaffold, in the roadmap's own lines: v0.1 the read-only core, v0.2 safe
+mutations, v0.3 the project view, v0.4 move everything, v0.5 clean my
+`~/.claude`. No packaged build has been published; the version is
+`package.json`'s and the footer reads it from there.
+
 ### Added
 
 - Engineering scaffold: README, ADRs, domain map, foundations, testing and
   release policies, agent operating manual.
+- A projects home that works on a real store: rows named by the last path
+  segment with the parent beneath, throwaway runs and projects whose folder
+  is gone folded behind one count with a toggle, the rest 200 at a time. On
+  the owner's store that is 203 buttons instead of 11,518.
+- "Conversations deleted in the desktop app" on Clean up: the desktop app
+  leaves a `<uuid>.desktop-released.json` beside a transcript it has deleted
+  on its side, and kondo now recognises the marker, moves it with the
+  transcript, and offers the released conversations as their own category
+  (101 of them, 125 MB, on the owner's store).
 - Read-only core: cross-platform store discovery and scanning of sessions,
   skills, plugins, hooks, and settings across the Claude Code user store,
   per-project `.claude` directories, and the Claude desktop app store.
@@ -128,6 +145,16 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- A project directory without a transcript is no longer swept as a throwaway
+  folder when it holds Claude's `memory/` or its project is on disk: two live
+  projects on the owner's store had only their memory under `projects/` and
+  were offered as litter. Emptiness alone never makes a folder throwaway
+  now; only a name under the temp root, a worktree or a job, or a directory
+  with nothing at all and no path kondo can find.
+- Claude-written files kondo knew nothing about no longer count as
+  unrecognised: `.desktop-released.json` markers and `.benchmarks/` inside a
+  project directory, `chrome/` and `plans/` at the store root. 105 unknown
+  files became 4 on the owner's store.
 - The cached project inventory notices a registry rewritten by something
   else: every read stats `~/.claude.json` and `projects/` and rebuilds when
   either moved, so a dead project entry Claude added after kondo started
