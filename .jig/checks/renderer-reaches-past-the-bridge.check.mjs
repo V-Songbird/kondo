@@ -30,7 +30,7 @@ const params = {
 
 export const detectors = [
   { runner: "checks", lever: "check-driver", actor: "human-editor", confidence: "deterministic", params },
-  { runner: "PostToolUse", lever: "edit-observe-guard", actor: "claude-session", confidence: "deterministic", params }
+  { runner: "PreToolUse", lever: "edit-guard", actor: "claude-session", confidence: "deterministic", params }
 ]
 
 export const fixtures = {

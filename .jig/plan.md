@@ -1,55 +1,35 @@
-# jig plan a4c8810c753b
+# jig plan 697fd2b5d9c3
 
 Every cell below is computed from each detector's own metadata and from the changes
 this plan writes. Nothing here is hand-written prose about coverage.
 
 - provenance: `elicited`
-- mode: `armed` — every check below fired on its own violation and stayed silent on its near miss, so it blocks from install
+- mode: `armed` — the default; `--observe` is how you ask for the other one. Each cell below says what that row can refuse and where, because the answer is the lever's and this repository's together; a GAP cell installs nothing to refuse with
 - editions read: `javascript-typescript`
 
 ## Coverage by actor
 
 | class | provenance | human-editor | human-ci | claude-session | codex-session |
 | --- | --- | --- | --- | --- | --- |
-| `outbound-network-call` | elicited | GAP — this plan writes no check-driver artifact for outbound-network-call | GAP — no detector on this class names human-ci | DET outbound-network-call-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
-| `raw-path-across-the-seam` | elicited | GAP — this plan writes no check-driver artifact for raw-path-across-the-seam | GAP — no detector on this class names human-ci | DET raw-path-across-the-seam-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
-| `renderer-reaches-past-the-bridge` | elicited | GAP — this plan writes no check-driver artifact for renderer-reaches-past-the-bridge | GAP — no detector on this class names human-ci | DET renderer-reaches-past-the-bridge-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
-| `seam-contract-outruns-its-adr` | elicited | DET .jig/checks/seam-contract-outruns-its-adr.check.mjs | GAP — no detector on this class names human-ci | GAP — no detector on this class names claude-session | GAP — no detector on this class names codex-session |
-| `test-touches-a-real-store` | elicited | GAP — this plan writes no check-driver artifact for test-touches-a-real-store | GAP — no detector on this class names human-ci | DET test-touches-a-real-store-edit-observe-guard-1 [proven by its fixture pair] | GAP — no detector on this class names codex-session |
-| `workspace-adapter-outruns-domain-doc` | elicited | DET .jig/checks/workspace-adapter-outruns-domain-doc.check.mjs | GAP — no detector on this class names human-ci | GAP — no detector on this class names claude-session | GAP — no detector on this class names codex-session |
 
 These artifacts are written but cannot be read back by jig, so their correctness is
 nobody's guarantee:
 
 - `.jig/activation.md`
-- `.github/workflows/jig.yml`
-- `.jig/hooks/pre-commit`
 
 ## Consent
 
 Approve in one go — these only ever report:
 
-- `activation-7f3cad96` → `.jig/activation.md` — reports only, and refuses nothing
-- `hook-shim-a2b08288` → `.jig/hooks/pre-commit` — reports only, and refuses nothing
+- `activation-wired-7d53dc2c` → `.jig/activation.md` — reports only, and refuses nothing
 
 Approve one at a time — each of these can refuse something:
 
-- `check-seam-contract-outruns-its-adr-37594611` → `.jig/checks/seam-contract-outruns-its-adr.check.mjs` — installs a check the driver and CI both run, so it can fail a build
-- `check-workspace-adapter-outruns-domain-doc-6541cb51` → `.jig/checks/workspace-adapter-outruns-domain-doc.check.mjs` — installs a check the driver and CI both run, so it can fail a build
-- `ci-workflow-6f9f4325` → `.github/workflows/jig.yml` — fails the build for everyone who pushes
-- `config-61328b28` → `.jig/config.json` — wires 4 guards into a hook that can refuse a tool call
-
-## Refused
-
-- .jig/checks/run.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating
-- .jig/checks/renderer-reaches-past-the-bridge.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating
-- .jig/checks/outbound-network-call.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating
-- .jig/checks/raw-path-across-the-seam.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating
-- .jig/checks/test-touches-a-real-store.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating
+- nothing in this plan can refuse anything
 
 ## Backlog
 
-25 classes were not selected. They are written to `.jig/backlog.json` so a later run resumes from them:
+30 classes were not selected. They are written to `.jig/backlog.json` so a later run resumes from them:
 
 - `javascript-typescript/softened-assertion` (PROB) — not selected
 - `javascript-typescript/emptied-test-body` (DET) — not selected
@@ -76,4 +56,9 @@ Approve one at a time — each of these can refuse something:
 - `javascript-typescript/dynamic-code-execution` (DET) — not selected
 - `javascript-typescript/unchecked-index-access` (DET) — not selected
 - `javascript-typescript/loose-equality-coercion` (DET) — not selected
+- `javascript-typescript/test-count-dropped` (PROB) — not selected
+- `javascript-typescript/unimplemented-stub-shipped` (PROB) — not selected
+- `javascript-typescript/sleep-based-test-synchronisation` (PROB) — not selected
+- `javascript-typescript/test-config-loosened` (DET) — not selected
+- `javascript-typescript/snapshot-updated-wholesale` (DET) — not selected
 

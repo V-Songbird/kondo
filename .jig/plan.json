@@ -1,9 +1,13 @@
 {
   "schemaVersion": 1,
   "kind": "review",
-  "planId": "a4c8810c753b",
+  "planId": "697fd2b5d9c3",
   "provenance": "elicited",
   "mode": "armed",
+  "lanes": {
+    "commit": true,
+    "ci": false
+  },
   "actors": [
     "human-editor",
     "human-ci",
@@ -13,411 +17,17 @@
   "editions": [
     "javascript-typescript"
   ],
-  "selection": [
-    "outbound-network-call",
-    "raw-path-across-the-seam",
-    "renderer-reaches-past-the-bridge",
-    "seam-contract-outruns-its-adr",
-    "test-touches-a-real-store",
-    "workspace-adapter-outruns-domain-doc"
-  ],
-  "rows": [
-    {
-      "classId": "outbound-network-call",
-      "edition": null,
-      "authored": true,
-      "title": "Code that would make an outbound request",
-      "severity": "safety",
-      "axes": [
-        "human",
-        "agent"
-      ],
-      "provenance": "elicited",
-      "enforcementGap": false,
-      "floorCleared": true,
-      "floorNote": null,
-      "gapNotes": null,
-      "expectedNearMissHits": 0,
-      "proof": "759d789ca415cc9d746e81a37d83a9eedc6ae35e5efee34abc1870eaf9b9093b",
-      "cells": {
-        "human-editor": {
-          "grade": "GAP",
-          "lever": "check-driver",
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "this plan writes no check-driver artifact for outbound-network-call"
-        },
-        "human-ci": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names human-ci"
-        },
-        "claude-session": {
-          "grade": "DET",
-          "lever": "edit-observe-guard",
-          "artifact": "outbound-network-call-edit-observe-guard-1",
-          "ceiling": null,
-          "armable": true,
-          "why": null
-        },
-        "codex-session": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names codex-session"
-        }
-      }
-    },
-    {
-      "classId": "raw-path-across-the-seam",
-      "edition": null,
-      "authored": true,
-      "title": "A filesystem path crossing the IPC seam",
-      "severity": "safety",
-      "axes": [
-        "human",
-        "agent"
-      ],
-      "provenance": "elicited",
-      "enforcementGap": false,
-      "floorCleared": true,
-      "floorNote": null,
-      "gapNotes": null,
-      "expectedNearMissHits": 0,
-      "proof": "fbe555bccf2d91eafbea08ac09be13b9e4ef897226ac727cb0f2a0610435b996",
-      "cells": {
-        "human-editor": {
-          "grade": "GAP",
-          "lever": "check-driver",
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "this plan writes no check-driver artifact for raw-path-across-the-seam"
-        },
-        "human-ci": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names human-ci"
-        },
-        "claude-session": {
-          "grade": "DET",
-          "lever": "edit-observe-guard",
-          "artifact": "raw-path-across-the-seam-edit-observe-guard-1",
-          "ceiling": null,
-          "armable": true,
-          "why": null
-        },
-        "codex-session": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names codex-session"
-        }
-      }
-    },
-    {
-      "classId": "renderer-reaches-past-the-bridge",
-      "edition": null,
-      "authored": true,
-      "title": "Renderer code imports node or electron directly",
-      "severity": "safety",
-      "axes": [
-        "human",
-        "agent"
-      ],
-      "provenance": "elicited",
-      "enforcementGap": false,
-      "floorCleared": true,
-      "floorNote": null,
-      "gapNotes": null,
-      "expectedNearMissHits": 0,
-      "proof": "c756b28497f7ca0968df7a463fb34483902362bac51e24e84ab46524ecac9e6e",
-      "cells": {
-        "human-editor": {
-          "grade": "GAP",
-          "lever": "check-driver",
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "this plan writes no check-driver artifact for renderer-reaches-past-the-bridge"
-        },
-        "human-ci": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names human-ci"
-        },
-        "claude-session": {
-          "grade": "DET",
-          "lever": "edit-observe-guard",
-          "artifact": "renderer-reaches-past-the-bridge-edit-observe-guard-1",
-          "ceiling": null,
-          "armable": true,
-          "why": null
-        },
-        "codex-session": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names codex-session"
-        }
-      }
-    },
-    {
-      "classId": "seam-contract-outruns-its-adr",
-      "edition": null,
-      "authored": true,
-      "title": "The IPC contract changed without an ADR",
-      "severity": "safety",
-      "axes": [
-        "human",
-        "agent"
-      ],
-      "provenance": "elicited",
-      "enforcementGap": false,
-      "floorCleared": true,
-      "floorNote": null,
-      "gapNotes": null,
-      "expectedNearMissHits": 0,
-      "proof": "0264b318edee0b9d30211ac7a6fbea00da10e6c50d2346c4dc3a8237b3159532",
-      "cells": {
-        "human-editor": {
-          "grade": "DET",
-          "lever": "check-driver",
-          "artifact": ".jig/checks/seam-contract-outruns-its-adr.check.mjs",
-          "ceiling": null,
-          "armable": null,
-          "why": null
-        },
-        "human-ci": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names human-ci"
-        },
-        "claude-session": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names claude-session"
-        },
-        "codex-session": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names codex-session"
-        }
-      }
-    },
-    {
-      "classId": "test-touches-a-real-store",
-      "edition": null,
-      "authored": true,
-      "title": "A test resolving a real Claude store",
-      "severity": "safety",
-      "axes": [
-        "human",
-        "agent"
-      ],
-      "provenance": "elicited",
-      "enforcementGap": false,
-      "floorCleared": true,
-      "floorNote": null,
-      "gapNotes": null,
-      "expectedNearMissHits": 0,
-      "proof": "3efdde255d84e983083b557ccb91c4a2e1d791653618e20d6ef2c077246d371d",
-      "cells": {
-        "human-editor": {
-          "grade": "GAP",
-          "lever": "check-driver",
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "this plan writes no check-driver artifact for test-touches-a-real-store"
-        },
-        "human-ci": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names human-ci"
-        },
-        "claude-session": {
-          "grade": "DET",
-          "lever": "edit-observe-guard",
-          "artifact": "test-touches-a-real-store-edit-observe-guard-1",
-          "ceiling": null,
-          "armable": true,
-          "why": null
-        },
-        "codex-session": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names codex-session"
-        }
-      }
-    },
-    {
-      "classId": "workspace-adapter-outruns-domain-doc",
-      "edition": null,
-      "authored": true,
-      "title": "A store adapter changed without docs/domain.md",
-      "severity": "safety",
-      "axes": [
-        "human",
-        "agent"
-      ],
-      "provenance": "elicited",
-      "enforcementGap": false,
-      "floorCleared": true,
-      "floorNote": null,
-      "gapNotes": null,
-      "expectedNearMissHits": 0,
-      "proof": "9af95417446625d2f7788b255b59b018359f87e68dea9907edc9813da8685dad",
-      "cells": {
-        "human-editor": {
-          "grade": "DET",
-          "lever": "check-driver",
-          "artifact": ".jig/checks/workspace-adapter-outruns-domain-doc.check.mjs",
-          "ceiling": null,
-          "armable": null,
-          "why": null
-        },
-        "human-ci": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names human-ci"
-        },
-        "claude-session": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names claude-session"
-        },
-        "codex-session": {
-          "grade": "GAP",
-          "lever": null,
-          "artifact": null,
-          "ceiling": null,
-          "armable": null,
-          "why": "no detector on this class names codex-session"
-        }
-      }
-    }
-  ],
+  "denyReplies": [],
+  "selection": [],
+  "sessionGuards": [],
+  "commandGuards": false,
+  "rows": [],
   "artifacts": [
     {
-      "id": "activation-7f3cad96",
+      "id": "activation-wired-7d53dc2c",
       "path": ".jig/activation.md",
       "kind": "write-side-file",
-      "classIds": [
-        "outbound-network-call",
-        "raw-path-across-the-seam",
-        "renderer-reaches-past-the-bridge",
-        "seam-contract-outruns-its-adr",
-        "test-touches-a-real-store",
-        "workspace-adapter-outruns-domain-doc"
-      ],
-      "enforcementGap": true,
-      "tier": "batch",
-      "why": "reports only, and refuses nothing"
-    },
-    {
-      "id": "check-seam-contract-outruns-its-adr-37594611",
-      "path": ".jig/checks/seam-contract-outruns-its-adr.check.mjs",
-      "kind": "write-side-file",
-      "classIds": [
-        "seam-contract-outruns-its-adr"
-      ],
-      "enforcementGap": false,
-      "tier": "item",
-      "why": "installs a check the driver and CI both run, so it can fail a build"
-    },
-    {
-      "id": "check-workspace-adapter-outruns-domain-doc-6541cb51",
-      "path": ".jig/checks/workspace-adapter-outruns-domain-doc.check.mjs",
-      "kind": "write-side-file",
-      "classIds": [
-        "workspace-adapter-outruns-domain-doc"
-      ],
-      "enforcementGap": false,
-      "tier": "item",
-      "why": "installs a check the driver and CI both run, so it can fail a build"
-    },
-    {
-      "id": "ci-workflow-6f9f4325",
-      "path": ".github/workflows/jig.yml",
-      "kind": "write-side-file",
-      "classIds": [
-        "outbound-network-call",
-        "raw-path-across-the-seam",
-        "renderer-reaches-past-the-bridge",
-        "seam-contract-outruns-its-adr",
-        "test-touches-a-real-store",
-        "workspace-adapter-outruns-domain-doc"
-      ],
-      "enforcementGap": true,
-      "tier": "item",
-      "why": "fails the build for everyone who pushes"
-    },
-    {
-      "id": "config-61328b28",
-      "path": ".jig/config.json",
-      "kind": "write-config",
-      "classIds": [
-        "outbound-network-call",
-        "raw-path-across-the-seam",
-        "renderer-reaches-past-the-bridge",
-        "seam-contract-outruns-its-adr",
-        "test-touches-a-real-store",
-        "workspace-adapter-outruns-domain-doc"
-      ],
-      "enforcementGap": false,
-      "tier": "item",
-      "why": "wires 4 guards into a hook that can refuse a tool call"
-    },
-    {
-      "id": "hook-shim-a2b08288",
-      "path": ".jig/hooks/pre-commit",
-      "kind": "write-side-file",
-      "classIds": [
-        "outbound-network-call",
-        "raw-path-across-the-seam",
-        "renderer-reaches-past-the-bridge",
-        "seam-contract-outruns-its-adr",
-        "test-touches-a-real-store",
-        "workspace-adapter-outruns-domain-doc"
-      ],
+      "classIds": [],
       "enforcementGap": true,
       "tier": "batch",
       "why": "reports only, and refuses nothing"
@@ -425,20 +35,12 @@
   ],
   "consent": {
     "batch": [
-      "activation-7f3cad96",
-      "hook-shim-a2b08288"
+      "activation-wired-7d53dc2c"
     ],
-    "item": [
-      "check-seam-contract-outruns-its-adr-37594611",
-      "check-workspace-adapter-outruns-domain-doc-6541cb51",
-      "ci-workflow-6f9f4325",
-      "config-61328b28"
-    ]
+    "item": []
   },
   "enforcementGaps": [
-    ".jig/activation.md",
-    ".github/workflows/jig.yml",
-    ".jig/hooks/pre-commit"
+    ".jig/activation.md"
   ],
   "floorGaps": [],
   "toolchain": {
@@ -446,14 +48,8 @@
     "items": []
   },
   "discarded": [],
-  "discardedFile": ".jig/discarded.json",
-  "refused": [
-    ".jig/checks/run.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating",
-    ".jig/checks/renderer-reaches-past-the-bridge.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating",
-    ".jig/checks/outbound-network-call.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating",
-    ".jig/checks/raw-path-across-the-seam.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating",
-    ".jig/checks/test-touches-a-real-store.check.mjs was edited after jig wrote it, so it is yours now — revert it or remove it before regenerating"
-  ],
+  "discardedFile": null,
+  "refused": [],
   "backlogFile": ".jig/backlog.json",
-  "backlogCount": 25
+  "backlogCount": 30
 }

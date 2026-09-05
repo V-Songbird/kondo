@@ -3,3 +3,12 @@ preimages/
 ledger.jsonl
 profile.json
 off
+lane.log
+plan.md
+plan.json
+plan-*.json
+plan-*.md
+backlog.json
+discarded.json
+authored.json
+selftest/
