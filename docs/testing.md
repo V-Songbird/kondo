@@ -49,11 +49,18 @@ in temp directories by the builders in `test/helpers.ts`.
      selection, sidecars carried with their transcripts, undo restoring the
      fixture byte-for-byte, and a refusal that moves nothing when one id in
      the set no longer resolves).
-5. **End-to-end** (later): the built app driven against a fixture store via a
-   `KONDO_STORE_ROOT` override. Until then the `run-kondo` project skill
-   (`.claude/skills/run-kondo/`) launches the dev app against a fixture store
-   and drives it over the debugging port — the manual UI check, outside
-   `npm test` and CI.
+5. **End-to-end**: `npm run test:e2e` (`test/e2e/smoke.mjs`, node's own test
+   runner) builds the run-kondo fixture in a fresh temp directory, launches
+   the built app against it through the three `KONDO_*_ROOT` overrides with
+   `--remote-debugging-port`, and drives it over Chromium's debugging
+   protocol: the nav renders, the projects list is the fixture's union, the
+   Global page lists the fixture's skills and plugins, Clean up and Leftovers
+   answer, and one skill move goes through the bridge and comes back with its
+   undo — the journal on disk checked both times. It runs on all three OSes in
+   CI (`smoke` job, xvfb on Linux) after `npm run build`, and it shares its
+   protocol client (`.claude/skills/run-kondo/cdp.mjs`) with the `run-kondo`
+   skill's `drive.mjs`, the manual UI check, so the two cannot drift apart.
+   It is not part of `npm test`: it needs a built app and a display.
 
 Two things to know about the suite as it stands:
 

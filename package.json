@@ -15,6 +15,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc -b",
     "test": "vitest run",
+    "test:e2e": "node --test test/e2e/smoke.mjs",
     "test:watch": "vitest",
     "lint": "oxlint",
     "guards": "node .jig/checks/run.mjs"

@@ -1,14 +1,15 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { connect, findPage, quoted } from './cdp.mjs'
 
 /**
  * A one-shot CDP driver for a running kondo window.
  *
- * No Playwright, and none is wanted: Node 22 ships a global `WebSocket`, so
- * driving Chromium's debugging protocol is a fetch and a socket. Each command
- * reconnects, which costs a few milliseconds and keeps the driver stateless —
- * the state that matters lives in the app, not in here.
+ * The protocol client lives in `cdp.mjs`, shared with the end-to-end smoke
+ * test so the two cannot drift apart. Each command reconnects, which costs a
+ * few milliseconds and keeps the driver stateless — the state that matters
+ * lives in the app, not in here.
  *
  *   node drive.mjs shoot <name>              screenshot to <name>.png
  *   node drive.mjs open <TabLabel|rowText>  click a nav tab or a project row, then shoot
@@ -28,61 +29,19 @@ const PORT = process.env.KONDO_CDP_PORT ?? '9222'
 const SHOTS = process.env.KONDO_SHOTS ?? path.join(os.tmpdir(), 'kondo-shots')
 await fs.mkdir(SHOTS, { recursive: true })
 
-const targets = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
-const page = targets.find((target) => target.type === 'page')
+const page = await findPage(PORT)
 if (!page) throw new Error(`no page target on port ${PORT} — is kondo running?`)
-
-const socket = new WebSocket(page.webSocketDebuggerUrl)
-await new Promise((resolve, reject) => {
-  socket.addEventListener('open', resolve, { once: true })
-  socket.addEventListener('error', reject, { once: true })
-})
-
-let nextId = 0
-const pending = new Map()
-socket.addEventListener('message', (event) => {
-  const message = JSON.parse(event.data)
-  const entry = pending.get(message.id)
-  if (!entry) return
-  pending.delete(message.id)
-  if (message.error) entry.reject(new Error(JSON.stringify(message.error)))
-  else entry.resolve(message.result)
-})
-
-const send = (method, params = {}) => {
-  const id = ++nextId
-  return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject })
-    socket.send(JSON.stringify({ id, method, params }))
-  })
-}
-
-const evaluate = async (expression) => {
-  const result = await send('Runtime.evaluate', {
-    expression,
-    awaitPromise: true,
-    returnByValue: true
-  })
-  if (result.exceptionDetails) {
-    throw new Error(result.exceptionDetails.exception?.description ?? String(expression))
-  }
-  return result.result.value
-}
+const client = await connect(page)
+const { evaluate } = client
 
 const shoot = async (name) => {
-  const { data } = await send('Page.captureScreenshot', { format: 'png' })
   const file = path.join(SHOTS, `${name.replace(/\.png$/, '').replace(/[^A-Za-z0-9._-]+/g, '-')}.png`)
-  await fs.writeFile(file, Buffer.from(data, 'base64'))
+  await fs.writeFile(file, await client.screenshot())
   return file
 }
 
 const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** A string literal safe to paste into an evaluated expression. */
-const quoted = (value) => JSON.stringify(String(value))
-
-await send('Page.enable')
-await send('Runtime.enable')
 
 const [command, ...rest] = process.argv.slice(2)
 const say = (value) => console.log(typeof value === 'string' ? value : JSON.stringify(value, null, 2))
@@ -174,5 +133,5 @@ try {
     say(`unknown command ${command ?? '(none)'} — see the header of this file`)
   }
 } finally {
-  socket.close()
+  client.close()
 }

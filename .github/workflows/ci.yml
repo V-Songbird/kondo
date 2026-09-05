@@ -32,3 +32,31 @@ jobs:
       # git index and a CI checkout stages nothing. The selftest proves them
       # anyway, because a change-set fixture needs no index.
       - run: node .jig/checks/run.mjs --selftest
+
+  # The built app, launched against the run-kondo fixture store and driven over
+  # Chromium's debugging port (docs/testing.md, tier 5). Everything below the
+  # seam is unit-tested above; this proves the seam: preload, IPC, renderer,
+  # and one mutation round-tripping through all of them. Linux runners have no
+  # display, so xvfb lends one; the sandbox is off there because the runner's
+  # kernel refuses Chromium's.
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - run: npm run build
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          xvfb-run -a npm run test:e2e
+      - if: runner.os != 'Linux'
+        run: npm run test:e2e

@@ -45,7 +45,11 @@ curl -s http://127.0.0.1:9222/json/list
 ## Drive
 
 `drive.mjs` is one-shot: each command reconnects, so there is no session to
-keep alive. Node 22's global `WebSocket` is why no Playwright is needed.
+keep alive. Node 22's global `WebSocket` is why no Playwright is needed. The
+protocol client itself is `cdp.mjs` beside it, shared with the end-to-end
+smoke test (`npm run test:e2e`, `test/e2e/smoke.mjs`), which launches the
+built app against this same fixture and asserts what this page checks by
+hand — so a change to how the app is driven lands in one place.
 
 ```bash
 # All of these run from the repo root.
