@@ -246,6 +246,33 @@ describe('skillOverrides (entry 029)', () => {
       .toEqual({ skillOverrides: { 'alpha-skill': 'off' } })
   })
 
+  // ADR-0010. The layer this lands in is one Claude may be writing too, so
+  // the step names the bytes it changes and the digest it read them at.
+  it('splices the project layer under a digest, and inverts it to undo', async () => {
+    const projectId = `project:code:${flattenPath(workdir)}`
+    const local = path.join(workdir, '.claude', 'settings.local.json')
+    await writeFileTree(workdir, { '.claude/settings.local.json': writeJson({ theme: 'dark' }) })
+
+    const off = await api.entityMutate('skill:user:alpha-skill', { op: 'disable', targetId: projectId })
+    expect(off.errors).toEqual([])
+
+    const journal = await fs.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'), 'utf8')
+    const record = JSON.parse(journal.trim().split('\n').at(-1) as string)
+    const step = record.steps.at(-1)
+    expect(step.edits).toHaveLength(1)
+    expect(typeof step.expectDigest).toBe('string')
+    expect(step.displaced).toBeUndefined()
+
+    // The key that was already there kept its bytes, and the undo is the
+    // inverse edit rather than a snapshot that would have discarded it.
+    expect(JSON.parse(await fs.readFile(local, 'utf8'))).toEqual({
+      theme: 'dark',
+      skillOverrides: { 'alpha-skill': 'off' }
+    })
+    const undone = await api.journalUndo(off.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(JSON.parse(await fs.readFile(local, 'utf8'))).toEqual({ theme: 'dark' })
+  })
   it('never withdraws a Global off from a project page', async () => {
     await override('user', { 'alpha-skill': 'off' })
     const projectId = `project:code:${flattenPath(workdir)}`

@@ -116,6 +116,17 @@ Claude has written the file since. `configOrphansPreview` /
 `configOrphansRemove` are the first callers, taking out `projects` entries
 whose directory is gone and the `mcpServers` declared inside them.
 
+A settings layer is written the same way, and for the same reason in
+miniature: a `settings.json` the user has open in an editor, or that Claude
+writes mid-session, is not kondo's to replace wholesale. Every toggle that
+edits a layer already on disk — a skill switched off or back on, a global
+skill silenced for one project, a plugin enabled, disabled, handed to another
+scope or withdrawn — plans one `splice` per file, carrying the digest of the
+bytes it read and an edit no wider than the member it changes. Only a layer
+that does not exist yet is written whole, and kondo asks before creating one.
+The undo is the inverse edits against the file as it stands, never a snapshot
+taken before the change (ADR-0001, ADR-0010).
+
 ### MCP servers — three scopes, two files
 
 An MCP server declaration is `{ type?, command, args?, env? }` for a local
@@ -327,14 +338,18 @@ scan and a mutation can never disagree about where an entry lives.
   here, off here, and **saying nothing**, which lets the layer above decide.
   Writing `false` is not the third one — it states a value like any other, so
   the way back to silence is removing the member from `enabledPlugins`
-  (`pluginClear`). Which file a position writes is chosen in the main process:
+  (`pluginClear`), which is a splice like the toggle rather than a rewrite —
+  the member's span and one separating comma are all that leave the file.
+  Which file a position writes is chosen in the main process:
   the highest-precedence layer of that scope that *already states a value*,
   and `settings.local.json` when none does.
 - Handing a plugin to another scope is those same statements twice, never a
   relocation: nothing installed moves on disk. Kondo writes `false` in the
   layer that enabled it and `true` in the destination scope's layer, as one
-  reversible operation (`pluginMove`). The destination *file* is chosen by
-  the same rule as a toggle's.
+  reversible operation (`pluginMove`) carrying one splice per file, each with
+  its own digest — so a move refuses whole if either layer has moved on. A
+  destination that does not exist yet is the one write, and it is asked about
+  first. The destination *file* is chosen by the same rule as a toggle's.
 
 ## Desktop store
 

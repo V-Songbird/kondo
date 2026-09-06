@@ -36,11 +36,13 @@ in temp directories by the builders in `test/helpers.ts`.
      outside a known store root or `<kondo-data>` —
      `test/mutation.test.ts` (ADR-0001). A mutation PR that does not extend
      these is incomplete — the skill toggle extends them in
-     `test/skill-toggle.test.ts` (journal before the move, both scopes, and
-     the matrix refusal), the plugin toggle in
+     `test/skill-toggle.test.ts` (journal before the move, both scopes, the
+     matrix refusal, and the digest-guarded splice its undo inverts), the
+     plugin toggle in
      `test/plugin-toggle.test.ts` (the splice leaves every other byte of the
-     settings file alone, layer precedence, and the confirmation gate on
-     creating a layer that is not there), and the cross-scope move in
+     settings file alone, layer precedence, the confirmation gate on
+     creating a layer that is not there, and an undo refused onto bytes
+     something else has since written), and the cross-scope move in
      `test/skill-move.test.ts` (all three directions, the name-collision and
      plugin-owned refusals, undo removing the copy as well as restoring the
      source, and — the one that matters most — a copy that does not verify
@@ -49,6 +51,10 @@ in temp directories by the builders in `test/helpers.ts`.
      selection, sidecars carried with their transcripts, undo restoring the
      fixture byte-for-byte, and a refusal that moves nothing when one id in
      the set no longer resolves).
+     A settings toggle against a file already on disk is a `splice` carrying
+     the digest it was planned at (ADR-0010), so its test asserts the journal
+     holds edits and no snapshot; `test/skill-overrides.test.ts` pins the same
+     for a global skill switched off inside one project.
 5. **End-to-end**: `npm run test:e2e` (`test/e2e/smoke.mjs`, node's own test
    runner) builds the run-kondo fixture in a fresh temp directory, launches
    the built app against it through the three `KONDO_*_ROOT` overrides with

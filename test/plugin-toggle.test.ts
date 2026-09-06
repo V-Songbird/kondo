@@ -262,6 +262,38 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     expect(await hashTree(world.userRoot)).toBe(before)
   })
 
+  // ADR-0010. A whole-file write would discard whatever Claude appended
+  // between the scan and the write, and undo it a second time by restoring a
+  // snapshot taken before that. The step carries a digest instead.
+  it('journals the edit rather than a snapshot, so the undo can invert it', async () => {
+    const done = await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
+    expect(done.errors).toEqual([])
+
+    const journal = await fs.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'), 'utf8')
+    const record = JSON.parse(journal.trim().split('\n').at(-1) as string)
+    const step = record.steps.at(-1)
+    expect(step.edits).toHaveLength(1)
+    expect(typeof step.expectDigest).toBe('string')
+    expect(step.undoEdits).toHaveLength(1)
+    // Nothing was parked in the trash, so there is no snapshot to go stale.
+    expect(step.displaced).toBeUndefined()
+    expect((await api.trashSize()).data.entryCount).toBe(0)
+  })
+
+  it('refuses to undo onto a settings file something else has since written', async () => {
+    const done = await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
+    expect(done.errors).toEqual([])
+
+    // Claude, mid-session, adding a key of its own to the same file.
+    const theirs = (await readUserSettings()).replace('{', '{\n  "theme": "dark",')
+    await fs.writeFile(userSettingsFile(), theirs, 'utf8')
+
+    const undone = await api.journalUndo(done.data!.id)
+    expect(undone.data).toBeNull()
+    expect(undone.errors.map((error) => error.code)).toContain('stale-file')
+    // The whole point of the guard: their key is still there.
+    expect(await readUserSettings()).toBe(theirs)
+  })
   it.runIf(TMP_OK)('undoes a created layer back out of existence', async () => {
     const before = await hashTree(claudeDir)
     const done = await api.pluginToggle(ALPHA, `settings:local:${dirName}`, 'enable', true)
@@ -284,7 +316,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     }
 
     const journalAt = ordered.indexOf(path.join(world.kondoDataRoot, 'journal.jsonl'))
-    const storeAt = ordered.indexOf(userSettingsFile())
+    const storeAt = ordered.findIndex((target) => target.startsWith(userSettingsFile()))
     expect(journalAt, 'the journal file was never opened').toBeGreaterThanOrEqual(0)
     expect(storeAt, 'the settings file was never touched').toBeGreaterThanOrEqual(0)
     expect(journalAt).toBeLessThan(storeAt)

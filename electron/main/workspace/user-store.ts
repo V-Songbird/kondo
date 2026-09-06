@@ -727,7 +727,9 @@ export function pluginStateIn(layer: SettingsLayer, key: string): boolean | null
  * object back would reformat everything and discard whatever ordering and
  * spacing the user chose, so the edit is a splice over the raw bytes: only
  * the span holding the plugin's value — or the point a new member is
- * inserted at — differs from `source`.
+ * inserted at — is what the returned edit covers. The caller carries it in a
+ * `splice` step, so the bytes are re-read and digest-checked at apply time
+ * (ADR-0010) rather than replaced wholesale from a scan.
  *
  * Null when the file's shape is one kondo cannot splice faithfully: a
  * non-object root, or the legacy array form of `enabledPlugins`. The caller
@@ -737,8 +739,8 @@ export function editEnabledPlugins(
   source: string,
   key: string,
   enabled: boolean
-): string | null {
-  return spliceMember(source, [ENABLED_PLUGINS, key], enabled ? 'true' : 'false')
+): SpliceEdit | null {
+  return editMember(source, [ENABLED_PLUGINS, key], enabled ? 'true' : 'false')
 }
 
 /** No member at that path, so nothing to take away — an edit that changes nothing. */
@@ -826,11 +828,11 @@ export function spliceMember(
  * as well would be a second, unasked-for edit.
  *
  * Null when the shape is one kondo cannot splice faithfully — a non-object
- * root or the legacy array form — and `source` unchanged when there was
- * nothing there to take away.
+ * root or the legacy array form — and an edit that changes nothing when there
+ * was nothing there to take away.
  */
-export function clearEnabledPlugin(source: string, key: string): string | null {
-  return spliceMember(source, [ENABLED_PLUGINS, key], null)
+export function clearEnabledPlugin(source: string, key: string): SpliceEdit | null {
+  return editMember(source, [ENABLED_PLUGINS, key], null)
 }
 
 /** The whole of a settings file kondo creates for one plugin toggle. */

@@ -368,14 +368,21 @@ async function skillTogglePlan(
 
   const layers = await context.layers()
   const keyPath = [SKILL_OVERRIDES, entity.name]
-  const write = (
-    layer: SettingsLayer,
-    content: string
-  ): { type: 'write'; store: string; at: string; content: string } => ({
+  const write = (layer: SettingsLayer, content: string): PlannedStep => ({
     type: 'write',
     store: layer.store,
     at: layer.relative,
     content
+  })
+  // A layer already on disk is edited under ADR-0010's guard: the digest of
+  // the bytes this was planned against rides with the edit, and the apply
+  // refuses rather than overwriting a file someone else has since rewritten.
+  const splice = (layer: SettingsLayer, source: string, edit: SpliceEdit): PlannedStep => ({
+    type: 'splice',
+    store: layer.store,
+    at: layer.relative,
+    expectDigest: digestSource(source),
+    edits: [edit]
   })
   const unreadable = (layer: SettingsLayer): PlanResult =>
     refused(
@@ -410,19 +417,19 @@ async function skillTogglePlan(
       return settingsEdit(entity, summary, [write(layer, fresh)])
     }
     if (layer.source === null || layer.parsed === null) return unreadable(layer)
-    const next = spliceMember(layer.source, keyPath, '"off"')
-    if (next === null) return unsplicable(layer)
-    return settingsEdit(entity, summary, [write(layer, next)])
+    const edit = editMember(layer.source, keyPath, '"off"')
+    if (edit === null) return unsplicable(layer)
+    return settingsEdit(entity, summary, [splice(layer, layer.source, edit)])
   }
 
-  const steps: Array<{ type: 'write'; store: string; at: string; content: string }> = []
+  const steps: PlannedStep[] = []
   const cleared: string[] = []
   for (const layer of overrideChain(layers, entity.projectId)) {
     if (skillOverrideIn(layer, entity.name) !== 'off') continue
     if (layer.source === null || layer.parsed === null) return unreadable(layer)
-    const next = spliceMember(layer.source, keyPath, null)
-    if (next === null) return unsplicable(layer)
-    steps.push(write(layer, next))
+    const edit = editMember(layer.source, keyPath, null)
+    if (edit === null) return unsplicable(layer)
+    steps.push(splice(layer, layer.source, edit))
     cleared.push(layer.info.path)
   }
   if (steps.length === 0) {
@@ -470,6 +477,16 @@ async function inheritedSkillTogglePlan(
     at: layer.relative,
     content
   })
+  // A layer already on disk is edited under ADR-0010's guard: the digest of
+  // the bytes this was planned against rides with the edit, and the apply
+  // refuses rather than overwriting a file someone else has since rewritten.
+  const splice = (layer: SettingsLayer, source: string, edit: SpliceEdit): PlannedStep => ({
+    type: 'splice',
+    store: layer.store,
+    at: layer.relative,
+    expectDigest: digestSource(source),
+    edits: [edit]
+  })
   const unreadable = (layer: SettingsLayer): PlanResult =>
     refused('parse-failed', `${layer.info.path} did not read back as a JSON object; kondo will not rewrite it.`)
   const unsplicable = (layer: SettingsLayer): PlanResult =>
@@ -491,9 +508,9 @@ async function inheritedSkillTogglePlan(
       return settingsEdit(entity, summary, [write(layer, fresh)])
     }
     if (layer.source === null || layer.parsed === null) return unreadable(layer)
-    const next = spliceMember(layer.source, keyPath, '"off"')
-    if (next === null) return unsplicable(layer)
-    return settingsEdit(entity, summary, [write(layer, next)])
+    const edit = editMember(layer.source, keyPath, '"off"')
+    if (edit === null) return unsplicable(layer)
+    return settingsEdit(entity, summary, [splice(layer, layer.source, edit)])
   }
 
   const steps: PlannedStep[] = []
@@ -501,9 +518,9 @@ async function inheritedSkillTogglePlan(
   for (const layer of own) {
     if (skillOverrideIn(layer, entity.name) !== 'off') continue
     if (layer.source === null || layer.parsed === null) return unreadable(layer)
-    const next = spliceMember(layer.source, keyPath, null)
-    if (next === null) return unsplicable(layer)
-    steps.push(write(layer, next))
+    const edit = editMember(layer.source, keyPath, null)
+    if (edit === null) return unsplicable(layer)
+    steps.push(splice(layer, layer.source, edit))
     cleared.push(layer.info.path)
   }
   if (steps.length === 0) return refused('not-permitted', `This project does not switch ${entity.name} off.`)
@@ -1125,14 +1142,14 @@ async function pluginTogglePlan(
     )
   }
 
-  const write = (content: string): PlanResult => ({
+  const plan = (steps: PlannedStep[]): PlanResult => ({
     ok: true,
     plan: {
       op: 'settings-edit',
       kind: 'plugin',
       entityId: entity.id,
       summary: `${enabled ? 'Enable' : 'Disable'} plugin ${entity.name} in ${layer.info.path}`,
-      steps: [{ type: 'write', store: layer.store, at: layer.relative, content }]
+      steps
     }
   })
 
@@ -1145,7 +1162,9 @@ async function pluginTogglePlan(
         `${layer.info.path} does not exist yet. Confirm to create it holding just this key.`
       )
     }
-    return write(newSettingsSource(key, enabled))
+    return plan([
+      { type: 'write', store: layer.store, at: layer.relative, content: newSettingsSource(key, enabled) }
+    ])
   }
   if (layer.source === null || layer.parsed === null) {
     return refused(
@@ -1153,14 +1172,25 @@ async function pluginTogglePlan(
       `${layer.info.path} did not read back as a JSON object; kondo will not rewrite it.`
     )
   }
-  const next = editEnabledPlugins(layer.source, key, enabled)
-  if (next === null) {
+  // The file is on disk, so the change is a splice under ADR-0010's guard:
+  // the digest of the bytes just read travels with the edit, and the apply
+  // refuses rather than discarding what Claude wrote in between.
+  const edit = editEnabledPlugins(layer.source, key, enabled)
+  if (edit === null) {
     return refused(
       'bad-request',
       `kondo cannot edit enabledPlugins in ${layer.info.path} without reformatting it.`
     )
   }
-  return write(next)
+  return plan([
+    {
+      type: 'splice',
+      store: layer.store,
+      at: layer.relative,
+      expectDigest: digestSource(layer.source),
+      edits: [edit]
+    }
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -1263,7 +1293,7 @@ async function pluginMovePlan(
     return refused('not-permitted', `${to.info.path} already enables ${entity.name}.`)
   }
 
-  let arriving: string
+  let arriving: PlannedStep
   if (!to.info.exists) {
     // The same gate the toggle has, and the only one: nothing licenses
     // conjuring a settings file, so this stops and asks and writes nothing.
@@ -1273,7 +1303,12 @@ async function pluginMovePlan(
         `${to.info.path} does not exist yet. Confirm to create it holding just this key.`
       )
     }
-    arriving = newSettingsSource(key, true)
+    arriving = {
+      type: 'write',
+      store: to.store,
+      at: to.relative,
+      content: newSettingsSource(key, true)
+    }
   } else {
     if (to.source === null || to.parsed === null) {
       return refused(
@@ -1281,20 +1316,27 @@ async function pluginMovePlan(
         `${to.info.path} did not read back as a JSON object; kondo will not rewrite it.`
       )
     }
-    const next = editEnabledPlugins(to.source, key, true)
-    if (next === null) {
+    const edit = editEnabledPlugins(to.source, key, true)
+    if (edit === null) {
       return refused(
         'bad-request',
         `kondo cannot edit enabledPlugins in ${to.info.path} without reformatting it.`
       )
     }
-    arriving = next
+    arriving = {
+      type: 'splice',
+      store: to.store,
+      at: to.relative,
+      expectDigest: digestSource(to.source),
+      edits: [edit]
+    }
   }
 
   // The source states `true`, so its bytes read back — but the splice can
   // still decline a file it would have to reformat.
-  const leaving = from.source === null ? null : editEnabledPlugins(from.source, key, false)
-  if (leaving === null) {
+  const source = from.source
+  const leaving = source === null ? null : editEnabledPlugins(source, key, false)
+  if (leaving === null || source === null) {
     return refused(
       'bad-request',
       `kondo cannot edit enabledPlugins in ${from.info.path} without reformatting it.`
@@ -1309,8 +1351,14 @@ async function pluginMovePlan(
       entityId: entity.id,
       summary: `Move plugin ${entity.name} from ${from.info.path} to ${to.info.path}`,
       steps: [
-        { type: 'write', store: to.store, at: to.relative, content: arriving },
-        { type: 'write', store: from.store, at: from.relative, content: leaving }
+        arriving,
+        {
+          type: 'splice',
+          store: from.store,
+          at: from.relative,
+          expectDigest: digestSource(source),
+          edits: [leaving]
+        }
       ]
     }
   }
@@ -1370,8 +1418,8 @@ export async function pluginClearPlan(
       `${layer.info.path} did not read back as a JSON object; kondo will not rewrite it.`
     )
   }
-  const next = clearEnabledPlugin(layer.source, key)
-  if (next === null) {
+  const edit = clearEnabledPlugin(layer.source, key)
+  if (edit === null) {
     return refused(
       'bad-request',
       `kondo cannot edit enabledPlugins in ${layer.info.path} without reformatting it.`
@@ -1384,7 +1432,15 @@ export async function pluginClearPlan(
       kind: 'plugin',
       entityId: entity.id,
       summary: `Stop stating plugin ${entity.name} in ${layer.info.path}`,
-      steps: [{ type: 'write', store: layer.store, at: layer.relative, content: next }]
+      steps: [
+        {
+          type: 'splice',
+          store: layer.store,
+          at: layer.relative,
+          expectDigest: digestSource(layer.source),
+          edits: [edit]
+        }
+      ]
     }
   }
 }

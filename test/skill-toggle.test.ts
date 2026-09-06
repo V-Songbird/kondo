@@ -115,6 +115,43 @@ describe('skill enable/disable (ADR-0006)', () => {
     })
   })
 
+  // ADR-0010. The toggle used to plan a whole-file write, which discards
+  // whatever another writer appended between the scan and the write, and
+  // undoes by restoring a snapshot that is stale by construction.
+  it('journals the edit rather than a snapshot, so the undo can invert it', async () => {
+    const done = await api.skillToggle('skill:user:alpha-skill', 'disable')
+    expect(done.errors).toEqual([])
+
+    const journal = await fs.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'), 'utf8')
+    const record = JSON.parse(journal.trim().split('\n').at(-1) as string)
+    const step = record.steps.find((candidate: { from: string }) => candidate.from === 'settings.json')
+    expect(step.edits).toHaveLength(1)
+    expect(typeof step.expectDigest).toBe('string')
+    expect(step.undoEdits).toHaveLength(1)
+    // A splice displaces nothing, so there is no snapshot to go stale.
+    expect(step.displaced).toBeUndefined()
+    expect((await api.trashSize()).data.entryCount).toBe(0)
+  })
+
+  it('refuses to undo onto a settings file something else has since written', async () => {
+    const settings = path.join(world.userRoot, 'settings.json')
+    const done = await api.skillToggle('skill:user:alpha-skill', 'disable')
+    expect(done.errors).toEqual([])
+
+    // Claude, mid-session, adding a key of its own to the same file.
+    const theirs = writeJson({
+      enabledPlugins: { 'alpha@acme': true },
+      skillOverrides: { 'alpha-skill': 'off' },
+      theme: 'dark'
+    })
+    await fs.writeFile(settings, theirs, 'utf8')
+
+    const undone = await api.journalUndo(done.data!.id)
+    expect(undone.data).toBeNull()
+    expect(undone.errors.map((error) => error.code)).toContain('stale-file')
+    // The whole point of the guard: their key is still there.
+    expect(await fs.readFile(settings, 'utf8')).toBe(theirs)
+  })
   it('moves a skill parked in skills.disabled back into skills', async () => {
     const result = await api.skillToggle('skill:user-disabled:beta-skill', 'enable')
     expect(result.errors).toEqual([])
