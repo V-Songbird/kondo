@@ -27,7 +27,9 @@ decision.
 ## Release steps
 
 1. `npm version <bump> --no-git-tag-version` on a clean `main`; move the
-   CHANGELOG's `[Unreleased]` items under the new version; commit.
+   CHANGELOG's `[Unreleased]` items under the new version; commit. This is not
+   optional bookkeeping: `publish` reads that section for the release notes and
+   fails the run when the tag has none, or an empty one.
 2. CI green on all three OSes (`verify` and `smoke` jobs).
 3. Rehearse. Run the `release` workflow from the Actions tab — it takes a
    `workflow_dispatch` — against `main`. All three installers build and the
@@ -38,10 +40,13 @@ decision.
    installer, the DMG and the AppImage, runs the end-to-end smoke against the
    packaged binary on Windows and Linux, and uploads each installer as a
    workflow artifact. `publish` waits on all three and attaches them to one
-   **draft** GitHub Release, so an OS that fails yields no draft rather than
-   an incomplete one. The run also stops before building if the tag does not
-   name the version in `package.json`.
-5. Download one artifact per OS and run it against a fixture store
+   **draft** GitHub Release, alongside a `SHA256SUMS` asset covering all three
+   — the only integrity signal an unsigned build has. The draft's notes are the
+   CHANGELOG section for that version, above README's unsigned-install warning.
+   An OS that fails yields no draft rather than an incomplete one, and the run
+   stops before building if the tag does not name the version in `package.json`.
+5. Download one artifact per OS, check it against the `SHA256SUMS` asset
+   attached to the same draft, and run it against a fixture store
    (`.claude/skills/run-kondo/fixture.mjs` prints the three env values); a
    blank window or any network request is a blocker.
 6. Publish the draft. `npm run package` builds the same artifacts locally,

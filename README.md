@@ -95,6 +95,14 @@ for Linux — are attached to each
   choose *Open*, or allow it under *System Settings → Privacy & Security*.
 - **Linux** — `chmod +x Kondo-*.AppImage` and run it.
 
+Because they are unsigned, the `SHA256SUMS` asset attached to the same release
+is the only thing that tells you a download is the file CI built. Hash what you
+downloaded and compare it against that file's line for it:
+
+- **Windows** — `Get-FileHash Kondo-*.exe -Algorithm SHA256` in PowerShell.
+- **macOS** — `shasum -a 256 Kondo-*.dmg`.
+- **Linux** — `sha256sum -c SHA256SUMS --ignore-missing`.
+
 Kondo makes no network request of any kind, so nothing checks in after
 install; updates are a new download.
 

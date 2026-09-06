@@ -105,17 +105,44 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: installers
           pattern: installer-*
           merge-multiple: true
+      # Every download is unsigned (ADR-0011), so this file is the only
+      # integrity signal a stranger gets. README's Install says how to use it.
+      - name: Checksum the installers
+        run: |
+          cd installers
+          sha256sum -- * | tee ../SHA256SUMS
+          mv ../SHA256SUMS .
+      # The tag's own CHANGELOG section becomes the release notes. Moving
+      # entries out of [Unreleased] is a manual step (docs/release.md), so an
+      # absent or empty section is a mistake worth stopping the release for.
+      - name: Build the release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" 'BEGIN{h="## [" v "]"} index($0,h)==1{f=1;next} f&&index($0,"## [")==1{f=0} f' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "CHANGELOG.md has no entries under ## [${version}] — move them out of [Unreleased] before tagging" >&2
+            exit 1
+          fi
+          {
+            echo
+            echo "---"
+            echo
+            echo 'Unsigned build — see the install notes in README.md.'
+            echo 'Windows: SmartScreen will ask; choose "More info" → "Run anyway".'
+            echo 'macOS: right-click the app → Open, or allow it under Privacy & Security.'
+            echo 'Check your download against the SHA256SUMS asset — README, Install.'
+          } >> notes.md
+          cat notes.md
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           draft: true
+          # Sweeps in SHA256SUMS alongside the three installers.
           files: installers/*
           generate_release_notes: false
-          body: |
-            Unsigned build — see the install notes in README.md.
-            Windows: SmartScreen will ask; choose "More info" → "Run anyway".
-            macOS: right-click the app → Open, or allow it under Privacy & Security.
+          body_path: notes.md
