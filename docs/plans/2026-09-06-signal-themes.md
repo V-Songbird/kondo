@@ -1,6 +1,6 @@
 # Plan: Signal themes
 
-Status: **in progress**
+Status: **done — shipped in 84f0605**
 
 Add a Themes destination so users can choose the five restrained Signal
 directions and the original vivid Signal design explored in the design review.
