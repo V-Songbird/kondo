@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
+import { useConfirmationFocus } from './use-confirmation-focus'
 
 /** A place something can be moved to: whatever the caller's own list holds. */
 interface Target {
@@ -34,15 +35,20 @@ export function MovePicker({
   onMove: (destinationId: string) => void
 }) {
   const [staged, setStaged] = useState<Target | null>(null)
+  const pickerId = useId()
+  const questionId = useId()
+  const confirmation = useConfirmationFocus(staged !== null, () => setStaged(null))
 
   if (staged !== null) {
     return (
-      <div className="band band-pencil">
-        <span>
+      <div className="band band-pencil" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
+        <span id={questionId}>
           Move {name} to {staged.label}?
         </span>
         <button
           type="button"
+          disabled={disabled || !destinations.some((target) => target.id === staged.id)}
+          aria-label={`Move ${name} to ${staged.label}`}
           className="btn btn-pencil btn-sm"
           onClick={() => {
             setStaged(null)
@@ -51,7 +57,7 @@ export function MovePicker({
         >
           Move
         </button>
-        <button type="button" className="btn btn-quiet btn-sm" onClick={() => setStaged(null)}>
+        <button ref={confirmation.cancelRef} type="button" className="btn btn-quiet btn-sm" onClick={confirmation.cancel}>
           Cancel
         </button>
       </div>
@@ -61,12 +67,17 @@ export function MovePicker({
   return (
     <span className="pick">
       <select
+        id={pickerId}
+        aria-label={`Move to: ${name}`}
         value=""
         disabled={disabled}
         title={title}
         onChange={(event) => {
           const target = destinations.find((candidate) => candidate.id === event.target.value)
-          if (target !== undefined) setStaged(target)
+          if (target !== undefined) {
+            confirmation.rememberFocus(pickerId)
+            setStaged(target)
+          }
         }}
       >
         <option value="">Move to&hellip;</option>

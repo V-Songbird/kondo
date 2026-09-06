@@ -76,7 +76,12 @@ Two things to know about the suite as it stands:
   the fixture's `~/.claude.json` (ADR-0009) and removes the need; the
   boundary and workspace suites use it, the rest should follow. CI does not
   assert that gated tests ran.
-- The renderer (`src/`) has no automated tests.
+- The renderer has no isolated DOM unit suite; the built Electron smoke covers
+  Library-to-project navigation, keyboard session details, named controls,
+  staged-move cancellation with unchanged journal bytes, and partial Library
+  reads when a fixture MCP file is malformed. Set `KONDO_E2E_SHOTS` to an output
+  directory to capture the overview, 900px layout, skill page and partial read.
+  The tests continue to use only synthetic stores.
 
 ## Rules
 

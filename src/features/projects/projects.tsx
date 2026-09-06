@@ -1,4 +1,4 @@
-import { Fragment, useState, type ReactNode } from 'react'
+import { Fragment, useId, useState, type ReactNode } from 'react'
 import { listView, PAGE } from './project-rows'
 import type {
   HookScript,
@@ -23,6 +23,7 @@ import { AsyncView } from '../../ui/async-view'
 import { LastChange } from '../../ui/last-change'
 import { MovePicker } from '../../ui/move-picker'
 import { Refusal } from '../../ui/refusal'
+import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { flatKeyParts, formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
 import { PluginControl } from './plugin-control'
 
@@ -94,12 +95,31 @@ export function Projects({
   // Storage section are projections of one inventory (ADR-0007) and must not
   // disagree about the project set after a rescan.
   const [rescans, setRescans] = useState(0)
+  const [rescanning, setRescanning] = useState(false)
+  const [rescanProblem, setRescanProblem] = useState<string | null>(null)
+
+  const rescan = async (): Promise<void> => {
+    setRescanning(true)
+    setRescanProblem(null)
+    try {
+      if (!window.kondo) throw new Error('The connection to kondo is unavailable. Reopen the app and try again.')
+      const scan = await window.kondo.projectsList(true)
+      setRescanProblem(joinErrors(scan.errors))
+      list.reload()
+      setRescans((count) => count + 1)
+    } catch (cause) {
+      setRescanProblem(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setRescanning(false)
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 gap-8">
       <div className="flex w-80 shrink-0 flex-col gap-3">
         <div className="flex items-end gap-3">
           <input
+            aria-label="Filter projects"
             value={query}
             onChange={(event) =>
               onPlace({ ...place, query: event.target.value, limit: PAGE })
@@ -109,17 +129,14 @@ export function Projects({
           />
           <button
             type="button"
+            disabled={rescanning}
             className="btn btn-quiet btn-sm"
-            onClick={() =>
-              void window.kondo?.projectsList(true).then(() => {
-                list.reload()
-                setRescans((count) => count + 1)
-              })
-            }
+            onClick={() => void rescan()}
           >
-            Rescan
+            {rescanning ? 'Rescanning…' : 'Rescan'}
           </button>
         </div>
+        {rescanProblem !== null && <div role="alert" className="band band-pencil">{rescanProblem}</div>}
         <AsyncView state={list}>
           {(scan) => {
             // The global row is never filtered out: it is where the user
@@ -292,6 +309,8 @@ function ProjectPage({
   const [refusal, setRefusal] = useState<string | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
   const [change, setChange] = useState<JournalEntryInfo | null>(null)
+  const confirmation = useConfirmationFocus(pending !== null, () => setPending(null))
+  const questionId = useId()
   const { reload } = state
 
   /**
@@ -305,6 +324,7 @@ function ProjectPage({
   ): Promise<void> => {
     const api = window.kondo
     if (!api) return
+    if (pending === null) confirmation.rememberFocus()
     setBusy(true)
     setRefusal(null)
     setPending(null)
@@ -368,17 +388,18 @@ function ProjectPage({
 
   return (
     <div>
-      {refusal !== null && <div className="band band-pencil text-pencil">{refusal}</div>}
+      {refusal !== null && <div role="alert" className="band band-pencil text-pencil">{refusal}</div>}
       {pending !== null && (
-        <div className="band">
-          <span className="text-ink-2">{pending.message}</span>
-          <button type="button" className="btn btn-go btn-sm" onClick={pending.retry}>
+        <div className="band" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
+          <span id={questionId} className="text-ink-2">{pending.message}</span>
+          <button type="button" disabled={busy} className="btn btn-go btn-sm" onClick={pending.retry}>
             Create it
           </button>
           <button
+            ref={confirmation.cancelRef}
             type="button"
             className="btn btn-quiet btn-sm"
-            onClick={() => setPending(null)}
+            onClick={confirmation.cancel}
           >
             Cancel
           </button>
@@ -924,6 +945,7 @@ function InheritedSkillTable({
                 <button
                   type="button"
                   disabled={reason !== null || busy}
+                  aria-label={`${operation === 'disable' ? 'Off here' : 'Follows global'}: ${entry.skill.name}`}
                   className="btn btn-quiet btn-sm"
                   onClick={() => toggle(entry, operation)}
                 >
@@ -1008,6 +1030,7 @@ function SkillTable({
                 <button
                   type="button"
                   disabled={reason !== null || busy}
+                  aria-label={`${operation === 'disable' ? 'Disable' : 'Enable'} ${skill.name}`}
                   className="btn btn-quiet btn-sm"
                   onClick={() => toggle(skill, operation)}
                 >
@@ -1056,6 +1079,10 @@ function SessionTable({
   const [groups, setGroups] = useState<SessionDuplicateGroup[] | null>(null)
   const [looking, setLooking] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  const sectionId = useId()
+  const trashButtonId = useId()
+  const questionId = useId()
+  const confirmation = useConfirmationFocus(confirming, () => setConfirming(false))
 
   const find = async (): Promise<void> => {
     const api = window.kondo
@@ -1113,13 +1140,13 @@ function SessionTable({
           {looking ? 'Reading openings…' : 'Find near-duplicate openings'}
         </button>
         {groups !== null && (
-          <span className="text-xs text-ink-2">
+          <span role="status" className="text-xs text-ink-2">
             {groups.length === 0
               ? 'No two sessions here open the same way.'
               : `${formatCount(groups.length, 'set')} of sessions open the same way.`}
           </span>
         )}
-        {problem !== null && <span className="text-xs text-pencil">{problem}</span>}
+        {problem !== null && <span role="alert" className="text-xs text-pencil">{problem}</span>}
       </div>
 
       <table className="ledger">
@@ -1137,19 +1164,28 @@ function SessionTable({
             const group = groupOf.get(session.id)
             return (
               <Fragment key={session.id}>
-                <tr
-                  className="cursor-pointer"
-                  onClick={() => setOpened(opened === session.id ? null : session.id)}
-                >
-                  <td onClick={(event) => event.stopPropagation()}>
+                <tr>
+                  <td>
                     <input
                       type="checkbox"
+                      aria-label={`Select session ${session.uuid}`}
                       disabled={busy}
                       checked={picked.includes(session.id)}
                       onChange={() => pick(session.id)}
                     />
                   </td>
-                  <td className="font-mono text-xs">{session.uuid}</td>
+                  <td className="font-mono text-xs">
+                    <button
+                      type="button"
+                      className="disclose"
+                      aria-label={`Session ${session.uuid} details`}
+                      aria-expanded={opened === session.id}
+                      aria-controls={opened === session.id ? `${sectionId}-${session.id}` : undefined}
+                      onClick={() => setOpened(opened === session.id ? null : session.id)}
+                    >
+                      {session.uuid}
+                    </button>
+                  </td>
                   <td className="num">{formatBytes(session.bytes)}</td>
                   <td className="text-ink-2">{formatAgo(session.mtimeMs)}</td>
                   <td className="space-x-1">
@@ -1185,7 +1221,7 @@ function SessionTable({
                 </tr>
                 {opened === session.id && (
                   <tr>
-                    <td colSpan={5}>
+                    <td id={`${sectionId}-${session.id}`} colSpan={5}>
                       <SessionDetailView sessionId={session.id} />
                     </td>
                   </tr>
@@ -1197,28 +1233,33 @@ function SessionTable({
       </table>
 
       {confirming ? (
-        <div className="band band-pencil">
-          <span>
+        <div className="band band-pencil" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
+          <span id={questionId}>
             Move {formatCount(chosen.length, 'session')} — transcripts and their side files —
             into kondo&rsquo;s trash?
           </span>
-          <button type="button" className="btn btn-pencil btn-sm" onClick={trash}>
+          <button type="button" disabled={busy || chosen.length === 0} className="btn btn-pencil btn-sm" onClick={trash}>
             Move to trash
           </button>
           <button
+            ref={confirmation.cancelRef}
             type="button"
             className="btn btn-quiet btn-sm"
-            onClick={() => setConfirming(false)}
+            onClick={confirmation.cancel}
           >
             Cancel
           </button>
         </div>
       ) : (
         <button
+          id={trashButtonId}
           type="button"
           disabled={chosen.length === 0 || busy}
           className="btn btn-quiet btn-sm"
-          onClick={() => setConfirming(true)}
+          onClick={() => {
+            confirmation.rememberFocus(trashButtonId)
+            setConfirming(true)
+          }}
         >
           {chosen.length === 0
             ? 'Pick sessions to move to trash'

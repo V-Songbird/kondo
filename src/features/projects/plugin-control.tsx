@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type {
   ProjectPluginChoice,
   ProjectPluginState,
@@ -74,6 +74,7 @@ export function PluginControl({
   onMove: (destinationId: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const layersId = useId()
   const target = state.scopes.find((scope) => scope.layerId === state.targetLayerId)
   const decision = state.capabilities.disable
   const refusal = moveRefusal(state)
@@ -83,7 +84,7 @@ export function PluginControl({
       <div className="flex flex-wrap items-center gap-3">
         {/* The three positions as one joined control; the one the plugin
             sits in is inked, and pressing it again is not an action. */}
-        <div className="seg">
+        <div className="seg" role="group" aria-label={`Settings for ${state.name}`}>
           {positions(global).map((position) => {
             const here = position.choice === state.choice
             return (
@@ -91,6 +92,7 @@ export function PluginControl({
                 key={position.choice}
                 type="button"
                 aria-pressed={here}
+                aria-label={`${position.label}: ${state.name}`}
                 // The chosen position is drawn in the colour of the state it
                 // represents, so the control is its own status chip
                 // (DESIGN.md). `unset` also grows a `?`, because nothing
@@ -142,13 +144,15 @@ export function PluginControl({
       <button
         type="button"
         aria-expanded={open}
+        aria-controls={open ? layersId : undefined}
+        aria-label={`Where ${state.name} is set`}
         className="disclose"
         onClick={() => setOpen((value) => !value)}
       >
         where this is set
       </button>
       {open && (
-        <div className="ml-1 flex flex-col gap-1 border-l border-line pl-3">
+        <div id={layersId} className="ml-1 flex flex-col gap-1 border-l border-line pl-3">
           {state.scopes.map((scope) => (
             <div key={scope.layerId} className="flex items-center gap-2 text-xs">
               <span className="stamp">{scope.layer}</span>

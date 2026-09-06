@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { JournalEntryInfo } from '../../shared/contract'
 import { joinErrors } from '../lib/format'
+import { Refusal } from './refusal'
 
 /**
  * What just changed, and the way back — offered where the change was made.
@@ -33,7 +34,7 @@ export function LastChange({
       const done = await api.journalUndo(entry.id)
       const failure = joinErrors(done.errors)
       setProblem(failure)
-      if (failure === null) setUndone(true)
+      if (done.data?.isUndo && !done.data.failed) setUndone(true)
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -53,21 +54,20 @@ export function LastChange({
       {/* A change is an addition to the journal, so the band's gutter mark is
           `+`; undone is aged-out rather than broken, so it becomes the amber
           `~`. The sigil is what separates the two, not the hue. */}
-      <span className={undone ? 'stamp-off' : 'stamp-ok'} data-sigil={undone ? 'undone' : undefined}>
+      <span role="status" className={undone ? 'stamp-off' : 'stamp-ok'} data-sigil={undone ? 'undone' : undefined}>
         {undone ? `Undone — ${entry.summary}` : entry.summary}
       </span>
       {entry.failed && (
-        <span
-          className="stamp-bad"
-          title="A step of this change failed; the store never got all of it. Undo puts back whatever did happen."
-        >
+        <span className="stamp-bad">
           partly applied
         </span>
       )}
-      {problem !== null && <span className="text-pencil">{problem}</span>}
+      <Refusal reason={entry.failed && !undone ? 'A step of this change failed. Undo restores the steps that were applied.' : null} />
+      {problem !== null && <span role="alert" className="text-pencil">{problem}</span>}
       {!undone && (
         <button
           type="button"
+          aria-label={`Undo ${entry.summary}`}
           disabled={busy}
           className="btn btn-quiet btn-sm ml-auto"
           onClick={() => void undo()}

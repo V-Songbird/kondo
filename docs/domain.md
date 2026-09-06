@@ -429,6 +429,15 @@ only sees what is on disk.
   fallback signal and are what staleness uses first (cheap).
 - All JSON/JSONL reads assume partial corruption is possible (interrupted
   writes). A bad line is skipped and reported, never fatal.
+- Journal shape validation is covered by fixtures ✅: a line is accepted only
+  when its record and every step have the fields the operation needs, including
+  inverse splice edits and undo/failure links. Valid JSON with the wrong shape
+  is skipped as one whole entry and reported as `parse-failed` at
+  `journal.jsonl:<line>`. Other entries remain listed and reversible, with those
+  read errors still returned. Optional historical fields and additional metadata
+  are accepted; the journal is never rewritten to repair a line (095). Readable
+  `undoOf`/`failedOf` references in rejected entries conservatively block undo of
+  the related change, without supplying steps or claiming a completed undo.
 - Bytes kondo displaces leave their store entirely: they land in
   `<kondo-data>/trash/<journal-id>/<store-name>/<path relative to that
   store>`, which sits outside every store above (ADR-0001) and so never
@@ -455,3 +464,36 @@ only sees what is on disk.
   That displacement is a `trash` step on the undo entry, decided while the
   entry is built, because the entry is written before its steps run and a
   step it does not carry is bytes nothing records.
+
+## Claude Code compatibility review — 2026-09-06
+
+The store observations above describe what was checked at their original dates.
+They do not prove complete support for newer Claude Code conventions.
+
+- Multiple scopes can keep different installed versions of one plugin ✅.
+  `installed_plugins.json` holds an array of installation entries per id;
+  cleanup now preserves **every** in-store `installPath` in that array, in
+  any order. Fixture sweep/undo tests cover user, project and local records
+  together. This refines the plugin-residue description above: there can be
+  several installed versions, not one. The inventory still presents only the
+  first installation. [Claude Code plugin reference](https://code.claude.com/docs/en/plugins-reference#plugin-uninstall).
+- Directory-discovered `@skills-dir` plugins and overrides for built-in skills
+  are supported by current Claude documentation ✅. Kondo's configuration-orphan
+  inference does not yet account for these, so absence from its installation
+  inventory is **not** proof that a preference is obsolete.
+  [Directory plugins](https://code.claude.com/docs/en/plugins-reference#skills-directory-plugins),
+  [removing a skill](https://code.claude.com/docs/en/skills#remove-a-skill).
+- MCP approval, settings restrictions and per-project disablement are distinct
+  states in Claude Code ✅. Kondo's current boolean and historical disable-list
+  reader do not represent all of them; its displayed `on` does not prove that
+  Claude has approved or connected that server. Reconcile reader and toggle
+  conventions before claiming complete MCP management support.
+  [MCP status](https://code.claude.com/docs/en/mcp#server-status),
+  [disable a server](https://code.claude.com/docs/en/mcp#disable-a-server-without-removing-it).
+- Plugin components can use layouts beyond `<install>/skills/` ✅, which is
+  still the only layout Kondo's plugin-skills reader inventories.
+  [Plugin skills](https://code.claude.com/docs/en/plugins-reference#skills).
+- `CLAUDE_CONFIG_DIR` selects a different Claude configuration directory ✅.
+  Kondo currently checks `KONDO_STORE_ROOT` instead and otherwise defaults to
+  the ordinary user store; profile selection remains a compatibility gap.
+  [Environment variables](https://code.claude.com/docs/en/env-vars).

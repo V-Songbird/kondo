@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { JournalEntryInfo } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { LastChange } from '../../ui/last-change'
 import { Refusal } from '../../ui/refusal'
+import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { joinErrors } from '../../lib/format'
 import { keepReason, shortDigest, verdictFor } from './duplicate-rows'
 
@@ -24,6 +25,9 @@ export function SkillDuplicates() {
   // Which copy the confirm band is asking about; null when it is asking about
   // none. One click used to be the whole decision (entry 076).
   const [asking, setAsking] = useState<string | null>(null)
+  const buttonPrefix = useId()
+  const questionId = useId()
+  const confirmation = useConfirmationFocus(asking !== null, () => setAsking(null), asking)
   const { reload } = state
 
   const trash = async (skillId: string): Promise<void> => {
@@ -56,7 +60,7 @@ export function SkillDuplicates() {
         The same skill name in more than one place. Copies with identical contents can
         lose all but one; copies that differ are two skills and stay.
       </p>
-      {problem !== null && <div className="band band-pencil text-pencil">{problem}</div>}
+      {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
       <LastChange key={change?.id} entry={change} onUndone={reload} />
 
       <AsyncView state={state} empty="No skill name is kept twice across your scopes.">
@@ -95,29 +99,37 @@ export function SkillDuplicates() {
                             </td>
                             <td className="text-right">
                               {asking === member.skill.id ? (
-                                <div className="band band-pencil">
-                                  <span>Move this copy of {group.name} to trash?</span>
+                                <div className="band band-pencil" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
+                                  <span id={questionId}>Move this copy of {group.name} to trash?</span>
                                   <button
                                     type="button"
+                                    disabled={busy || reason !== null}
+                                    aria-label={`Move to trash: ${group.name} from ${member.skill.scope}`}
                                     className="btn btn-pencil btn-sm"
                                     onClick={() => void trash(member.skill.id)}
                                   >
                                     Move to trash
                                   </button>
                                   <button
+                                    ref={confirmation.cancelRef}
                                     type="button"
                                     className="btn btn-quiet btn-sm"
-                                    onClick={() => setAsking(null)}
+                                    onClick={confirmation.cancel}
                                   >
                                     Cancel
                                   </button>
                                 </div>
                               ) : (
                                 <button
+                                  id={`${buttonPrefix}-${member.skill.id}`}
                                   type="button"
+                                  aria-label={`Move this copy to trash: ${group.name} from ${member.skill.scope}`}
                                   disabled={reason !== null || busy}
                                   className="btn btn-pencil btn-sm"
-                                  onClick={() => setAsking(member.skill.id)}
+                                  onClick={() => {
+                                    confirmation.rememberFocus(`${buttonPrefix}-${member.skill.id}`)
+                                    setAsking(member.skill.id)
+                                  }}
                                 >
                                   Move this copy to trash
                                 </button>

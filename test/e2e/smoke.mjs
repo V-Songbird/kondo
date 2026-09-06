@@ -75,6 +75,16 @@ after(async () => {
 
 const call = (expression) => client.evaluate(`(async () => ${expression})()`)
 
+const navigate = async (label) => {
+  await client.evaluate(`[...document.querySelectorAll('nav button')].find((b) => b.textContent.trim() === ${JSON.stringify(label)}).click()`)
+}
+
+const capture = async (name) => {
+  if (!process.env.KONDO_E2E_SHOTS) return
+  await fs.mkdir(process.env.KONDO_E2E_SHOTS, { recursive: true })
+  await fs.writeFile(path.join(process.env.KONDO_E2E_SHOTS, `${name}.png`), await client.screenshot())
+}
+
 test('the nav has its five destinations and opens on Projects', async () => {
   const labels = await client.evaluate(`[...document.querySelectorAll('nav button')].map((b) => b.textContent.trim())`)
   assert.deepEqual(labels, ['Library', 'Projects', 'Clean up', 'Leftovers', 'History'])
@@ -165,4 +175,88 @@ test('a skill move round-trips through the bridge and its undo puts the store ba
   const global = await call(`(await window.kondo.projectDetail('store:user:user')).data.skills.map((s) => s.name)`)
   assert.ok(global.includes('commit-writer'))
   assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').length, 2)
+})
+
+test('Library explains the kinds and opens the selected management location', async () => {
+  await navigate('Library')
+  await client.waitFor(`document.querySelectorAll('.row-item').length > 0 && !document.body.textContent.includes('Reading your Claude Code setup…')`)
+  // Clear any previous selection without discarding the catalogue filters.
+  await client.evaluate(`document.querySelector('.row-item[aria-current="true"]')?.click()`)
+  await client.waitFor(`document.body.textContent.includes('Instructions for a repeatable task')`)
+  await capture('library-overview')
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 600, deviceScaleFactor: 1, mobile: false })
+  await capture('library-minimum')
+  await client.send('Emulation.clearDeviceMetricsOverride')
+  await client.evaluate(`[...document.querySelectorAll('.row-item')].find((b) => b.textContent.includes('api-notes')).click()`)
+  await client.waitFor(`document.body.textContent.includes('Manage in apiserver')`)
+  await capture('library-skill')
+  await client.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Manage in apiserver').click()`)
+  await client.waitFor(`document.querySelector('h1')?.textContent === 'apiserver'`)
+  assert.equal(await client.evaluate(`document.querySelector('nav [aria-current="page"]').textContent.trim()`), 'Projects')
+  // Session details must open through a native button, including Enter.
+  await client.waitFor(`document.querySelector('button[aria-label^="Session "]') !== null`)
+  await client.evaluate(`document.querySelector('button[aria-label^="Session "]').focus()`)
+  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', text: '\r', unmodifiedText: '\r', windowsVirtualKeyCode: 13 })
+  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  await client.waitFor(`document.querySelector('button[aria-label^="Session "]')?.getAttribute('aria-expanded') === 'true'`)
+  assert.equal(await client.evaluate(`[...document.querySelectorAll('input, select')].every((el) => Boolean(el.getAttribute('aria-label') || el.labels?.length))`), true)
+})
+
+test('a staged move focuses Cancel and Escape restores the picker without writing', async () => {
+  await navigate('Projects')
+  await client.waitFor(`[...document.querySelectorAll('li button')].some((b) => b.textContent.includes('Global'))`)
+  await client.evaluate(`[...document.querySelectorAll('li button')].find((b) => b.textContent.includes('Global')).click()`)
+  await client.waitFor(`document.querySelector('select[aria-label="Move to: commit-writer"]') !== null`)
+  const journal = path.join(base, 'kondo-data', 'journal.jsonl')
+  const before = await fs.readFile(journal, 'utf8')
+  await client.evaluate(`(() => {
+    const picker = document.querySelector('select[aria-label="Move to: commit-writer"]');
+    picker.focus();
+    const target = [...picker.options].find((o) => o.textContent.includes('apiserver'));
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(picker, target.value);
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`)
+  await client.waitFor(`document.activeElement?.textContent === 'Cancel'`)
+  assert.equal(await fs.readFile(journal, 'utf8'), before)
+  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await client.waitFor(`document.activeElement?.getAttribute('aria-label') === 'Move to: commit-writer'`)
+  assert.equal(await fs.readFile(journal, 'utf8'), before)
+})
+
+test('Library keeps healthy items visible when the MCP read is malformed', async () => {
+  const file = path.join(base, 'work', 'apiserver', '.mcp.json')
+  const original = await fs.readFile(file, 'utf8')
+  try {
+    await fs.writeFile(file, '{ broken MCP fixture')
+    await navigate('Library')
+    await client.waitFor(`document.body.textContent.includes('Some information could not be read or recognized.')`)
+    assert.equal(await client.evaluate(`[...document.querySelectorAll('.row-item')].some((b) => b.textContent.includes('api-notes'))`), true)
+    await client.evaluate(`document.querySelector('.row-item[aria-current="true"]')?.click()`)
+    await client.waitFor(`document.querySelector('[aria-label="MCP servers reading problems"]') !== null`)
+    await client.evaluate(`document.querySelector('[aria-label="MCP servers reading problems"] button').click()`)
+    assert.ok((await client.evaluate(`document.body.textContent`)).includes('parse-failed'))
+    assert.ok(!(await client.evaluate(`document.body.textContent`)).includes('No issues found in the information Kondo checked.'))
+    await capture('library-partial-read')
+  } finally {
+    await fs.writeFile(file, original)
+    await navigate('Projects')
+  }
+})
+
+test('inline undo reports success even when a different history line is malformed', async () => {
+  await navigate('Projects')
+  await client.waitFor(`[...document.querySelectorAll('li button')].some((b) => b.textContent.includes('Global'))`)
+  await client.evaluate(`[...document.querySelectorAll('li button')].find((b) => b.textContent.includes('Global')).click()`)
+  await client.waitFor(`document.querySelector('button[aria-label="Disable commit-writer"]') !== null`)
+  const settings = path.join(base, 'home', '.claude', 'settings.json')
+  const before = await fs.readFile(settings, 'utf8')
+  await client.evaluate(`document.querySelector('button[aria-label="Disable commit-writer"]').click()`)
+  await client.waitFor(`document.querySelector('.band-stamp button[aria-label^="Undo "]') !== null`)
+  await fs.appendFile(path.join(base, 'kondo-data', 'journal.jsonl'), '{}\n')
+  await client.evaluate(`document.querySelector('.band-stamp button[aria-label^="Undo "]').click()`)
+  await client.waitFor(`document.querySelector('.band-stamp [role="status"]')?.textContent.startsWith('Undone —')`)
+  assert.equal(await client.evaluate(`document.querySelector('.band-stamp button[aria-label^="Undo "]') === null`), true)
+  assert.equal(await fs.readFile(settings, 'utf8'), before)
+  assert.ok((await client.evaluate(`document.querySelector('.band-stamp [role="alert"]').textContent`)).includes('history entry is incomplete'))
 })

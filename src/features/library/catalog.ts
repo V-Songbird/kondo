@@ -128,6 +128,39 @@ export function hookName(hook: HookInfo): string {
   return hook.matcher === null ? hook.event : `${hook.event} · ${hook.matcher}`
 }
 
+/** Navigation uses only project ids already returned by the workspace. */
+export function managementProjects(object: LibraryObject, input: CatalogInput): ProjectRow[] {
+  let locations: Array<string | null>
+  switch (object.kind) {
+    case 'skill':
+      locations = input.skills.filter((item) => item.name === object.name).map((item) => item.projectId)
+      break
+    case 'plugin':
+      locations = input.plugins.filter((item) => item.name === object.name)
+        .flatMap((item) => [null, ...item.scopes.filter((scope) => scope.enabled !== null)
+          .map((scope) => scope.projectId)])
+      break
+    case 'hook':
+      locations = allHooks(input.hookGroups).filter((item) => objectKey('hook', `${hookName(item)} ${item.id}`) === object.key)
+        .map((item) => item.projectId)
+      break
+    case 'mcp':
+      // MCP currently carries a flattened name, not an opaque project id.
+      // Do not invent navigation ids from it; only Global can be linked here.
+      locations = input.mcp.some((item) => item.name === object.name && item.project === null)
+        ? [null] : []
+      break
+    case 'settings':
+      locations = input.layers.filter((item) => objectKey('settings', item.id) === object.key)
+        .map((item) => item.projectId)
+      break
+    default:
+      locations = input.placed.filter((item) => objectKey(item.kind as LibraryKind, item.name) === object.key)
+        .map((item) => item.projectId)
+  }
+  return input.projects.filter((project) => locations.includes(project.global ? null : project.id))
+}
+
 /**
  * The verdict on a repeated skill name. Kondo groups the copies and says
  * nothing about which to keep — a name repeated with different bytes is two

@@ -356,6 +356,12 @@ nothing: **kind is a word, not a hue**. That single change resolves the
 collision where lime meant both "Storage" and "on".
 
 ### Tables
+
+Standalone label/value facts use `.line`: baseline-aligned flex, a 12px gap,
+28px minimum height and the same `--rule` hairline as table rows. Long values
+wrap inside their column. A keyboard-only skip link appears on focus using
+the existing ground and ink colours. Inline confirmations focus Cancel,
+accept Escape, and return focus to the initiating control on cancellation.
 `.ledger` is the one table: 28px rows, 4px 12px cells, a 2ch first column for
 the gutter mark, `--rule` between rows, `--rule-strong` under the header. Hover
 and current are the same `--raised-more`; the current row is additionally the

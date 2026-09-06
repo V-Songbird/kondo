@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { ConfigOrphan, JournalEntryInfo } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { LastChange } from '../../ui/last-change'
+import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { formatCount } from '../../lib/format'
 import { chosenFrom, groupByKind, refusalFrom } from './orphan-rows'
 
@@ -24,6 +25,9 @@ export function Orphans() {
   const [stale, setStale] = useState<string | null>(null)
   const [change, setChange] = useState<JournalEntryInfo | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const removeButtonId = useId()
+  const questionId = useId()
+  const confirmation = useConfirmationFocus(confirming, () => setConfirming(false))
   const { reload } = state
 
   const pick = (id: string): void => {
@@ -68,9 +72,9 @@ export function Orphans() {
 
   return (
     <div>
-      {problem !== null && <div className="band band-pencil text-pencil">{problem}</div>}
-      {stale !== null && <div className="band band-note text-note">{stale}</div>}
-      {outcome !== null && <div className="band band-stamp">{outcome}</div>}
+      {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
+      {stale !== null && <div role="status" className="band band-note text-note">{stale}</div>}
+      {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
       <LastChange key={change?.id} entry={change} onUndone={reload} />
 
       <AsyncView
@@ -118,6 +122,7 @@ export function Orphans() {
                             <td>
                               <input
                                 type="checkbox"
+                                aria-label={`Select ${orphan.name} from ${orphan.source}`}
                                 disabled={busy}
                                 checked={selected.includes(orphan.id)}
                                 onChange={() => pick(orphan.id)}
@@ -139,32 +144,38 @@ export function Orphans() {
               ))}
 
               {confirming ? (
-                <div className="band band-pencil">
-                  <span>
+                <div className="band band-pencil" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
+                  <span id={questionId}>
                     Take {formatCount(chosen.length, 'leftover')} out of Claude&rsquo;s
                     configuration?
                   </span>
                   <button
                     type="button"
+                    disabled={busy || chosen.length === 0}
                     className="btn btn-pencil btn-sm"
                     onClick={() => void remove(chosen.map((orphan) => orphan.id))}
                   >
                     Remove
                   </button>
                   <button
+                    ref={confirmation.cancelRef}
                     type="button"
                     className="btn btn-quiet btn-sm"
-                    onClick={() => setConfirming(false)}
+                    onClick={confirmation.cancel}
                   >
                     Cancel
                   </button>
                 </div>
               ) : (
                 <button
+                  id={removeButtonId}
                   type="button"
                   disabled={chosen.length === 0 || busy}
                   className="btn btn-go"
-                  onClick={() => setConfirming(true)}
+                  onClick={() => {
+                    confirmation.rememberFocus(removeButtonId)
+                    setConfirming(true)
+                  }}
                 >
                   {chosen.length === 0
                     ? 'Pick what to remove'

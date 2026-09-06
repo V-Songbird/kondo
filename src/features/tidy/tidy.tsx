@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { JournalEntryInfo, TidyCategory } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { LastChange } from '../../ui/last-change'
+import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { formatBytes, formatCount, joinErrors } from '../../lib/format'
 import { SkillDuplicates } from './duplicates'
 
@@ -71,6 +72,9 @@ export function Tidy() {
   const [outcome, setOutcome] = useState<string | null>(null)
   const [change, setChange] = useState<JournalEntryInfo | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const sweepButtonId = useId()
+  const questionId = useId()
+  const confirmation = useConfirmationFocus(confirming, () => setConfirming(false))
   const { reload } = state
 
   const pick = (category: TidyCategory): void => {
@@ -116,8 +120,8 @@ export function Tidy() {
 
   return (
     <div>
-      {problem !== null && <div className="band band-pencil text-pencil">{problem}</div>}
-      {outcome !== null && <div className="band band-stamp">{outcome}</div>}
+      {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
+      {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
       {/* The way back, offered where the sweep was run rather than in
           History. Keyed on the entry so a second sweep starts a fresh one. */}
       <LastChange key={change?.id} entry={change} onUndone={reload} />
@@ -157,6 +161,8 @@ export function Tidy() {
                       <td>
                         <input
                           type="checkbox"
+                          aria-label={`Select ${LABEL[entry.category]}`}
+                          aria-describedby={`${questionId}-${entry.category}`}
                           disabled={entry.count === 0 || entry.blocked !== null || busy}
                           checked={selected.includes(entry.category)}
                           onChange={() => pick(entry.category)}
@@ -164,7 +170,7 @@ export function Tidy() {
                       </td>
                       <td>
                         <div className="font-medium">{LABEL[entry.category]}</div>
-                        <p className="text-xs">
+                        <p id={`${questionId}-${entry.category}`} className="text-xs">
                           {hintFor(entry.category, scan.data.staleAfterDays)}
                         </p>
                         {/* Why it cannot be swept right now, on screen and not
@@ -200,28 +206,33 @@ export function Tidy() {
               </table>
 
               {confirming ? (
-                <div className="band band-pencil">
-                  <span>
+                <div className="band band-pencil" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
+                  <span id={questionId}>
                     Move {formatCount(count, 'item')} ({formatBytes(bytes)}) into
                     kondo&rsquo;s trash?
                   </span>
-                  <button type="button" className="btn btn-pencil btn-sm" onClick={() => void sweep()}>
+                  <button type="button" disabled={busy || count === 0} className="btn btn-pencil btn-sm" onClick={() => void sweep()}>
                     Move to trash
                   </button>
                   <button
+                    ref={confirmation.cancelRef}
                     type="button"
                     className="btn btn-quiet btn-sm"
-                    onClick={() => setConfirming(false)}
+                    onClick={confirmation.cancel}
                   >
                     Cancel
                   </button>
                 </div>
               ) : (
                 <button
+                  id={sweepButtonId}
                   type="button"
                   disabled={count === 0 || busy}
                   className="btn btn-go"
-                  onClick={() => setConfirming(true)}
+                  onClick={() => {
+                    confirmation.rememberFocus(sweepButtonId)
+                    setConfirming(true)
+                  }}
                 >
                   {count === 0
                     ? 'Pick what to clean up'

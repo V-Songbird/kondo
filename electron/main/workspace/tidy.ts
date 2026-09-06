@@ -475,11 +475,9 @@ async function scanPluginResidue(
     }
   }
 
-  // Every cached version of an installed plugin except the one its
-  // `installPath` names. Walking outwards from the manifest rather than over
-  // `plugins/cache/` is what keeps the live version safe by construction: a
-  // directory is offered only after its own plugin's install path has been
-  // looked up and did not match it.
+  // Every cached version except those any installation scope still names.
+  // A directory is offered only after all declared install paths have been
+  // checked, because different scopes can retain different live versions.
   for (const key of installed.keys) {
     const at = key.lastIndexOf('@')
     if (at <= 0) continue

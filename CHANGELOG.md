@@ -8,6 +8,11 @@ All notable changes to kondo are documented here. The format follows
 
 ### Added
 
+- Library explains the item types and links skills, plugins and other supported
+  entries to their existing project management controls.
+- Named search, selection and move controls; keyboard session details; a skip
+  link; and Cancel/Escape focus handling for inline confirmations.
+
 - **A mark**: `k_`, the first letter of the wordmark and the caret that closes
   it, drawn once in [src/assets/kondo-mark.svg](src/assets/kondo-mark.svg) and
   used everywhere — the window and taskbar icon, the left rail, the splash, and
@@ -95,6 +100,14 @@ All notable changes to kondo are documented here. The format follows
     frame is already the page.
 
 ### Fixed
+
+- Library now shows failures and unrecognized files from every inventory read
+  alongside partial data, including history. Label/value rows are aligned, and
+  explanations of partially applied changes are visible without hovering.
+- Invalid journal records and invalid steps no longer break healthy history or
+  undo. Each rejected line remains on disk and gets an itemized error.
+- Plugin cleanup preserves all cache versions named by installation records,
+  including different versions installed in user, project and local scopes.
 
 - **Descriptions read as `>-`.** A description written as a YAML block scalar
   — `description: >-` and the paragraph indented beneath it, which is how

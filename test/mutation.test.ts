@@ -542,6 +542,225 @@ describe('mutation safety invariants (ADR-0001)', () => {
     expect(listed.errors.map((error) => error.code)).toContain('parse-failed')
   })
 
+  it('isolates valid JSON with invalid journal fields and still restores healthy entries', async () => {
+    const before = await hashTree(world.userRoot)
+    const first = await mutations.mutate({
+      op: 'trash', kind: 'skill', entityId: 'skill:user:alpha-skill', summary: 'Trash alpha-skill',
+      steps: [{ type: 'trash', store: 'user', from: 'skills/alpha-skill' }]
+    })
+    const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const record = JSON.parse(await fsp.readFile(journalFile, 'utf8')) as Record<string, unknown>
+    const malformed: unknown[] = [
+      null, false, 7, 'history', [], {},
+      { ...record, id: 7 },
+      { ...record, at: null },
+      { ...record, op: 'erase' },
+      { ...record, kind: 'unsupported' },
+      { ...record, entityId: null },
+      { ...record, summary: [] },
+      { ...record, steps: {} },
+      { ...record, undoOf: undefined },
+      { ...record, undoOf: {} },
+      { ...record, failedOf: null }
+    ]
+    await fsp.appendFile(journalFile, malformed.map((entry) => JSON.stringify(entry) + '\n').join(''))
+    const second = await mutations.mutate({
+      op: 'trash', kind: 'skill', entityId: 'skill:user:beta-skill', summary: 'Trash beta-skill',
+      steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }]
+    })
+    const originalJournal = await fsp.readFile(journalFile, 'utf8')
+    const listed = await mutations.list()
+    expect(listed.data.map((entry) => entry.id)).toEqual([second.data!.id, first.data!.id])
+    expect(listed.errors.map((error) => [error.code, error.path])).toEqual(
+      malformed.map((_, index) => ['parse-failed', `journal.jsonl:${index + 2}`])
+    )
+
+    for (const entry of listed.data) {
+      const undone = await mutations.undo(entry.id)
+      expect(undone.data?.isUndo).toBe(true)
+      expect(undone.errors).toEqual(listed.errors)
+      const duplicateUndo = await mutations.undo(entry.id)
+      expect(duplicateUndo.data).toBeNull()
+      expect(duplicateUndo.errors).toEqual([
+        ...listed.errors,
+        expect.objectContaining({ code: 'bad-request' })
+      ])
+    }
+    expect(await hashTree(world.userRoot)).toBe(before)
+    // Corruption is reported, never repaired by rewriting the append-only file.
+    expect((await fsp.readFile(journalFile, 'utf8')).startsWith(originalJournal)).toBe(true)
+  })
+
+  it('drops a whole entry with a malformed step before undo can touch any of its files', async () => {
+    const done = await mutations.mutate({
+      op: 'trash', kind: 'skill', entityId: 'skill:user:beta-skill', summary: 'Trash beta-skill',
+      steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }]
+    })
+    const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const record = JSON.parse(await fsp.readFile(journalFile, 'utf8')) as Record<string, unknown>
+    const writeStep = { type: 'write', store: 'user', from: 'settings.json' }
+    const spliceStep = {
+      ...writeStep, type: 'splice', expectDigest: digestSource('a'), resultDigest: digestSource('b'),
+      edits: [{ at: 0, remove: 1, insert: 'b' }], undoEdits: [{ at: 0, remove: 1, insert: 'a' }]
+    }
+    const malformedSteps: unknown[] = [
+      null, {}, { ...writeStep, type: 'erase' },
+      { ...writeStep, store: null },
+      { ...writeStep, from: 7 },
+      { ...writeStep, type: 'move' },
+      { ...writeStep, type: 'copy', to: 'settings-copy.json' },
+      { ...writeStep, type: 'trash' },
+      { ...writeStep, displaced: 7 },
+      { ...writeStep, created: [null] },
+      { ...writeStep, toStore: [] },
+      { ...spliceStep, expectDigest: null },
+      { ...spliceStep, resultDigest: undefined },
+      { ...spliceStep, edits: {} },
+      { ...spliceStep, edits: [null] },
+      { ...spliceStep, edits: [{ at: -1, remove: 0, insert: '' }] },
+      { ...spliceStep, undoEdits: undefined },
+      { ...spliceStep, undoEdits: [{ at: 0, remove: 1.5, insert: '' }] },
+      { ...spliceStep, undoEdits: [{ at: 0, remove: 1, insert: false }] }
+    ]
+    const malformedRecords = malformedSteps.map((step, index) => ({
+      ...record, id: `malformed-${index}`, steps: [step, writeStep]
+    }))
+    await fsp.appendFile(journalFile, malformedRecords.map((entry) => JSON.stringify(entry) + '\n').join(''))
+    const before = await hashTree(world.userRoot)
+    const originalJournal = await fsp.readFile(journalFile, 'utf8')
+    const listed = await mutations.list()
+    expect(listed.data.map((entry) => entry.id)).toEqual([done.data!.id])
+    expect(listed.errors).toHaveLength(malformedRecords.length)
+    for (const record of malformedRecords) {
+      const undone = await mutations.undo(`journal:${record.id}`)
+      expect(undone.data).toBeNull()
+      expect(undone.errors).toEqual([
+        ...listed.errors,
+        expect.objectContaining({ code: 'unknown-id', path: `journal:${record.id}` })
+      ])
+    }
+    expect(await hashTree(world.userRoot)).toBe(before)
+    expect(await fsp.readFile(journalFile, 'utf8')).toBe(originalJournal)
+  })
+
+  it('keeps historical optional fields and extra metadata compatible across all step kinds', async () => {
+    await writeFileTree(world.userRoot, { 'other-settings.json': '{ "mode": "quiet" }' })
+    const before = await hashTree(world.userRoot)
+    const source = await fsp.readFile(path.join(world.userRoot, 'other-settings.json'), 'utf8')
+    const done = await mutations.mutate({
+      op: 'move', kind: 'skill', entityId: 'skill:user:alpha-skill', summary: 'Historical mixed entry',
+      steps: [
+        { type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills/moved-skill' },
+        { type: 'copy', store: 'user', from: 'skills/beta-skill', toStore: 'user', to: 'skills/copied-skill' },
+        { type: 'trash', store: 'user', from: 'skills/beta-skill' },
+        { type: 'write', store: 'user', at: 'settings.json', content: '{}' },
+        { type: 'write', store: 'user', at: 'new-settings.json', content: '{}' },
+        {
+          type: 'splice', store: 'user', at: 'other-settings.json', expectDigest: digestSource(source),
+          edits: [{ at: source.indexOf('quiet'), remove: 5, insert: 'loud' }]
+        }
+      ]
+    })
+    expect(done.errors).toEqual([])
+    const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const record = JSON.parse(await fsp.readFile(journalFile, 'utf8')) as {
+      steps: Array<Record<string, unknown>>
+    }
+    for (const step of record.steps) delete step.created
+    await fsp.writeFile(journalFile, JSON.stringify({ ...record, extraMetadata: 'preserved' }) + '\n')
+
+    const undone = await mutations.undo(done.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+    const listed = await mutations.list()
+    expect(listed.errors).toEqual([])
+    expect(listed.data[0]?.isUndo).toBe(true)
+    expect(listed.data[1]?.undoneBy).toBe(undone.data!.id)
+  })
+
+  it('does not repeat a completed undo when its journal summary becomes corrupt', async () => {
+    const done = await mutations.mutate({
+      op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user', summary: 'Write settings',
+      steps: [{ type: 'write', store: 'user', at: 'settings.json', content: '{}' }]
+    })
+    const undone = await mutations.undo(done.data!.id)
+    expect(undone.errors).toEqual([])
+    await fsp.writeFile(settingsFile(), '{ "theme": "a later edit" }')
+    const before = await hashTree(world.userRoot)
+    const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const records = (await fsp.readFile(journalFile, 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+    records[1]!.summary = null
+    const damaged = records.map((record) => JSON.stringify(record) + '\n').join('')
+    await fsp.writeFile(journalFile, damaged)
+
+    const listed = await mutations.list()
+    expect(listed.data).toHaveLength(1)
+    expect(listed.data[0]?.undoneBy).toBeNull()
+    const repeated = await mutations.undo(done.data!.id)
+    expect(repeated.data).toBeNull()
+    expect(repeated.errors).toEqual([
+      ...listed.errors,
+      expect.objectContaining({ code: 'read-failed', message: expect.stringContaining('damaged history entry') })
+    ])
+    expect(await hashTree(world.userRoot)).toBe(before)
+    expect(await fsp.readFile(journalFile, 'utf8')).toBe(damaged)
+
+    const unrelated = await mutations.mutate({
+      op: 'trash', kind: 'skill', entityId: 'skill:user:beta-skill', summary: 'Trash beta-skill',
+      steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }]
+    })
+    expect((await mutations.undo(unrelated.data!.id)).data?.isUndo).toBe(true)
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('keeps a damaged failure marker from making its operation safe to undo', async () => {
+    const failing = vi.spyOn(fsp, 'rename').mockRejectedValue(new Error('fixture volume unavailable'))
+    const failed = await mutations.mutate({
+      op: 'trash', kind: 'skill', entityId: 'skill:user:beta-skill', summary: 'Trash beta-skill',
+      steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }]
+    })
+    expect(failed.data).toBeNull()
+    failing.mockRestore()
+    const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const records = (await fsp.readFile(journalFile, 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+    records[1]!.summary = null
+    const damaged = records.map((record) => JSON.stringify(record) + '\n').join('')
+    await fsp.writeFile(journalFile, damaged)
+    const before = await hashTree(world.userRoot)
+
+    const refused = await mutations.undo(`journal:${String(records[0]!.id)}`)
+    expect(refused.data).toBeNull()
+    expect(refused.errors.map((error) => error.code)).toEqual(['parse-failed', 'read-failed'])
+    expect(await hashTree(world.userRoot)).toBe(before)
+    expect(await fsp.readFile(journalFile, 'utf8')).toBe(damaged)
+  })
+
+  it('follows a damaged marker failure link to the operation its undo could not finish', async () => {
+    const done = await spliceQuietToLoud(await readSettings())
+    await fsp.writeFile(settingsFile(), '{ "theme": "a later edit" }')
+    expect((await mutations.undo(done.data!.id)).errors[0]?.code).toBe('stale-file')
+    const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const records = (await fsp.readFile(journalFile, 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+    // Only failedOf remains readable: it names the undo, whose valid entry
+    // still identifies the original operation that must stay protected.
+    records[2]!.summary = null
+    delete records[2]!.undoOf
+    const damaged = records.map((record) => JSON.stringify(record) + '\n').join('')
+    await fsp.writeFile(journalFile, damaged)
+    const before = await hashTree(world.userRoot)
+
+    const listed = await mutations.list()
+    expect(listed.data.find((entry) => entry.id === done.data!.id)?.undoneBy).toBeNull()
+    const refused = await mutations.undo(done.data!.id)
+    expect(refused.data).toBeNull()
+    expect(refused.errors.map((error) => error.code)).toEqual(['parse-failed', 'read-failed'])
+    expect(await hashTree(world.userRoot)).toBe(before)
+    expect(await fsp.readFile(journalFile, 'utf8')).toBe(damaged)
+  })
+
   it('reports an unknown journal id rather than guessing', async () => {
     const result = await mutations.undo('journal:000000000-deadbeef')
     expect(result.data).toBeNull()
@@ -802,4 +1021,3 @@ describe('configuration orphans (ADR-0010)', () => {
     expect((await api.journalList()).data).toHaveLength(0)
   })
 })
-

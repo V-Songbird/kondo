@@ -21,14 +21,14 @@ export function AsyncView<T>({
   children: (scan: Scan<T>) => ReactNode
 }) {
   if (state.failure) {
-    return <div className="band band-pencil text-pencil">{state.failure}</div>
+    return <div role="alert" className="band band-pencil text-pencil">{state.failure}</div>
   }
   if (state.loading && !state.scan) {
     // Bars where the rows will be, and they do not move: a pulsing skeleton
     // implies progress kondo has no way to measure (DESIGN.md).
     return (
       <div aria-busy="true">
-        <p>Scanning…</p>
+        <p role="status">Scanning…</p>
         <div className="slot">
           <i />
           <i />
@@ -49,7 +49,7 @@ export function AsyncView<T>({
           slot is 12ch of reserved mono width whether or not it is filled, so
           the indicator can never shift the rows beneath it (DESIGN.md); only
           a mono grid can actually make that promise. */}
-      <div className="busy">{state.loading ? 'Refreshing…' : ''}</div>
+      <div className="busy" role="status">{state.loading ? 'Refreshing…' : ''}</div>
       {nothing ? <div className="empty">{empty}</div> : children(scan)}
     </>
   )

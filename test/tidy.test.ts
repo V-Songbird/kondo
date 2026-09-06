@@ -760,6 +760,52 @@ describe('session-env snapshots and plugin residue', () => {
     )
   })
 
+  it.each([false, true])(
+    'preserves every installed scope during a version sweep (reversed: %s)',
+    async (reverse) => {
+      const installs = [
+        { scope: 'user', installPath: liveInstallPath(world.userRoot), version: LIVE_VERSION },
+        {
+          scope: 'project',
+          projectPath: path.join(world.home, 'team-project'),
+          installPath: inStore('plugins/cache/mp/keep/1.5.0'),
+          version: '1.5.0'
+        },
+        {
+          scope: 'local',
+          projectPath: path.join(world.home, 'local-project'),
+          installPath: inStore('plugins/cache/mp/keep/3.0.0'),
+          version: '3.0.0'
+        }
+      ]
+      await writeFileTree(world.userRoot, {
+        'plugins/installed_plugins.json': writeJson({
+          version: 2,
+          plugins: { [KEEP]: reverse ? [...installs].reverse() : installs }
+        }),
+        'plugins/cache/mp/keep/3.0.0/plugin.json': '{"name":"keep"}'
+      })
+      const before = await hashTree(world.userRoot)
+      const preview = await api.tidyPreview()
+      expect(preview.errors).toEqual([])
+      expect(byCategory(preview.data)['superseded-plugin-versions'].examples).toEqual([
+        '~/.claude/plugins/cache/mp/keep/1.0.0'
+      ])
+
+      const done = await api.tidySweep(['superseded-plugin-versions'])
+      expect(done.errors).toEqual([])
+      expect(done.data?.stepCount).toBe(1)
+      for (const install of installs) {
+        expect(await exists(path.join(install.installPath, 'plugin.json'))).toBe(true)
+      }
+      expect(await exists(inStore('plugins/cache/mp/keep/1.0.0'))).toBe(false)
+
+      const undone = await api.journalUndo(done.data!.id)
+      expect(undone.errors).toEqual([])
+      expect(await hashTree(world.userRoot)).toBe(before)
+    }
+  )
+
   it('offers data and install records for ids no manifest declares', async () => {
     const found = byCategory((await api.tidyPreview()).data)
     expect(found['orphan-plugin-residue'].count).toBe(2)

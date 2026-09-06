@@ -204,6 +204,72 @@ interface JournalRecord {
   failedOf?: string
 }
 
+const JOURNAL_KINDS = new Set<string>([
+  'skill', 'plugin', 'hook', 'settings', 'session', 'project', 'mcp',
+  'agent', 'command', 'rule', 'output-style', 'store'
+] satisfies EntityKind[])
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+
+const isSpliceEdits = (value: unknown): value is SpliceEdit[] =>
+  Array.isArray(value) && value.every((edit: unknown) =>
+    isObject(edit) &&
+    typeof edit.at === 'number' && Number.isSafeInteger(edit.at) && edit.at >= 0 &&
+    typeof edit.remove === 'number' && Number.isSafeInteger(edit.remove) && edit.remove >= 0 &&
+    typeof edit.insert === 'string'
+  )
+
+/** Validate the entire step before undo can act on any part of its entry. */
+const isJournalStep = (value: unknown): value is JournalStep => {
+  if (!isObject(value) || typeof value.store !== 'string' || typeof value.from !== 'string') {
+    return false
+  }
+  if (
+    (value.to !== undefined && typeof value.to !== 'string') ||
+    (value.toStore !== undefined && typeof value.toStore !== 'string') ||
+    (value.displaced !== undefined && typeof value.displaced !== 'string') ||
+    (value.created !== undefined && !isStringArray(value.created)) ||
+    (value.edits !== undefined && !isSpliceEdits(value.edits)) ||
+    (value.undoEdits !== undefined && !isSpliceEdits(value.undoEdits)) ||
+    (value.expectDigest !== undefined && typeof value.expectDigest !== 'string') ||
+    (value.resultDigest !== undefined && typeof value.resultDigest !== 'string')
+  ) {
+    return false
+  }
+  switch (value.type) {
+    case 'move':
+      return typeof value.to === 'string'
+    case 'copy':
+      return typeof value.to === 'string' && typeof value.toStore === 'string'
+    case 'trash':
+      return typeof value.displaced === 'string'
+    case 'write':
+      return true
+    case 'splice':
+      return typeof value.expectDigest === 'string' && typeof value.resultDigest === 'string' &&
+        isSpliceEdits(value.edits) && isSpliceEdits(value.undoEdits)
+    default:
+      return false
+  }
+}
+
+/** Optional historical fields may be absent; extra metadata is left alone. */
+const isJournalRecord = (value: unknown): value is JournalRecord =>
+  isObject(value) &&
+  typeof value.id === 'string' &&
+  typeof value.at === 'string' &&
+  (value.op === 'move' || value.op === 'settings-edit' || value.op === 'trash') &&
+  typeof value.kind === 'string' && JOURNAL_KINDS.has(value.kind) &&
+  typeof value.entityId === 'string' &&
+  typeof value.summary === 'string' &&
+  (value.undoOf === null || typeof value.undoOf === 'string') &&
+  (value.failedOf === undefined || typeof value.failedOf === 'string') &&
+  Array.isArray(value.steps) && value.steps.every(isJournalStep)
+
 const ID_PREFIX = 'journal:'
 
 export interface Mutations {
@@ -437,26 +503,46 @@ export function createMutations(
     }
   }
 
-  const readJournal = async (): Promise<{ records: JournalRecord[]; scan: Scan<null> }> => {
+  const readJournal = async (): Promise<{
+    records: JournalRecord[]
+    blockedUndoIds: Set<string>
+    scan: Scan<null>
+  }> => {
     const c = collector()
+    const blockedUndoIds = new Set<string>()
     let raw: string
     try {
       raw = await fs.readFile(journalFile, 'utf8')
     } catch (cause) {
       if (!isEnoent(cause)) c.fail('read-failed', 'journal.jsonl', cause)
-      return { records: [], scan: finish(null, c) }
+      return { records: [], blockedUndoIds, scan: finish(null, c) }
     }
     const records: JournalRecord[] = []
     for (const [index, line] of raw.split('\n').entries()) {
       if (line.trim() === '') continue
       try {
-        records.push(JSON.parse(line) as JournalRecord)
+        const parsed: unknown = JSON.parse(line)
+        if (!isJournalRecord(parsed)) {
+          // A damaged undo or failure marker may describe work that already
+          // ran. Its readable links can forbid another undo, never prove one
+          // succeeded or supply steps to execute.
+          if (isObject(parsed)) {
+            if (typeof parsed.undoOf === 'string') blockedUndoIds.add(parsed.undoOf)
+            if (typeof parsed.failedOf === 'string') blockedUndoIds.add(parsed.failedOf)
+          }
+          c.fail('parse-failed', `journal.jsonl:${index + 1}`, 'This history entry is incomplete or contains an invalid step.')
+          continue
+        }
+        records.push(parsed)
       } catch (cause) {
         // ADR-0005: one bad line costs that line, never the whole history.
         c.fail('parse-failed', `journal.jsonl:${index + 1}`, cause)
       }
     }
-    return { records, scan: finish(null, c) }
+    for (const record of records) {
+      if (record.undoOf && blockedUndoIds.has(record.id)) blockedUndoIds.add(record.undoOf)
+    }
+    return { records, blockedUndoIds, scan: finish(null, c) }
   }
 
   const toInfo = (
@@ -481,10 +567,12 @@ export function createMutations(
     new Set(records.flatMap((record) => (record.failedOf ? [record.failedOf] : [])))
 
   /** `undoneBy` is derived from the undo entries, so the file stays append-only. */
-  const undoLinks = (records: JournalRecord[]): Map<string, string> => {
+  const undoLinks = (records: JournalRecord[], blockedUndoIds: Set<string>): Map<string, string> => {
     const links = new Map<string, string>()
     for (const record of records) {
-      if (record.undoOf) links.set(record.undoOf, `${ID_PREFIX}${record.id}`)
+      if (record.undoOf && !blockedUndoIds.has(record.id)) {
+        links.set(record.undoOf, `${ID_PREFIX}${record.id}`)
+      }
     }
     return links
   }
@@ -710,27 +798,26 @@ export function createMutations(
         return refuse('bad-request', String(journalId), 'undo expects a journal: id.')
       }
       const key = journalId.slice(ID_PREFIX.length)
-      const { records, scan } = await readJournal()
+      const { records, blockedUndoIds, scan } = await readJournal()
+      const refuseUndo = (code: ScanErrorCode, at: string, message: string): Scan<JournalEntryInfo | null> => {
+        const refused = refuse(code, at, message)
+        return { ...refused, errors: [...scan.errors, ...refused.errors], unknown: scan.unknown }
+      }
       const original = records.find((record) => record.id === key)
       if (!original) {
-        return {
-          data: null,
-          errors: [
-            ...scan.errors,
-            {
-              code: 'unknown-id',
-              path: journalId,
-              message: 'No history entry with that id.'
-            }
-          ],
-          unknown: scan.unknown
-        }
+        return refuseUndo('unknown-id', journalId, 'No history entry with that id.')
+      }
+      if (blockedUndoIds.has(key)) {
+        return refuseUndo(
+          'read-failed', journalId,
+          'A damaged history entry refers to this operation. Kondo cannot verify whether undo is safe, so nothing was changed.'
+        )
       }
       if (original.undoOf !== null) {
-        return refuse('bad-request', journalId, 'An undo entry cannot itself be undone.')
+        return refuseUndo('bad-request', journalId, 'An undo entry cannot itself be undone.')
       }
-      if (undoLinks(records).has(key)) {
-        return refuse('bad-request', journalId, 'That entry has already been undone.')
+      if (undoLinks(records, blockedUndoIds).has(key)) {
+        return refuseUndo('bad-request', journalId, 'That entry has already been undone.')
       }
 
       const id = newId()
@@ -868,7 +955,7 @@ export function createMutations(
         // Emptying is the single thing undo cannot survive (ADR-0001), so
         // say that instead of handing the UI a raw rename failure.
         if (isEnoent(cause)) {
-          return refuse(
+          return refuseUndo(
             'read-failed',
             journalId,
             "The files this entry would put back are no longer in kondo's trash — it was emptied, and emptying is the one thing undo cannot survive."
@@ -876,15 +963,15 @@ export function createMutations(
         }
         // A splice that refuses carries its own reason and code — a stale
         // file is not a read failure, and undo says so (ADR-0010).
-        if (cause instanceof Refused) return refuse(cause.code, cause.at, cause.message)
-        return refuse('read-failed', journalId, describe(cause))
+        if (cause instanceof Refused) return refuseUndo(cause.code, cause.at, cause.message)
+        return refuseUndo('read-failed', journalId, describe(cause))
       }
       return { data: toInfo(record, null), errors: scan.errors, unknown: scan.unknown }
     },
 
     async list(): Promise<Scan<JournalEntryInfo[]>> {
-      const { records, scan } = await readJournal()
-      const links = undoLinks(records)
+      const { records, blockedUndoIds, scan } = await readJournal()
+      const links = undoLinks(records, blockedUndoIds)
       const failed = failedIds(records)
       const entries = records
         // A marker is a correction to the line above it, not an operation of

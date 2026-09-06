@@ -55,6 +55,7 @@ export function App() {
 
   return (
     <div className="flex h-screen p-6 pt-10">
+      <a className="skip-link" href="#main-content">Skip to content</a>
       {/* The window has no OS title bar (electron/main/index.ts); this strip
           is what the user grabs to move it. */}
       <div className="titlebar" />
@@ -62,7 +63,7 @@ export function App() {
         <img className="mark" src={markUrl} width={30} height={30} alt="" />
         <div className="wordmark">kondo</div>
         <div className="tagline">keep your Claude tight</div>
-        <nav>
+        <nav aria-label="Main navigation">
           {DESTINATIONS.map((entry) => (
             <button
               key={entry.key}
@@ -82,7 +83,7 @@ export function App() {
           <br />v{__KONDO_VERSION__}
         </div>
       </aside>
-      <main className="min-h-0 min-w-0 flex-1 overflow-auto pl-6">
+      <main id="main-content" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-auto pl-6">
         {active === 'library' && (
           <Library
             query={libraryPlace.query}
@@ -91,6 +92,10 @@ export function App() {
             onKind={(kind) => setLibraryPlace({ ...libraryPlace, kind })}
             picked={libraryPlace.picked}
             onPick={(picked) => setLibraryPlace({ ...libraryPlace, picked })}
+            onOpenProject={(projectId) => {
+              setProjectsPlace({ ...projectsPlace, picked: projectId, query: '', showFolded: true })
+              setActive('projects')
+            }}
           />
         )}
         {active === 'projects' && (

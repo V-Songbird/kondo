@@ -161,10 +161,16 @@ entry and shipped the same day:
 
 ## Now — the road to a release someone else can trust
 
-Twenty-six entries stand between today and v1.0, from a six-dimension audit of the
-repository on 2026-09-05: mutation safety, the release pipeline, public-repo
-readiness, first-run experience, cross-platform correctness and the quality gates.
-Every one names the file and line that proves the gap.
+The release-readiness work comes from a six-dimension audit on 2026-09-05:
+mutation safety, the release pipeline, public-repo readiness, first-run
+experience, cross-platform correctness and quality gates. `ROADMAP.jsonl`
+records the current status of each entry; the list below preserves the release
+sequence rather than implying that every item is still unimplemented.
+
+On 2026-09-06, code review confirmed 072, 073, 075 and 076 already implemented.
+The [Claude Code review](docs/plans/2026-09-06-claude-usability-review.md)
+implements 087, 090 and 095 for owner review and records additional compatibility
+and safety gaps. This is not release acceptance or completion of rehearsal 071.
 
 Four decisions frame them and are not up for re-argument here:
 
@@ -177,8 +183,8 @@ Four decisions frame them and are not up for re-argument here:
 
 ### v0.6 — the first tagged release
 
-Safety before packaging. The four blockers that touch a real user's bytes come
-first, and 071's real-store rehearsal is gated behind all four:
+Safety before packaging. The four initial blockers below have landed; 071's
+copy-of-store rehearsal still needs to be performed:
 
 - 072 splice the settings toggles with a digest guard instead of whole-file writes;
   ADR-0010 already forbids what `kinds.ts` does today, and all ten real writes so

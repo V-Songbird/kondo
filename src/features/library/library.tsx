@@ -7,6 +7,7 @@ import type {
 } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
+import { Problems } from '../../ui/problems'
 import { formatAgo, formatBytes } from '../../lib/format'
 import {
   KIND_LABEL,
@@ -17,9 +18,22 @@ import {
   findings,
   hookName,
   objectKey,
+  managementProjects,
   scopeLabel
 } from './catalog'
 import type { CatalogInput, Flag, LibraryKind, LibraryObject } from './catalog'
+
+const KIND_HELP: Record<LibraryKind, string> = {
+  skill: 'Instructions for a repeatable task',
+  plugin: 'A bundle of skills and other extensions',
+  mcp: 'A connection to tools or services',
+  hook: 'An action triggered by a Claude Code event',
+  agent: 'An assistant with a specific role',
+  command: 'A saved slash command',
+  rule: 'Guidance Claude Code follows',
+  'output-style': 'How Claude Code formats its answers',
+  settings: 'Preferences for Claude Code'
+}
 
 /**
  * The Library: the named object is the row.
@@ -68,7 +82,8 @@ export function Library({
   kind,
   onKind,
   picked,
-  onPick
+  onPick,
+  onOpenProject
 }: {
   query: string
   onQuery: (value: string) => void
@@ -76,9 +91,9 @@ export function Library({
   onKind: (value: LibraryKind | null) => void
   picked: string | null
   onPick: (key: string | null) => void
+  onOpenProject: (projectId: string) => void
 }) {
-  // Ten reads, every one a channel that already existed. Nine of them are the
-  // ones the renderer has never called.
+  // Every read contributes its data AND its diagnostics (ADR-0005).
   const skills = useScan((api) => api.skillsList())
   const duplicates = useScan((api) => api.skillDuplicates())
   const plugins = useScan((api) => api.pluginsList())
@@ -113,21 +128,33 @@ export function Library({
   const counts = countByKind(catalog, found)
   const shown = filterCatalog(catalog, query, kind)
   const open = catalog.find((object) => object.key === picked) ?? null
+  const management = open === null ? [] : managementProjects(open, input)
   const kinds = counts.map((count) => count.kind)
 
-  const loading = [skills, plugins, hookGroups, layers, projects].some(
-    (state) => state.loading && !state.scan
+  const reads = [
+    { label: 'Skills', state: skills },
+    { label: 'Duplicate skills', state: duplicates },
+    { label: 'Plugins', state: plugins },
+    { label: 'Hooks', state: hookGroups },
+    { label: 'MCP servers', state: mcp },
+    { label: 'Agents', state: agents },
+    { label: 'Commands', state: commands },
+    { label: 'Rules', state: rules },
+    { label: 'Output styles', state: styles },
+    { label: 'Settings', state: layers },
+    { label: 'Projects', state: projects }
+  ]
+  const loading = reads.some(({ state }) => state.loading && !state.scan)
+  const incomplete = reads.some(({ state }) =>
+    state.failure !== null || (state.scan?.errors.length ?? 0) > 0 ||
+    (state.scan?.unknown.length ?? 0) > 0
   )
-  const failure =
-    [skills, plugins, hookGroups, layers, projects].find((state) => state.failure)?.failure ??
-    null
-
-  if (failure !== null) return <div className="band band-pencil">{failure}</div>
 
   return (
     <div className="flex h-full min-h-0 gap-6">
       <div className="flex w-80 shrink-0 flex-col gap-3">
         <input
+          aria-label="Search the Library"
           value={query}
           onChange={(event) => onQuery(event.target.value)}
           placeholder="Search skills, plugins, hooks…"
@@ -162,7 +189,11 @@ export function Library({
               <i />
             </div>
           ) : shown.length === 0 ? (
-            <p>Nothing here matches. Every object Claude loads is in this list.</p>
+            <p>{incomplete
+              ? 'No matching items in the information Kondo could read. Check the reading problems.'
+              : catalog.length === 0
+                ? 'No items found in the Claude Code locations Kondo checks.'
+                : 'No items match these filters. Try another name or choose All.'}</p>
           ) : (
             shown.map((object) => (
               <button
@@ -194,10 +225,51 @@ export function Library({
       </div>
 
       <div className="min-w-0 flex-1 overflow-auto">
+        {loading && <p role="status">Reading your Claude Code setup…</p>}
+        {incomplete && (
+          <p role="status" className="mb-3">
+            Some information could not be read or recognized. The items below are still available.
+          </p>
+        )}
+        {reads.map(({ label, state }) => (
+          <div key={label}>
+            {state.failure !== null && (
+              <div role="alert" className="band band-pencil">
+                {label} could not be read: {state.failure}
+                <button type="button" className="btn btn-sm" onClick={state.reload}>Try again</button>
+              </div>
+            )}
+            {state.scan && (state.scan.errors.length > 0 || state.scan.unknown.length > 0) && (
+              <div aria-label={`${label} reading problems`}>
+                <p>{label}</p>
+                <Problems scan={state.scan} />
+              </div>
+            )}
+          </div>
+        ))}
         {open === null ? (
-          <Machine counts={counts} found={found} onPick={onPick} />
+          <Machine counts={counts} found={found} onPick={onPick} onKind={onKind}
+            complete={!loading && !incomplete} />
         ) : (
-          <ObjectPage object={open} input={input} />
+          <>
+            <ObjectPage object={open} input={input} />
+            {management.length > 0 && <Section title="Manage this item">
+              <p className="mb-2">
+                Open a location to see its available controls for turning items on or off,
+                moving them, and undoing changes. Global applies across projects.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {management.map((project) => (
+                  <button key={project.id} type="button" className="btn btn-sm"
+                    title={project.label}
+                    onClick={() => onOpenProject(project.id)}>
+                    Manage in {management.filter((item) => item.name === project.name).length > 1
+                      ? project.label : project.name}
+                  </button>
+                ))}
+              </div>
+            </Section>}
+          </>
         )}
       </div>
     </div>
@@ -208,23 +280,28 @@ export function Library({
 function Machine({
   counts,
   found,
-  onPick
+  onPick,
+  onKind,
+  complete
 }: {
   counts: ReturnType<typeof countByKind>
   found: ReturnType<typeof findings>
   onPick: (key: string) => void
+  onKind: (kind: LibraryKind) => void
+  complete: boolean
 }) {
   return (
     <div>
       <div className="hero">
         <h1>Library</h1>
         <p className="mt-2">
-          Everything Claude loads on this machine, and every place it loads it from. Pick
-          an object to see its scopes.
+          Find your Claude Code skills, plugins and connections. Choose an item to see
+          where it is configured and open its management controls.
         </p>
       </div>
 
-      <Section title="What this machine loads">
+      <Section title="Your Claude Code setup">
+        <div className="overflow-x-auto">
         <table className="ledger">
           <thead>
             <tr>
@@ -237,7 +314,10 @@ function Machine({
           <tbody>
             {counts.map((count) => (
               <tr key={count.kind}>
-                <td>{KIND_LABEL[count.kind]}</td>
+                <td><button type="button" className="btn btn-sm"
+                  onClick={() => onKind(count.kind)}>{KIND_LABEL[count.kind]}</button>
+                  <p className="text-xs">{KIND_HELP[count.kind]}</p>
+                </td>
                 <td className="num">{count.objects}</td>
                 <td className="num">{count.copies}</td>
                 <td className="num">
@@ -248,7 +328,7 @@ function Machine({
           </tbody>
           <tfoot>
             <tr>
-              <td>Everything Claude reads</td>
+              <td>Items found</td>
               <td className="num">
                 {counts.reduce((sum, count) => sum + count.objects, 0)}
               </td>
@@ -257,20 +337,20 @@ function Machine({
             </tr>
           </tfoot>
         </table>
+        </div>
         {/* A hook exists exactly once; a skill in four scopes is one object
             and four copies. The two columns are not the same question. */}
         <p className="mt-3 text-xs">
-          A hook exists exactly once, so hooks read n of n. A skill in four scopes is one
-          object and four copies.
+          An item can be available globally or in individual projects. One skill saved
+          in two locations counts as one item with two copies.
         </p>
       </Section>
 
       <Section title="Needs a look" count={found.length === 0 ? undefined : found.length}>
         {found.length === 0 ? (
           <p>
-            Nothing here needs a look — every hook names a script that is on disk, every
-            declaration has a folder behind it, and no name is repeated with different
-            contents.
+            {complete ? 'No issues found in the information Kondo checked.'
+              : 'The check is incomplete. Missing information can hide issues.'}
           </p>
         ) : (
           <>
@@ -310,8 +390,8 @@ function Machine({
               </table>
             </div>
             <p className="mt-3 text-xs">
-              Getting this to zero is the answer to “am I done” — a question no other
-              screen answers. Every row is evidence, never a verdict about what to remove.
+              Review these items before changing anything. A finding does not mean an item
+              should be removed.
             </p>
           </>
         )}
@@ -391,8 +471,8 @@ function SkillPage({ object, input }: { object: LibraryObject; input: CatalogInp
             <thead>
               <tr>
                 <th>Scope</th>
-                <th>In effect</th>
-                <th>Says</th>
+                <th>Status</th>
+                <th>Setting</th>
                 <th>Contents</th>
                 <th>File</th>
               </tr>
@@ -412,7 +492,7 @@ function SkillPage({ object, input }: { object: LibraryObject; input: CatalogInp
                   </td>
                   <td className="whitespace-nowrap">
                     {skill.override === null ? (
-                      <span className="stamp-unknown">nothing states it</span>
+                      <span className="stamp-unknown">no explicit setting</span>
                     ) : (
                       <>
                         <span className="stamp-off">{skill.override.value}</span>
@@ -441,8 +521,10 @@ function SkillPage({ object, input }: { object: LibraryObject; input: CatalogInp
         {group !== undefined && (
           <p className="mt-3 text-xs">
             {group.identical
-              ? 'Both copies digest the same, so one of them is redundant. Kondo says nothing about which to keep.'
-              : 'The copies differ, so neither is redundant.'}
+              ? 'These copies have identical contents. Choose which location you want to keep before removing a copy.'
+              : group.members.some((member) => member.digest === null)
+                ? 'Some contents could not be compared. Keep both copies until they can be read.'
+                : 'These copies have different contents. Keep both unless you have reviewed the differences.'}
           </p>
         )}
       </Section>
@@ -683,8 +765,8 @@ function McpPage({ object, input }: { object: LibraryObject; input: CatalogInput
           </table>
         </div>
         <p className="mt-3 text-xs">
-          Read-only: the files that hold these declarations are ones kondo cannot yet
-          write safely, and its `env` and `headers` never cross the seam at all.
+          Connections let Claude Code use other tools and services. Open a project to
+          see the available on/off controls. Private connection values are hidden.
         </p>
       </Section>
     </div>
@@ -781,22 +863,28 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 function Changes({ ids, noun }: { ids: Set<string>; noun: string }) {
   const journal = useScan((api) => api.journalList())
   const entries = (journal.scan?.data ?? []).filter((entry) => ids.has(entry.entityId))
-  if (entries.length === 0) return null
   return (
     <Section title={`Changes to this ${noun}`} count={entries.length}>
-      {entries.map((entry) => (
-        <div key={entry.id} className="line">
-          <span className="w-20 shrink-0 text-ink-3" title={entry.at}>
-            {formatAgo(Date.parse(entry.at))}
-          </span>
-          <span className="min-w-0 flex-1">{entry.summary}</span>
-          <span className="stamp">{entry.op}</span>
-        </div>
-      ))}
-      <p className="mt-3 text-xs">
-        Undo lives on History, where every change kondo has made is listed with a way
-        back.
-      </p>
+      <AsyncView state={journal}>
+        {() => (
+          <>
+            {entries.length === 0 && <p>No changes recorded for this item.</p>}
+            {entries.map((entry) => (
+              <div key={entry.id} className="line">
+                <span className="w-20 shrink-0 text-ink-3" title={entry.at}>
+                  {formatAgo(Date.parse(entry.at))}
+                </span>
+                <span className="min-w-0 flex-1">{entry.summary}</span>
+                <span className="stamp">{entry.op}</span>
+              </div>
+            ))}
+            <p className="mt-3 text-xs">
+              Undo lives on History, where every change kondo has made is listed with a way
+              back.
+            </p>
+          </>
+        )}
+      </AsyncView>
     </Section>
   )
 }

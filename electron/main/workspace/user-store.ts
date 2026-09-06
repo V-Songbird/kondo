@@ -479,7 +479,7 @@ export interface InstalledPlugins {
   /** Every `<name>@<marketplace>` id the manifest declares. */
   keys: Set<string>
   /**
-   * The install directory of each declared id, resolved and case-folded so a
+   * Every install directory of each declared id, resolved and case-folded so a
    * comparison against a directory read off the same store cannot miss. A
    * missed match would offer the live version as a candidate, so this errs
    * towards matching: over-matching skips one superseded directory, while
@@ -511,10 +511,13 @@ export async function readInstalledPlugins(
   const installPaths = new Set<string>()
   for (const [key, installs] of Object.entries(plugins)) {
     keys.add(key)
-    const install = firstInstall(installs)
-    const declared = typeof install['installPath'] === 'string' ? install['installPath'] : null
-    if (declared !== null && pathWithin(declared, locator.userRoot)) {
-      installPaths.add(installKey(declared))
+    // Each scope can retain a different installed version of the same
+    // plugin. Array position never makes another scope's live code residue.
+    for (const install of Array.isArray(installs) ? installs : []) {
+      const declared = asObject(install)?.['installPath']
+      if (typeof declared === 'string' && pathWithin(declared, locator.userRoot)) {
+        installPaths.add(installKey(declared))
+      }
     }
   }
   return { keys, installPaths }

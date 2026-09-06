@@ -219,6 +219,29 @@
 }
 
 @layer components {
+  .skip-link {
+    position: fixed;
+    top: 8px;
+    left: 24px;
+    z-index: 10;
+    padding: 4px 12px;
+    background: var(--base);
+    color: var(--ink);
+    clip-path: inset(50%);
+    -webkit-app-region: no-drag;
+  }
+  .skip-link:focus {
+    clip-path: none;
+  }
+  .line {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    min-height: 28px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--rule);
+    overflow-wrap: anywhere;
+  }
   /* The sidebar: no panel, no fill, no radius. A column of text against one
      vertical rule, which hands ~30px back to the detail pane at 900px. */
   /* The window drags by its top strip instead of an OS title bar. Its height

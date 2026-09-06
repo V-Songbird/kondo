@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { Scan } from '../../shared/contract'
 
 /**
@@ -14,6 +14,7 @@ import type { Scan } from '../../shared/contract'
  */
 export function Problems({ scan }: { scan: Scan<unknown> }) {
   const [open, setOpen] = useState(false)
+  const detailsId = useId()
   const errorCount = scan.errors.length
   const unrecognized = scan.unknown.length
   if (errorCount === 0 && unrecognized === 0) return null
@@ -33,6 +34,7 @@ export function Problems({ scan }: { scan: Scan<unknown> }) {
       <button
         type="button"
         aria-expanded={open}
+        aria-controls={open ? detailsId : undefined}
         className={`disclose w-full ${onlyUnrecognized ? 'py-1' : 'py-0.5 text-note'}`}
         onClick={() => setOpen((value) => !value)}
       >
@@ -40,6 +42,7 @@ export function Problems({ scan }: { scan: Scan<unknown> }) {
       </button>
       {open && (
         <div
+          id={detailsId}
           className={`max-h-64 overflow-auto font-mono text-xs ${
             onlyUnrecognized ? 'py-1' : 'mt-2 border-t border-line pt-2'
           }`}

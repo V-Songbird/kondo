@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { JournalEntryInfo, JournalOp } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { Problems } from '../../ui/problems'
 import { Refusal } from '../../ui/refusal'
+import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
 
 /**
@@ -39,6 +40,9 @@ export function Journal() {
   const [confirming, setConfirming] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<string | null>(null)
+  const emptyButtonId = useId()
+  const questionId = useId()
+  const confirmation = useConfirmationFocus(confirming, () => setConfirming(false))
   const reloadJournal = journal.reload
   const reloadTrash = trash.reload
 
@@ -66,7 +70,7 @@ export function Journal() {
     try {
       const done = await api.journalUndo(entry.id)
       setProblem(joinErrors(done.errors))
-      if (done.errors.length === 0) setOutcome(done.data?.summary ?? 'Undone.')
+      if (done.data?.isUndo && !done.data.failed) setOutcome(done.data.summary)
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -104,8 +108,9 @@ export function Journal() {
 
   return (
     <div>
-      {problem !== null && <div className="band band-pencil text-pencil">{problem}</div>}
-      {outcome !== null && <div className="band band-stamp">{outcome}</div>}
+      {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
+      {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
+      {trash.failure !== null && <div role="alert" className="band band-pencil">{trash.failure}</div>}
 
       {trash.scan && <Problems scan={trash.scan} />}
 
@@ -113,9 +118,10 @@ export function Journal() {
         <div className="sheet-head">
           <h2>Kondo&rsquo;s trash</h2>
           <span className="count">
-            {formatBytes(held)} · {formatCount(points, 'restore point')}
+            {report ? `${formatBytes(held)} · ${formatCount(points, 'restore point')}` : '—'}
           </span>
         </div>
+        <div role="status" className="busy">{trash.loading ? 'Reading trash…' : ''}</div>
         <p className="max-w-2xl text-ink-2">
           Everything kondo has displaced still sits here, and stays until you empty it.
           Nothing expires on its own.
@@ -128,8 +134,8 @@ export function Journal() {
 
         <div className="mt-3">
           {confirming ? (
-            <div className="band band-pencil flex-col items-start gap-2">
-              <div className="text-pencil">
+            <div className="band band-pencil flex-col items-start gap-2" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
+              <div id={questionId} className="text-pencil">
                 Permanently delete {formatBytes(held)} from{' '}
                 {formatCount(points, 'restore point')}?
               </div>
@@ -141,15 +147,16 @@ export function Journal() {
                 {/* Cancel comes first and takes the focus: the destructive
                     choice is never the default one (ADR-0001). */}
                 <button
+                  ref={confirmation.cancelRef}
                   type="button"
-                  autoFocus
                   className="btn btn-go btn-sm"
-                  onClick={() => setConfirming(false)}
+                  onClick={confirmation.cancel}
                 >
                   Keep the trash
                 </button>
                 <button
                   type="button"
+                  disabled={busy !== null || trash.loading || trash.failure !== null || held === 0}
                   className="btn btn-fill btn-sm"
                   onClick={() => void empty()}
                 >
@@ -159,12 +166,22 @@ export function Journal() {
             </div>
           ) : (
             <button
+              id={emptyButtonId}
               type="button"
-              disabled={held === 0 || busy !== null}
+              disabled={held === 0 || busy !== null || trash.loading || trash.failure !== null}
               className="btn btn-pencil btn-sm"
-              onClick={() => setConfirming(true)}
+              onClick={() => {
+                confirmation.rememberFocus(emptyButtonId)
+                setConfirming(true)
+              }}
             >
-              {held === 0 ? 'Nothing to empty' : `Empty the trash · ${formatBytes(held)}`}
+              {trash.failure !== null
+                ? 'Trash unavailable'
+                : !report
+                  ? 'Reading trash…'
+                  : held === 0
+                    ? 'Nothing to empty'
+                    : `Empty the trash · ${formatBytes(held)}`}
             </button>
           )}
         </div>
@@ -200,6 +217,7 @@ export function Journal() {
                       </td>
                       <td className="max-w-lg">
                         <div>{entry.summary}</div>
+                        <Refusal reason={entry.failed ? 'A step of this change failed. Undo restores the steps that were applied.' : null} />
                         <div
                           className="truncate font-mono text-xs text-ink-2"
                           title={entry.entityId}
@@ -212,10 +230,7 @@ export function Journal() {
                         <span className="stamp">{OP_LABEL[entry.op]}</span>
                         {entry.undoneBy !== null && <span className="stamp-off" data-sigil="undone">undone</span>}
                         {entry.failed && (
-                          <span
-                            className="stamp-bad"
-                            title="A step of this change failed; the store never got all of it. Undo puts back whatever did happen."
-                          >
+                          <span className="stamp-bad">
                             failed
                           </span>
                         )}
@@ -224,6 +239,7 @@ export function Journal() {
                       <td className="text-right">
                         <button
                           type="button"
+                          aria-label={`Undo ${entry.summary}`}
                           disabled={blocked !== null || busy !== null}
                           className="btn btn-quiet btn-sm"
                           onClick={() => void undo(entry)}

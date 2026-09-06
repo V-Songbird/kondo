@@ -3,6 +3,7 @@ import type {
   HookGroup,
   McpServerInfo,
   PluginInfo,
+  ProjectRow,
   SkillDuplicateGroup,
   SkillInfo
 } from '../shared/contract'
@@ -12,6 +13,7 @@ import {
   filterCatalog,
   findings,
   objectKey,
+  managementProjects,
   scopeLabel
 } from '../src/features/library/catalog'
 import type { CatalogInput } from '../src/features/library/catalog'
@@ -46,7 +48,49 @@ const empty: CatalogInput = {
   projects: []
 }
 
+const project = (id: string, global = false): ProjectRow => ({
+  id, name: global ? 'Global' : 'app', label: global ? 'Global' : `Fixture ${id}`,
+  parent: null, path: null, global, location: 'here', throwaway: false,
+  hasStore: true, sessionCount: 0, lastActivityMs: 0,
+  counts: { skills: 0, agents: 0, commands: 0, rules: 0, settings: 0, hooks: null, mcpServers: null }
+})
+
 describe('the Library catalog', () => {
+  it('routes a catalog hook to its opaque project id, even when names repeat', () => {
+    const first = project('opaque-first')
+    const second = project('opaque-second')
+    const input: CatalogInput = {
+      ...empty,
+      projects: [first, second],
+      hookGroups: [{ projectId: second.id, label: 'app', hooks: [{
+        id: 'hook:fixture:one', kind: 'hook', capabilities: caps,
+        event: 'Stop', matcher: null, command: 'echo fixture', script: null,
+        source: 'fixture settings', layer: 'project', projectId: second.id, projectLabel: 'app'
+      }] }]
+    }
+    const object = buildCatalog(input)[0]!
+    expect(managementProjects(object, input)).toEqual([second])
+  })
+
+  it('offers Global and explicit plugin locations without listing silent projects', () => {
+    const global = project('global-id', true)
+    const configured = project('configured-id')
+    const silent = project('silent-id')
+    const plugin: PluginInfo = {
+      id: 'plugin:fixture@local', kind: 'plugin', capabilities: caps,
+      name: 'fixture', marketplace: 'local', installed: true, version: '1',
+      installScope: 'user', installedAt: null, lastUpdated: null, installPath: 'fixture',
+      enabledIn: [], effectiveIn: [],
+      scopes: [configured, silent].map((place) => ({
+        layerId: `settings:${place.id}`, layer: 'project', projectId: place.id,
+        projectLabel: place.name, path: 'fixture', exists: true, capabilities: caps,
+        enabled: place === configured ? false : null
+      }))
+    }
+    const input: CatalogInput = { ...empty, plugins: [plugin], projects: [global, configured, silent] }
+    expect(managementProjects(buildCatalog(input)[0]!, input)).toEqual([global, configured])
+  })
+
   it('makes one object per name, however many scopes hold it', () => {
     const input: CatalogInput = {
       ...empty,
