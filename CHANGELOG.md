@@ -25,7 +25,7 @@ All notable changes to kondo are documented here. The format follows
   small enough to read in a blink used to make it a flash — and hands over
   after 8 s regardless, so a read that never settles still shows a window.
 
-- **Library**, a fifth destination, and the other lens on the same set: the
+- **Library**, now the starting destination and the other lens on the same set: the
   *named object* is the row rather than the project. One page per skill,
   plugin, hook, MCP server, agent, command, rule, output style or settings
   file, listing every scope it lives in with that scope's own state, the
@@ -52,6 +52,17 @@ All notable changes to kondo are documented here. The format follows
     `orphan-rows.ts`, tested without a DOM.
 
 ### Changed
+
+- Library is now the starting screen. Four primary destinations explain their
+  purpose; settings leftovers and duplicate skills are inside Clean up.
+- Library opens the matching project category and preserves search/selection
+  on return. Projects starts with an overview and focuses on one category at
+  a time; paths, hashes and IDs use optional disclosures.
+- At narrow desktop widths, Library and Projects show a browser or detail
+  pane with a Back action. Keyboard focus follows navigation and results.
+- Cleanup has explicit choose/review/apply steps and explains that files in
+  trash still consume space. History places changes and Undo before permanent
+  trash deletion; partial cleanup results retain their immediate Undo action.
 
 - **No OS title bar.** The window is `titleBarStyle: 'hidden'` with a native
   overlay for minimise/maximise/close in kondo's own colours, the page's top

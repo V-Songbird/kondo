@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import type { JournalEntryInfo, TidyCategory } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
@@ -6,6 +6,57 @@ import { LastChange } from '../../ui/last-change'
 import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { formatBytes, formatCount, joinErrors } from '../../lib/format'
 import { SkillDuplicates } from './duplicates'
+import { Orphans } from '../orphans/orphans'
+
+export type CleanupSection = 'files' | 'settings' | 'duplicates'
+
+const SECTIONS: { key: CleanupSection; label: string }[] = [
+  { key: 'files', label: 'Files and caches' },
+  { key: 'settings', label: 'Settings leftovers' },
+  { key: 'duplicates', label: 'Duplicate skills' }
+]
+
+export function Tidy({
+  section,
+  onSection,
+  onOpenHistory
+}: {
+  section: CleanupSection
+  onSection: (section: CleanupSection) => void
+  onOpenHistory: () => void
+}) {
+  return (
+    <div>
+      <div className="hero">
+        <h1>Clean up</h1>
+        <p className="mt-2 max-w-2xl">
+          Choose what to tidy, review the changes, then apply them. Nothing is selected for you.
+        </p>
+        <button type="button" className="btn btn-quiet btn-sm mt-3" onClick={onOpenHistory}>
+          Open History and trash
+        </button>
+      </div>
+      <nav className="section-nav" aria-label="Cleanup sections">
+        {SECTIONS.map((entry) => (
+          <button
+            key={entry.key}
+            type="button"
+            aria-current={section === entry.key ? 'page' : undefined}
+            className="btn btn-quiet"
+            onClick={() => onSection(entry.key)}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </nav>
+      {/* Each scope owns its pending confirmation. Switching sections drops
+          the old question, while the persistent navigation retains focus. */}
+      {section === 'files' && <FileCleanup />}
+      {section === 'settings' && <Orphans />}
+      {section === 'duplicates' && <SkillDuplicates />}
+    </div>
+  )
+}
 
 /**
  * The tidy sweep, preview first. The table is computed by main without moving
@@ -38,9 +89,9 @@ const LABEL: Record<TidyCategory, string> = {
 function hintFor(category: TidyCategory, staleAfterDays: number): string {
   switch (category) {
     case 'scratch-projects':
-      return 'Work Claude did in a temp folder, a worktree or a job. The whole folder goes.'
+      return 'Saved Claude data for temporary folders, worktrees, jobs or folders with no conversations. The project’s own files stay.'
     case 'dead-projects':
-      return 'Claude still records these, but the folder is no longer on disk. The whole folder goes.'
+      return 'Saved Claude data for project folders that are no longer on disk.'
     case 'stale-sessions':
       return `Untouched for over ${staleAfterDays} days. Their session folders go too.`
     case 'empty-transcripts':
@@ -64,7 +115,7 @@ function hintFor(category: TidyCategory, staleAfterDays: number): string {
   }
 }
 
-export function Tidy() {
+function FileCleanup() {
   const state = useScan((api) => api.tidyPreview())
   const [selected, setSelected] = useState<TidyCategory[]>([])
   const [confirming, setConfirming] = useState(false)
@@ -76,6 +127,15 @@ export function Tidy() {
   const questionId = useId()
   const confirmation = useConfirmationFocus(confirming, () => setConfirming(false))
   const { reload } = state
+  const resultRef = useRef<HTMLDivElement>(null)
+  const focusResult = useRef(false)
+
+  useLayoutEffect(() => {
+    if (!busy && focusResult.current) {
+      resultRef.current?.focus()
+      focusResult.current = false
+    }
+  })
 
   const pick = (category: TidyCategory): void => {
     setConfirming(false)
@@ -86,7 +146,7 @@ export function Tidy() {
     )
   }
 
-  const sweep = async (): Promise<void> => {
+  const sweep = async (categories: TidyCategory[]): Promise<void> => {
     const api = window.kondo
     if (!api) return
     setBusy(true)
@@ -95,13 +155,13 @@ export function Tidy() {
     setOutcome(null)
     setChange(null)
     try {
-      const done = await api.tidySweep(selected)
+      const done = await api.tidySweep(categories)
       setProblem(joinErrors(done.errors))
+      setChange(done.data)
       if (done.errors.length === 0) {
         // A clean-up that moved something is a change with a way back, so
         // it goes to the banner; a tidy store has nothing to undo and just
         // says so (ADR-0001 — the entry is what the undo hangs on).
-        setChange(done.data)
         if (done.data === null) {
           setOutcome('Nothing left to clean up — everything here is already tidy.')
         }
@@ -109,6 +169,7 @@ export function Tidy() {
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
     } finally {
+      focusResult.current = true
       setBusy(false)
       setSelected([])
       // ADR-0006: the store is the state. The sweep changed the very tree the
@@ -120,43 +181,55 @@ export function Tidy() {
 
   return (
     <div>
-      {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
-      {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
-      {/* The way back, offered where the sweep was run rather than in
-          History. Keyed on the entry so a second sweep starts a fresh one. */}
-      <LastChange key={change?.id} entry={change} onUndone={reload} />
+      <div className="sheet-head">
+        <h2>Files and caches</h2>
+      </div>
+      <p className="mb-3 max-w-2xl">
+        Move saved conversations, old plugin copies and rebuildable caches to kondo&rsquo;s
+        trash. You can undo the move here or in History.
+      </p>
+      <p className="mb-5 max-w-2xl">
+        Moving files to trash does not free disk space. Space is freed only when you
+        permanently empty the trash in History.
+      </p>
+      <div ref={resultRef} tabIndex={-1} aria-label="Cleanup result">
+        {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
+        {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
+        <LastChange key={change?.id} entry={change} onUndone={reload} />
+      </div>
 
       <AsyncView state={state}>
         {(scan) => {
           const chosen = scan.data.categories.filter((entry) =>
-            selected.includes(entry.category)
+            selected.includes(entry.category) && entry.count > 0 && entry.blocked === null
           )
+          const available = scan.data.categories.filter((entry) => entry.count > 0 || entry.blocked !== null)
+          const empty = scan.data.categories.filter((entry) => entry.count === 0 && entry.blocked === null)
           const count = chosen.reduce((sum, entry) => sum + entry.count, 0)
           const bytes = chosen.reduce((sum, entry) => sum + entry.bytes, 0)
 
           return (
             <section className="sheet">
               <div className="mb-5">
-                <h2>Preview — nothing has moved</h2>
+                <h3>1. Choose what to clean up</h3>
                 <p className="mt-1 max-w-2xl text-ink-2">
-                  These counts are a look, not a change. Pick what to reclaim; cleaning
-                  up moves every chosen item into kondo&rsquo;s trash in one step you can
-                  undo. Nothing is deleted.
+                  {scan.data.totalCount === 0
+                    ? 'No files need cleaning up in the categories kondo checked.'
+                    : `${formatCount(scan.data.totalCount, 'item')} found. Select a category to include every item in it; review your selection before anything moves.`}
                 </p>
               </div>
 
-              <table className="ledger mb-5">
+              {available.length > 0 && <table className="ledger mb-5">
                 <thead>
                   <tr>
                     <th />
                     <th>Category</th>
                     <th className="num">Items</th>
-                    <th className="num">Reclaims</th>
-                    <th>For example</th>
+                    <th className="num">Size estimate</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {scan.data.categories.map((entry) => (
+                  {available.map((entry) => (
                     <tr key={entry.category} data-force={entry.count === 0 ? 'off' : undefined}>
                       <td>
                         <input
@@ -164,7 +237,7 @@ export function Tidy() {
                           aria-label={`Select ${LABEL[entry.category]}`}
                           aria-describedby={`${questionId}-${entry.category}`}
                           disabled={entry.count === 0 || entry.blocked !== null || busy}
-                          checked={selected.includes(entry.category)}
+                          checked={chosen.some((chosenEntry) => chosenEntry.category === entry.category)}
                           onChange={() => pick(entry.category)}
                         />
                       </td>
@@ -179,74 +252,92 @@ export function Tidy() {
                         {entry.blocked !== null && (
                           <p className="text-xs text-note">{entry.blocked}</p>
                         )}
+                        {entry.examples.length > 0 && (
+                          <details className="technical-details mt-2">
+                            <summary>See example paths</summary>
+                            <ul className="mt-2 space-y-1 font-mono text-xs text-ink-2">
+                              {entry.examples.map((example) => (
+                                <li key={example} className="break-all">{example}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
                       </td>
                       <td className="num">
                         {entry.count === 0 ? '—' : entry.count.toLocaleString()}
                       </td>
                       <td className="num">{formatBytes(entry.bytes)}</td>
-                      <td className="max-w-md font-mono text-xs text-ink-2">
-                        {entry.examples.map((example) => (
-                          <div key={example} className="truncate" title={example}>
-                            {example}
-                          </div>
-                        ))}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr>
                     <td />
-                    <td>Everything kondo can reclaim</td>
+                    <td>Total found</td>
                     <td className="num">{scan.data.totalCount.toLocaleString()}</td>
                     <td className="num">{formatBytes(scan.data.totalBytes)}</td>
-                    <td />
                   </tr>
                 </tfoot>
-              </table>
+              </table>}
+
+              {empty.length > 0 && (
+                <details className="technical-details mb-5">
+                  <summary>{empty.length} {empty.length === 1 ? 'category' : 'categories'} with nothing to clean up</summary>
+                  <ul className="mt-2 space-y-1">
+                    {empty.map((entry) => <li key={entry.category}>{LABEL[entry.category]}</li>)}
+                  </ul>
+                </details>
+              )}
 
               {confirming ? (
-                <div className="band band-pencil" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
-                  <span id={questionId}>
-                    Move {formatCount(count, 'item')} ({formatBytes(bytes)}) into
-                    kondo&rsquo;s trash?
-                  </span>
-                  <button type="button" disabled={busy || count === 0} className="btn btn-pencil btn-sm" onClick={() => void sweep()}>
-                    Move to trash
-                  </button>
-                  <button
-                    ref={confirmation.cancelRef}
-                    type="button"
-                    className="btn btn-quiet btn-sm"
-                    onClick={confirmation.cancel}
-                  >
-                    Cancel
-                  </button>
+                <div className="band band-pencil flex-col items-start gap-3" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
+                  <h3 id={questionId}>2. Review before moving anything</h3>
+                  <p>Move {formatCount(count, 'item')} (about {formatBytes(bytes)}) into kondo&rsquo;s trash?</p>
+                  <ul className="space-y-1">
+                    {chosen.map((entry) => (
+                      <li key={entry.category}>{LABEL[entry.category]} · {formatCount(entry.count, 'item')}</li>
+                    ))}
+                  </ul>
+                  <p>All items in these categories will move together. One Undo restores the move.</p>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      ref={confirmation.cancelRef}
+                      type="button"
+                      className="btn btn-quiet btn-sm"
+                      onClick={confirmation.cancel}
+                    >
+                      Cancel
+                    </button>
+                    <button type="button" disabled={busy || count === 0 || state.loading} className="btn btn-pencil btn-sm" onClick={() => void sweep(chosen.map((entry) => entry.category))}>
+                      Move to trash
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <button
-                  id={sweepButtonId}
-                  type="button"
-                  disabled={count === 0 || busy}
-                  className="btn btn-go"
-                  onClick={() => {
-                    confirmation.rememberFocus(sweepButtonId)
-                    setConfirming(true)
-                  }}
-                >
-                  {count === 0
-                    ? 'Pick what to clean up'
-                    : `Clean up ${formatCount(count, 'item')} · ${formatBytes(bytes)}`}
-                </button>
+                <div>
+                  <p className="mb-3" role="status">
+                    {busy ? 'Moving selected files to trash…' : count === 0
+                      ? 'No categories selected.'
+                      : `${formatCount(count, 'item')} selected · about ${formatBytes(bytes)} to move to trash.`}
+                  </p>
+                  <button
+                    id={sweepButtonId}
+                    type="button"
+                    disabled={count === 0 || busy || state.loading}
+                    className="btn btn-go"
+                    onClick={() => {
+                      confirmation.rememberFocus(sweepButtonId)
+                      setConfirming(true)
+                    }}
+                  >
+                    Review selected items
+                  </button>
+                </div>
               )}
             </section>
           )
         }}
       </AsyncView>
-
-      {/* Its own read and its own undo: a skill copy goes one at a time, not
-          as a category of the sweep above. */}
-      <SkillDuplicates />
     </div>
   )
 }

@@ -153,12 +153,21 @@ Where the write path stands (v0.2):
   the entities it already receives; a listing of the registry itself only
   ships if a view needs one.
 
-## Where the product is heading
+## Renderer navigation
 
-The v0.1/v0.2 views are one tab per kind. The owner's brief is the opposite
-shape: open kondo and see *projects*, each with the skills, plugins, hooks,
-agents and MCP servers attached to it, and act from there. ROADMAP.md
-"Now — v0.3" is that turn: project identity (ADR-0009), read-only kinds for
-what a project can hold, project attribution on every entity DTO, and a
-Projects home that replaces the dashboard. The kind registry stays the
-mechanism; the per-project view is a projection over it, not a new scan.
+`App` owns four destinations, initially Library, and their navigation state:
+Library query/type/selected item, Projects query/selected project/category and
+browser/detail mode, and the selected Clean up subsection. Library joins the
+existing scan results by opaque IDs and opens the matching project category.
+Returning re-reads the data while preserving the selected item and filters.
+
+Projects mounts one category at a time; changing project or closing its detail
+remounts the page so pending mutations cannot follow the user into another
+context. Cleanup mounts one of files, settings leftovers or duplicate skills;
+each owns its explicit selection and confirmation. History lists changes
+before the separate permanent trash operation. The responsive layout changes
+which pane is visible, with focus restoration when returning to the browser.
+
+These are projections of the existing typed bridge, with no new filesystem or
+network access. The [UX workflow plan](plans/2026-09-06-ux-workflow.md) records
+the interaction decisions and fixture validation.

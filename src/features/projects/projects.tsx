@@ -1,4 +1,4 @@
-import { Fragment, useId, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { listView, PAGE } from './project-rows'
 import type {
   HookScript,
@@ -9,6 +9,7 @@ import type {
   PlacedEntryInfo,
   ProjectPluginChoice,
   ProjectPluginState,
+  ProjectDetail,
   ProjectRow,
   Scan,
   SessionDuplicateGroup,
@@ -28,9 +29,8 @@ import { flatKeyParts, formatAgo, formatBytes, formatCount, joinErrors } from '.
 import { PluginControl } from './plugin-control'
 
 /**
- * The projects home. Kondo opens here: every project Claude knows about with
- * the user store above them, and — for the one you pick — everything tied to
- * it on one page.
+ * Every project Claude knows about, with shared configuration above them.
+ * The chosen project's overview routes to one focused category at a time.
  *
  * The split is ADR-0007's two tiers made visible. The list is readdir counts
  * only, so it draws at once on a machine with thousands of projects; the page
@@ -52,7 +52,7 @@ export interface Destination {
  */
 function destinationsFrom(rows: ProjectRow[]): Destination[] {
   return [
-    { id: 'user', label: 'Global (~/.claude)' },
+    { id: 'user', label: 'All projects' },
     ...rows
       .filter((row) => !row.global && row.hasStore)
       .map((row) => ({ id: row.id, label: row.label }))
@@ -73,13 +73,29 @@ export interface ProjectsPlace {
   picked: string | null
   showFolded: boolean
   limit: number
+  section?: ProjectSection
+  detailOpen?: boolean
 }
+
+export type ProjectSection = 'overview' | 'skills' | 'plugins' | 'connections' | 'tools' | 'sessions' | 'technical'
+
+const PROJECT_SECTIONS: Array<{ id: ProjectSection; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'skills', label: 'Skills' },
+  { id: 'plugins', label: 'Plugins' },
+  { id: 'connections', label: 'Connections' },
+  { id: 'tools', label: 'Other tools' },
+  { id: 'sessions', label: 'Conversations' },
+  { id: 'technical', label: 'Technical details' }
+]
 
 export const FIRST_PLACE: ProjectsPlace = {
   query: '',
   picked: null,
   showFolded: false,
-  limit: PAGE
+  limit: PAGE,
+  section: 'overview',
+  detailOpen: false
 }
 
 export function Projects({
@@ -91,6 +107,14 @@ export function Projects({
 }) {
   const list = useScan((api) => api.projectsList())
   const { query, picked, showFolded, limit } = place
+  const filterRef = useRef<HTMLInputElement>(null)
+  const returningToBrowser = useRef(false)
+  useEffect(() => {
+    if (returningToBrowser.current && !place.detailOpen) {
+      returningToBrowser.current = false
+      filterRef.current?.focus()
+    }
+  }, [place.detailOpen])
   // Bumped by Rescan so the detail pane re-reads too: the list and the
   // Storage section are projections of one inventory (ADR-0007) and must not
   // disagree about the project set after a rescan.
@@ -115,10 +139,15 @@ export function Projects({
   }
 
   return (
-    <div className="flex h-full min-h-0 gap-8">
-      <div className="flex w-80 shrink-0 flex-col gap-3">
+    <div className="workspace-split" data-detail-open={place.detailOpen ? 'true' : 'false'}>
+      <div className="workspace-browser gap-3">
+        <div>
+          <h2>Projects</h2>
+          <p className="mt-2 text-ink-2">Choose where to manage Claude Code. All projects holds your shared configuration.</p>
+        </div>
         <div className="flex items-end gap-3">
           <input
+            ref={filterRef}
             aria-label="Filter projects"
             value={query}
             onChange={(event) =>
@@ -149,7 +178,7 @@ export function Projects({
                     <ProjectButton
                       row={row}
                       active={(picked ?? scan.data[0]?.id) === row.id}
-                      onPick={() => onPlace({ ...place, picked: row.id })}
+                      onPick={() => onPlace({ ...place, picked: row.id, section: 'overview', detailOpen: true })}
                     />
                   </li>
                 ))}
@@ -199,10 +228,24 @@ export function Projects({
           }}
         </AsyncView>
       </div>
-      <div className="min-w-0 flex-1 overflow-auto">
+      <div className="workspace-detail">
+        <button
+          type="button"
+          className="btn btn-quiet workspace-back"
+          onClick={() => {
+            returningToBrowser.current = true
+            onPlace({ ...place, picked: null, detailOpen: false, section: 'overview' })
+          }}
+        >
+          Back to projects
+        </button>
         {list.scan && (
           <ProjectPage
+            key={`${picked ?? list.scan.data[0]?.id ?? ''}:${place.detailOpen ? 'open' : 'closed'}`}
             id={picked ?? list.scan.data[0]?.id ?? ''}
+            section={place.section ?? 'overview'}
+            focusDetail={place.detailOpen ?? false}
+            onSection={(section) => onPlace({ ...place, section, detailOpen: true })}
             generation={rescans}
             destinations={destinationsFrom(list.scan.data)}
             onChanged={list.reload}
@@ -263,21 +306,21 @@ function ProjectButton({
               ))}
             </span>
           ) : (
-            row.name
+            row.global ? 'All projects' : row.name
           )}
         </span>
         {row.lastActivityMs > 0 && (
           <span className="shrink-0 text-[11px] text-ink-2">{formatAgo(row.lastActivityMs)}</span>
         )}
       </div>
-      {row.parent !== null && (
+      {row.parent !== null && !row.global && (
         <div className="truncate font-mono text-[10.5px] text-ink-2">{row.parent}</div>
       )}
       <div className="truncate text-[11px] text-ink-2">
         {/* A project kondo can name and cannot look inside is still a project
             (ADR-0005), and says so rather than showing a row of zeroes. */}
         {!row.global && !row.hasStore
-          ? 'no .claude directory'
+          ? 'No project configuration found'
           : chips.length === 0
             ? 'nothing yet'
             : chips.join(' · ')}
@@ -294,24 +337,61 @@ interface Pending {
 
 function ProjectPage({
   id,
+  section,
+  focusDetail,
+  onSection,
   generation,
   destinations,
   onChanged
 }: {
   id: string
+  section: ProjectSection
+  focusDetail: boolean
+  onSection: (section: ProjectSection) => void
   /** Changes when the list was rescanned, so this pane re-reads with it. */
   generation: number
   destinations: Destination[]
   onChanged: () => void
 }) {
   const state = useScan((api) => api.projectDetail(id), [id, generation])
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const focusedSection = useRef<string | null>(null)
+  // A selected detail may arrive after the browser has disappeared at the
+  // narrow width. Focus once it exists, but never steal focus on a reload.
+  useEffect(() => {
+    if (!focusDetail) focusedSection.current = null
+    if (focusDetail && state.scan?.data && focusedSection.current !== section) {
+      headingRef.current?.focus()
+      focusedSection.current = section
+    }
+  }, [focusDetail, section, state.scan])
   const [busy, setBusy] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
+  const refusalRef = useRef<HTMLDivElement>(null)
   const [pending, setPending] = useState<Pending | null>(null)
   const [change, setChange] = useState<JournalEntryInfo | null>(null)
-  const confirmation = useConfirmationFocus(pending !== null, () => setPending(null))
+  const pendingCancelled = useRef(false)
+  const confirmation = useConfirmationFocus(pending !== null, () => {
+    pendingCancelled.current = true
+    setPending(null)
+  })
+  useEffect(() => {
+    if (refusal !== null) refusalRef.current?.focus()
+  }, [refusal])
+  useEffect(() => {
+    if (pending === null && pendingCancelled.current) {
+      pendingCancelled.current = false
+      // A settings question can follow a move question whose confirm button
+      // has already unmounted. The project heading is the safe fallback.
+      if (document.activeElement === document.body) headingRef.current?.focus()
+    }
+  }, [pending])
   const questionId = useId()
   const { reload } = state
+  const selectSection = (next: ProjectSection): void => {
+    setPending(null)
+    onSection(next)
+  }
 
   /**
    * Every mutation on this page ends the same way: report whatever main
@@ -388,7 +468,7 @@ function ProjectPage({
 
   return (
     <div>
-      {refusal !== null && <div role="alert" className="band band-pencil text-pencil">{refusal}</div>}
+      {refusal !== null && <div ref={refusalRef} tabIndex={-1} role="alert" className="band band-pencil text-pencil">{refusal}</div>}
       {pending !== null && (
         <div className="band" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
           <span id={questionId} className="text-ink-2">{pending.message}</span>
@@ -407,7 +487,7 @@ function ProjectPage({
       )}
       {/* Keyed on the entry, so a second change starts a fresh banner rather
           than inheriting the first one's "undone". */}
-      <LastChange key={change?.id} entry={change} onUndone={reload} />
+      <LastChange key={change?.id} entry={change} onUndone={() => { reload(); onChanged() }} />
 
       <AsyncView state={state}>
         {(scan) => {
@@ -423,13 +503,40 @@ function ProjectPage({
           return (
             <div>
               <div className="sheet hero">
-                <h1>{row.name}</h1>
-                <div className="mt-1 font-mono text-xs text-ink-2">
-                  {row.path ?? 'kondo cannot tell where this project is.'}
-                </div>
+                <h1 ref={headingRef} tabIndex={-1}>
+                  {row.global ? 'All projects' : row.name}
+                  {section !== 'overview' && <span className="text-ink-2"> / {PROJECT_SECTIONS.find((item) => item.id === section)?.label}</span>}
+                </h1>
+                <p className="mt-2 text-ink-2">
+                  {row.global
+                    ? 'Shared Claude Code configuration. Individual projects can override these settings.'
+                    : 'Manage Claude Code for this project. Shared skills and plugin settings can also apply here.'}
+                </p>
+                <details className="technical-details mt-2">
+                  <summary>Project location</summary>
+                  <div className="mt-2 break-words font-mono text-xs text-ink-2">
+                    {row.path ?? 'kondo cannot tell where this project is.'}
+                  </div>
+                </details>
               </div>
 
-              {detail.storage && (
+              <nav aria-label="Project sections" className="section-nav mb-7 flex flex-wrap gap-2">
+                {PROJECT_SECTIONS.filter((item) => !row.global || item.id !== 'sessions').map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="btn btn-quiet btn-sm"
+                    aria-current={section === item.id ? 'page' : undefined}
+                    onClick={() => selectSection(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </nav>
+
+              {section === 'overview' && <ProjectOverview detail={detail} onSection={selectSection} />}
+
+              {section === 'technical' && detail.storage && (
                 <Section title="Storage" tone="lime">
                   <div className="flex flex-col gap-7">
                     <StoreCard title="Claude Code store" report={detail.storage.user} />
@@ -439,249 +546,272 @@ function ProjectPage({
                 </Section>
               )}
 
-              <Section
-                title="Skills"
-                count={detail.skills.length}
-                empty="No skills here. A skill is a folder with a SKILL.md in it, under this project's .claude/skills."
-              >
-                <SkillTable
-                  skills={detail.skills}
-                  destinations={destinations}
-                  busy={busy}
-                  run={run}
-                />
-              </Section>
+              {section === 'skills' && (
+                <>
+                  <p className="mb-5 text-ink-2">Skills teach Claude how to do a task. Turn one on or off, or move it to another project. Changes can be undone from History.</p>
+                  <Section
+                    title="Skills"
+                    count={detail.skills.length}
+                    empty={row.global ? 'No shared skills found. Skills added here can be available in every project.' : 'No skills belong only to this project. Shared skills appear below.'}
+                  >
+                    <SkillTable
+                      skills={detail.skills}
+                      destinations={elsewhere}
+                      busy={busy}
+                      run={run}
+                    />
+                  </Section>
 
-              {!row.global && (
-                <Section
-                  title="Inherited from Global"
-                  tone="blush"
-                  count={detail.inheritedSkills.length}
-                  empty="Global has no skills for this project to inherit."
-                >
-                  <InheritedSkillTable
-                    entries={detail.inheritedSkills}
-                    busy={busy}
-                    run={run}
-                  />
-                </Section>
-              )}
-
-              <Section
-                title="Plugins"
-                tone="orchid"
-                count={detail.plugins.length}
-                empty="No plugins are installed for Claude on this machine."
-              >
-                <div>
-                  {detail.plugins.map((plugin) => (
-                    <div
-                      key={plugin.pluginId}
-                      className="flex flex-wrap items-start gap-4 border-b border-line py-3 last:border-0"
+                  {!row.global && (
+                    <Section
+                      title="Shared from All projects"
+                      tone="blush"
+                      count={detail.inheritedSkills.length}
+                      empty="No shared skills are available for this project."
                     >
-                      <span className="w-56 shrink-0 truncate font-medium" title={plugin.marketplace}>
-                        {plugin.name}
-                      </span>
-                      <PluginControl
-                        state={plugin}
-                        global={row.global}
+                      <InheritedSkillTable
+                        entries={detail.inheritedSkills}
                         busy={busy}
-                        destinations={elsewhere}
-                        onChoose={(choice) => choose(plugin, choice)}
-                        onMove={(destinationId) => move(plugin, destinationId)}
+                        run={run}
                       />
-                    </div>
-                  ))}
-                </div>
-              </Section>
+                    </Section>
+                  )}
+                </>
+              )}
 
-              <Section
-                title="Hooks"
-                tone="mustard"
-                count={detail.hooks.length}
-                empty="Nothing here runs a command on a Claude event. A hook only exists once a settings file names it."
-              >
-                {/* Five columns of paths outgrow the sheet on a narrow window,
-                    so the table scrolls inside it rather than the page. */}
-                <div className="overflow-x-auto">
-                  <table className="ledger">
-                    <thead>
-                      <tr>
-                        <th>Event</th>
-                        <th>Matcher</th>
-                        <th>Command</th>
-                        <th>Script</th>
-                        <th>Settings file</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.hooks.map((hook) => (
-                        <tr key={hook.id}>
-                          <td className="font-mono text-xs">{hook.event}</td>
-                          <td className="font-mono text-xs text-ink-2">{hook.matcher ?? '*'}</td>
-                          <td className="max-w-xs truncate font-mono text-xs" title={hook.command}>
-                            {hook.command}
-                          </td>
-                          <td>
-                            <HookScriptCell script={hook.script} />
-                          </td>
-                          <td
-                            className="max-w-xs truncate font-mono text-xs text-ink-2"
-                            title={hook.source}
-                          >
-                            {hook.source}
-                          </td>
-                        </tr>
+              {section === 'plugins' && (
+                <>
+                  <p className="mb-5 text-ink-2">Plugins bundle tools for Claude. Choose whether each plugin is enabled here. Moving a plugin turns it off here and on at the destination; it stays installed.</p>
+                  <Section
+                    title="Plugins"
+                    tone="orchid"
+                    count={detail.plugins.length}
+                    empty="No plugins are installed for Claude on this machine."
+                  >
+                    <div>
+                      {detail.plugins.map((plugin) => (
+                        <div
+                          key={plugin.pluginId}
+                          className="flex flex-wrap items-start gap-4 border-b border-line py-3 last:border-0"
+                        >
+                          <span className="w-56 shrink-0 truncate font-medium" title={plugin.marketplace}>
+                            {plugin.name}
+                          </span>
+                          <PluginControl
+                            state={plugin}
+                            global={row.global}
+                            busy={busy}
+                            destinations={elsewhere}
+                            onChoose={(choice) => choose(plugin, choice)}
+                            onMove={(destinationId) => move(plugin, destinationId)}
+                          />
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Section>
+                    </div>
+                  </Section>
+                </>
+              )}
 
-              <Section
-                title="Agents"
-                tone="teal"
-                count={detail.agents.length}
-                empty="No agents here — nothing in this scope's agents folder."
-              >
-                <PlacedList entries={detail.agents} destinations={elsewhere} busy={busy} run={run} />
-              </Section>
-              <Section
-                title="Commands"
-                tone="lime"
-                count={detail.commands.length}
-                empty="No commands here — nothing in this scope's commands folder."
-              >
-                <PlacedList entries={detail.commands} destinations={elsewhere} busy={busy} run={run} />
-              </Section>
-              <Section
-                title="Rules"
-                tone="coral"
-                count={detail.rules.length}
-                empty="No rules here — nothing in this scope's rules folder."
-              >
-                <PlacedList entries={detail.rules} destinations={elsewhere} busy={busy} run={run} />
-              </Section>
-              {row.global && (
+              {section === 'technical' && (
                 <Section
-                  title="Output styles"
-                tone="orchid"
-                  count={detail.outputStyles.length}
-                  empty="No output styles here — nothing in ~/.claude/output-styles."
+                  title="Hooks"
+                  tone="mustard"
+                  count={detail.hooks.length}
+                  empty="Nothing here runs a command on a Claude event. A hook only exists once a settings file names it."
                 >
-                  {/* ADR-0006: Claude reads output styles from the user store
-                      only, so there is no scope to offer. Said in the column
-                      rather than by an empty picker. */}
-                  <PlacedList
-                    entries={detail.outputStyles}
-                    destinations={[]}
-                    nowhere="Claude reads output styles from ~/.claude only, so there is nowhere to move one."
-                    busy={busy}
-                    run={run}
-                  />
+                  {/* Five columns of paths outgrow the sheet on a narrow window,
+                      so the table scrolls inside it rather than the page. */}
+                  <div className="overflow-x-auto">
+                    <table className="ledger">
+                      <thead>
+                        <tr>
+                          <th>Event</th>
+                          <th>Matcher</th>
+                          <th>Command</th>
+                          <th>Script</th>
+                          <th>Settings file</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.hooks.map((hook) => (
+                          <tr key={hook.id}>
+                            <td className="font-mono text-xs">{hook.event}</td>
+                            <td className="font-mono text-xs text-ink-2">{hook.matcher ?? '*'}</td>
+                            <td className="max-w-xs truncate font-mono text-xs" title={hook.command}>
+                              {hook.command}
+                            </td>
+                            <td>
+                              <HookScriptCell script={hook.script} />
+                            </td>
+                            <td
+                              className="max-w-xs truncate font-mono text-xs text-ink-2"
+                              title={hook.source}
+                            >
+                              {hook.source}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </Section>
               )}
 
-              <Section
-                title="MCP servers"
-                tone="teal"
-                count={detail.mcpServers.length}
-                empty="No MCP servers are declared for this project."
-              >
-                <table className="ledger">
-                  <thead>
-                    <tr>
-                      <th>Server</th>
-                      <th>Where</th>
-                      <th>Transport</th>
-                      <th>Declared in</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.mcpServers.map((server) => {
-                      // The matrix decides direction and permission (ADR-0006):
-                      // the project's disable list in ~/.claude.json is the
-                      // switch, and a scope with no such list says so on screen.
-                      const operation: ToggleOperation = server.capabilities.disable.allowed
-                        ? 'disable'
-                        : 'enable'
-                      const reason = server.capabilities[operation].allowed
-                        ? null
-                        : server.capabilities[operation].reason
-                      return (
-                        <tr key={server.id} data-force={server.enabled ? undefined : 'off'}>
-                          <td className="font-medium whitespace-nowrap">
-                            {server.name}
-                            {!server.enabled && <span className="stamp-off ml-2">off</span>}
-                            {server.orphan && (
-                              <span
-                                className="stamp-bad ml-2"
-                                title="The folder this declaration points at is no longer on disk."
-                              >
-                                project is gone
-                              </span>
-                            )}
-                          </td>
-                          <td>
-                            <span className="stamp">{server.scope}</span>
-                          </td>
-                          <td className="text-ink-2">{server.transport}</td>
-                          <td
-                            className="max-w-xs truncate font-mono text-xs text-ink-2"
-                            title={server.source}
-                          >
-                            {server.source}
-                          </td>
-                          <td className="text-right">
-                            <button
-                              type="button"
-                              disabled={reason !== null || busy}
-                              className="btn btn-quiet btn-sm"
-                              onClick={() =>
-                                void run((api) => api.entityMutate(server.id, { op: operation }))
-                              }
-                            >
-                              {operation === 'disable' ? 'Disable' : 'Enable'}
-                            </button>
-                            <Refusal reason={reason} />
-                          </td>
+              {section === 'tools' && (
+                <>
+                  <p className="mb-5 text-ink-2">Other ways to customize Claude: specialist agents, reusable commands, instructions and response styles.</p>
+                  <Section
+                    title="Agents"
+                    tone="teal"
+                    count={detail.agents.length}
+                    empty="No specialist agents have been added here."
+                  >
+                    <PlacedList entries={detail.agents} destinations={elsewhere} busy={busy} run={run} />
+                  </Section>
+                  <Section
+                    title="Commands"
+                    tone="lime"
+                    count={detail.commands.length}
+                    empty="No reusable commands have been added here."
+                  >
+                    <PlacedList entries={detail.commands} destinations={elsewhere} busy={busy} run={run} />
+                  </Section>
+                  <Section
+                    title="Rules"
+                    tone="coral"
+                    count={detail.rules.length}
+                    empty="No additional instructions have been added here."
+                  >
+                    <PlacedList entries={detail.rules} destinations={elsewhere} busy={busy} run={run} />
+                  </Section>
+                  {row.global && (
+                    <Section
+                      title="Output styles"
+                    tone="orchid"
+                      count={detail.outputStyles.length}
+                      empty="No response styles have been added here."
+                    >
+                      {/* ADR-0006: Claude reads output styles from the user store
+                          only, so there is no scope to offer. Said in the column
+                          rather than by an empty picker. */}
+                      <PlacedList
+                        entries={detail.outputStyles}
+                        destinations={[]}
+                        nowhere="Response styles apply to all projects, so they cannot be moved to one project."
+                        busy={busy}
+                        run={run}
+                      />
+                    </Section>
+                  )}
+                </>
+              )}
+
+              {section === 'connections' && (
+                <>
+                  <p className="mb-5 text-ink-2">Connections let Claude use external tools through MCP. This list shows saved configuration, not whether a server is running or connected.</p>
+                  <Section
+                    title="Connections (MCP)"
+                    tone="teal"
+                    count={detail.mcpServers.length}
+                    empty="No connections are configured here."
+                  >
+                    <table className="ledger">
+                      <thead>
+                        <tr>
+                          <th>Server</th>
+                          <th>Where</th>
+                          <th>Details</th>
+                          <th />
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </Section>
+                      </thead>
+                      <tbody>
+                        {detail.mcpServers.map((server) => {
+                          // The matrix decides direction and permission (ADR-0006):
+                          // the project's disable list in ~/.claude.json is the
+                          // switch, and a scope with no such list says so on screen.
+                          const operation: ToggleOperation = server.capabilities.disable.allowed
+                            ? 'disable'
+                            : 'enable'
+                          const reason = server.capabilities[operation].allowed
+                            ? null
+                            : server.capabilities[operation].reason
+                          return (
+                            <tr key={server.id} data-force={server.enabled ? undefined : 'off'}>
+                              <td className="font-medium whitespace-nowrap">
+                                {server.name}
+                                {!server.enabled && <span className="stamp-off ml-2">off</span>}
+                                {server.orphan && (
+                                  <span
+                                    className="stamp-bad ml-2"
+                                    title="The folder this declaration points at is no longer on disk."
+                                  >
+                                    project is gone
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                <span className="stamp">{server.scope === 'user' ? 'All projects' : server.scope === 'local' ? 'This project only' : 'This project'}</span>
+                              </td>
+                              <td className="text-ink-2">
+                                <details>
+                                  <summary>Connection details</summary>
+                                  <div className="mt-2 text-xs break-words">Transport: {server.transport}<br />Settings file: {server.source}</div>
+                                </details>
+                              </td>
+                              <td className="text-right">
+                                <button
+                                  type="button"
+                                  disabled={reason !== null || busy}
+                                  aria-label={`${operation === 'disable' ? 'Disable' : 'Enable'} connection ${server.name}`}
+                                  className="btn btn-quiet btn-sm"
+                                  onClick={() =>
+                                    void run((api) => api.entityMutate(server.id, { op: operation }))
+                                  }
+                                >
+                                  {operation === 'disable' ? 'Disable' : 'Enable'}
+                                </button>
+                                <Refusal reason={reason} />
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </Section>
+                </>
+              )}
 
-              <Section
-                title="Settings files"
-                tone="orchid"
-                count={detail.settings.length}
-                empty="No settings file exists here yet. Kondo creates one only when you ask it to."
-              >
-                <div>
-                  {detail.settings.map((layer) => (
-                    <div key={layer.id} className="border-b border-line py-2.5 last:border-0">
-                      <div className="flex flex-wrap items-baseline gap-2">
-                        <span className="stamp">{layer.layer}</span>
-                        <span className="font-mono text-xs">{layer.path}</span>
-                        <span className="text-xs text-ink-2">
-                          {layer.exists ? formatBytes(layer.bytes) : 'not created yet'}
-                        </span>
-                      </div>
-                      {layer.keys.length > 0 && (
-                        <div className="mt-1 font-mono text-[11px] text-ink-2">
-                          {layer.keys.join(' · ')}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </Section>
-
-              {!row.global && (
+              {section === 'technical' && (
                 <Section
-                  title="Sessions"
+                  title="Settings files"
+                  tone="orchid"
+                  count={detail.settings.length}
+                  empty="No settings file exists here yet. Kondo creates one only when you ask it to."
+                >
+                  <div>
+                    {detail.settings.map((layer) => (
+                      <div key={layer.id} className="border-b border-line py-2.5 last:border-0">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <span className="stamp">{layer.layer}</span>
+                          <span className="font-mono text-xs">{layer.path}</span>
+                          <span className="text-xs text-ink-2">
+                            {layer.exists ? formatBytes(layer.bytes) : 'not created yet'}
+                          </span>
+                        </div>
+                        {layer.keys.length > 0 && (
+                          <div className="mt-1 font-mono text-[11px] text-ink-2">
+                            {layer.keys.join(' · ')}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </Section>
+              )}
+
+              {section === 'sessions' && !row.global && (
+                <Section
+                  title="Conversations"
                 tone="blush"
                   count={detail.sessions.length}
                   empty="Claude has recorded no conversation in this project."
@@ -700,6 +830,59 @@ function ProjectPage({
         }}
       </AsyncView>
     </div>
+  )
+}
+
+function ProjectOverview({ detail, onSection }: {
+  detail: ProjectDetail
+  onSection: (section: ProjectSection) => void
+}) {
+  const { row } = detail
+  const choices: Array<{ section: ProjectSection; title: string; amount: string; description: string }> = [
+    {
+      section: 'skills', title: 'Skills',
+      amount: `${detail.skills.length} here${row.global ? '' : ` · ${detail.inheritedSkills.length} shared`}`,
+      description: 'Instructions that teach Claude how to do a task. Review, enable or move them.'
+    },
+    {
+      section: 'plugins', title: 'Plugins', amount: formatCount(detail.plugins.length, 'installed plugin'),
+      description: 'Bundles of tools. Choose which ones are enabled in this place.'
+    },
+    {
+      section: 'connections', title: 'Connections', amount: formatCount(detail.mcpServers.length, 'saved connection'),
+      description: 'External tools configured for Claude through MCP. This does not check whether they are connected.'
+    },
+    {
+      section: 'tools', title: 'Other tools',
+      amount: formatCount(detail.agents.length + detail.commands.length + detail.rules.length + detail.outputStyles.length, 'item'),
+      description: 'Specialist agents, commands, instructions and response styles.'
+    }
+  ]
+  if (!row.global) choices.push({
+    section: 'sessions', title: 'Conversations', amount: formatCount(detail.sessions.length, 'saved conversation'),
+    description: 'Review past conversations and move selected copies to trash.'
+  })
+  return (
+    <Section title="What would you like to manage?">
+      <div>
+        {choices.map((choice) => (
+          <div key={choice.section} className="border-b border-line py-3 last:border-0">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <button type="button" className="btn btn-quiet" onClick={() => onSection(choice.section)}>
+                {choice.title}
+              </button>
+              <span className="text-xs text-ink-2">{choice.amount}</span>
+            </div>
+            <p className="mt-1 text-ink-2">{choice.description}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-5 text-ink-2">Choose a category to see its controls. Moving an item asks for a destination and confirmation; History lets you undo changes.</p>
+      <div className="mt-3">
+        <button type="button" className="btn btn-quiet btn-sm" onClick={() => onSection('technical')}>Technical details</button>
+        <p className="mt-1 text-xs text-ink-2">Inspect settings files, event commands and storage information.</p>
+      </div>
+    </Section>
   )
 }
 
@@ -738,7 +921,7 @@ function SessionCounts({ sessions }: { sessions: StoresOverview['sessions'] }) {
  * that means for *this* kind rather than printing "None." — a bare word above
  * a bare header is the thing a first-time user cannot read.
  */
-/** The palette colour of a section's dot — one hue per kind (DESIGN.md). */
+/** Legacy kind names retained in markup; DESIGN.md keeps all sections uncoloured. */
 type Tone = 'blush' | 'orchid' | 'lime' | 'teal' | 'coral' | 'mustard'
 
 function Section({
@@ -764,7 +947,7 @@ function Section({
       {count === 0 ? (
         <div className="text-ink-2">{empty ?? 'Nothing here yet.'}</div>
       ) : (
-        children
+        <div className="min-w-0 overflow-x-auto">{children}</div>
       )}
     </section>
   )
@@ -938,18 +1121,18 @@ function InheritedSkillTable({
                 ) : entry.skill.enabled ? (
                   <span className="stamp-ok">on</span>
                 ) : (
-                  <span className="stamp-off">off in Global</span>
+                  <span className="stamp-off">off in All projects</span>
                 )}
               </td>
               <td className="text-right">
                 <button
                   type="button"
                   disabled={reason !== null || busy}
-                  aria-label={`${operation === 'disable' ? 'Off here' : 'Follows global'}: ${entry.skill.name}`}
+                  aria-label={`${operation === 'disable' ? 'Off here' : 'Follow shared setting'}: ${entry.skill.name}`}
                   className="btn btn-quiet btn-sm"
                   onClick={() => toggle(entry, operation)}
                 >
-                  {operation === 'disable' ? 'Off here' : 'Follows global'}
+                  {operation === 'disable' ? 'Off here' : 'Follow shared setting'}
                 </button>
                 <Refusal reason={reason} />
               </td>
@@ -1130,6 +1313,7 @@ function SessionTable({
 
   return (
     <div className="space-y-3">
+      <p className="text-ink-2">Open a conversation to read its first message. Select only the copies you want to move to trash; you can undo the change from History.</p>
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -1137,7 +1321,7 @@ function SessionTable({
           className="btn btn-quiet btn-sm"
           onClick={() => void find()}
         >
-          {looking ? 'Reading openings…' : 'Find near-duplicate openings'}
+          {looking ? 'Comparing first messages…' : 'Find similar conversations'}
         </button>
         {groups !== null && (
           <span role="status" className="text-xs text-ink-2">
@@ -1153,14 +1337,14 @@ function SessionTable({
         <thead>
           <tr>
             <th />
-            <th>Session</th>
+            <th>Conversation</th>
             <th className="num">Size</th>
             <th>Last activity</th>
-            <th>Flags</th>
+            <th>Notes</th>
           </tr>
         </thead>
         <tbody>
-          {sessions.map((session) => {
+          {sessions.map((session, index) => {
             const group = groupOf.get(session.id)
             return (
               <Fragment key={session.id}>
@@ -1183,7 +1367,7 @@ function SessionTable({
                       aria-controls={opened === session.id ? `${sectionId}-${session.id}` : undefined}
                       onClick={() => setOpened(opened === session.id ? null : session.id)}
                     >
-                      {session.uuid}
+                      Conversation {index + 1}
                     </button>
                   </td>
                   <td className="num">{formatBytes(session.bytes)}</td>
@@ -1222,7 +1406,7 @@ function SessionTable({
                 {opened === session.id && (
                   <tr>
                     <td id={`${sectionId}-${session.id}`} colSpan={5}>
-                      <SessionDetailView sessionId={session.id} />
+                      <SessionDetailView sessionId={session.id} uuid={session.uuid} />
                     </td>
                   </tr>
                 )}
@@ -1235,7 +1419,7 @@ function SessionTable({
       {confirming ? (
         <div className="band band-pencil" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
           <span id={questionId}>
-            Move {formatCount(chosen.length, 'session')} — transcripts and their side files —
+            Move {formatCount(chosen.length, 'conversation')} and their saved supporting files
             into kondo&rsquo;s trash?
           </span>
           <button type="button" disabled={busy || chosen.length === 0} className="btn btn-pencil btn-sm" onClick={trash}>
@@ -1262,8 +1446,8 @@ function SessionTable({
           }}
         >
           {chosen.length === 0
-            ? 'Pick sessions to move to trash'
-            : `Move ${formatCount(chosen.length, 'session')} to trash`}
+            ? 'Pick conversations to move to trash'
+            : `Move ${formatCount(chosen.length, 'conversation')} to trash`}
         </button>
       )}
     </div>
@@ -1271,7 +1455,7 @@ function SessionTable({
 }
 
 /** Tier-2, and only for the transcript actually opened (ADR-0007). */
-function SessionDetailView({ sessionId }: { sessionId: string }) {
+function SessionDetailView({ sessionId, uuid }: { sessionId: string; uuid: string }) {
   const state = useScan((api) => api.sessionDetail(sessionId), [sessionId])
   return (
     <AsyncView state={state}>
@@ -1280,18 +1464,21 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
           <span className="text-ink-2">No detail available.</span>
         ) : (
           <div className="space-y-1 py-1 text-xs">
-            <div className="text-ink-2">
-              {scan.data.messageCount.toLocaleString()} messages ·{' '}
-              {scan.data.lineCount.toLocaleString()} events
-              {scan.data.badLines > 0 && (
-                <span className="text-note"> · {scan.data.badLines} bad lines</span>
-              )}
-              {' · '}
-              {scan.data.firstTimestamp ?? '?'} → {scan.data.lastTimestamp ?? '?'}
-            </div>
-            {scan.data.firstUserPrompt && (
+            {scan.data.firstUserPrompt ? (
               <div className="font-mono text-ink">“{scan.data.firstUserPrompt}”</div>
-            )}
+            ) : <p className="text-ink-2">No first message was found.</p>}
+            <div className="text-ink-2">
+              {scan.data.messageCount.toLocaleString()} messages
+              {scan.data.badLines > 0 && (
+                <span className="text-note"> · Some saved records could not be read</span>
+              )}
+            </div>
+            <details>
+              <summary>Conversation details</summary>
+              <div className="mt-2 break-words font-mono text-ink-2">ID: {uuid}</div>
+              <div className="text-ink-2">{scan.data.lineCount.toLocaleString()} saved events · {scan.data.badLines} unreadable records</div>
+              <div className="text-ink-2">{scan.data.firstTimestamp ?? 'Unknown start'} → {scan.data.lastTimestamp ?? 'Unknown end'}</div>
+            </details>
           </div>
         )
       }

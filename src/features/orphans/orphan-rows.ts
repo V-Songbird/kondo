@@ -1,7 +1,7 @@
 import type { ConfigOrphan, ConfigOrphanKind, ScanError } from '../../../shared/contract'
 
 /**
- * The reading half of the leftovers view, kept apart from the JSX so it can
+ * The reading half of Settings leftovers, kept apart from the JSX so it can
  * be asserted directly. Everything here is a pure function of one
  * `Scan<ConfigOrphan[]>`; the component below adds only selection and the
  * two calls across the bridge.
@@ -22,19 +22,19 @@ export const orphanKindOrder = [
 
 /** Plain words for the group, not kondo's internal name for the kind. */
 const LABEL: Record<ConfigOrphanKind, string> = {
-  'project-entry': 'Folders Claude still lists',
-  'mcp-declaration': 'MCP servers inside them',
-  'enabled-plugin': 'Plugin switches with no plugin',
-  'skill-override': 'Skill settings with no skill'
+  'project-entry': 'Projects Claude still lists',
+  'mcp-declaration': 'Connections in those project entries',
+  'enabled-plugin': 'Settings for missing plugins',
+  'skill-override': 'Settings for skills not found'
 }
 
-/** One line on why the group is safe to let go of. */
+/** Explain the evidence for each group without claiming every location was read. */
 const HINT: Record<ConfigOrphanKind, string> = {
   'project-entry': 'Claude still records these folders, but they are no longer on disk.',
   'mcp-declaration':
-    'Servers declared inside those records. Letting a folder go takes its servers with it.',
-  'enabled-plugin': 'On/off switches for plugins nothing has installed.',
-  'skill-override': 'Saved settings for skills no scope ships any more.'
+    'Connections saved in those project entries. Removing a project entry also removes its saved connections.',
+  'enabled-plugin': 'Saved on/off settings with no matching plugin in Claude’s installation records.',
+  'skill-override': 'Saved settings for skill names kondo did not find in the locations it checked. Review each reason before removing a setting.'
 }
 
 export interface OrphanGroup {

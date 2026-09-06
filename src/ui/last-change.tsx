@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { JournalEntryInfo } from '../../shared/contract'
 import { joinErrors } from '../lib/format'
 import { Refusal } from './refusal'
@@ -24,6 +24,13 @@ export function LastChange({
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [undone, setUndone] = useState(false)
+  const status = useRef<HTMLSpanElement>(null)
+
+  // Applying or undoing can remove the originating control. Give keyboard
+  // users the result, followed by the next available action in tab order.
+  useEffect(() => {
+    if (entry !== null) status.current?.focus()
+  }, [entry?.id, undone])
 
   const undo = async (): Promise<void> => {
     const api = window.kondo
@@ -54,7 +61,7 @@ export function LastChange({
       {/* A change is an addition to the journal, so the band's gutter mark is
           `+`; undone is aged-out rather than broken, so it becomes the amber
           `~`. The sigil is what separates the two, not the hue. */}
-      <span role="status" className={undone ? 'stamp-off' : 'stamp-ok'} data-sigil={undone ? 'undone' : undefined}>
+      <span ref={status} tabIndex={-1} role="status" className={undone ? 'stamp-off' : 'stamp-ok'} data-sigil={undone ? 'undone' : undefined}>
         {undone ? `Undone — ${entry.summary}` : entry.summary}
       </span>
       {entry.failed && (

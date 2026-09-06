@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import type { ConfigOrphan, JournalEntryInfo } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
@@ -29,6 +29,15 @@ export function Orphans() {
   const questionId = useId()
   const confirmation = useConfirmationFocus(confirming, () => setConfirming(false))
   const { reload } = state
+  const resultRef = useRef<HTMLDivElement>(null)
+  const focusResult = useRef(false)
+
+  useLayoutEffect(() => {
+    if (!busy && focusResult.current) {
+      resultRef.current?.focus()
+      focusResult.current = false
+    }
+  })
 
   const pick = (id: string): void => {
     setConfirming(false)
@@ -51,8 +60,8 @@ export function Orphans() {
       const refusal = refusalFrom(done.errors)
       setProblem(refusal.failure)
       setStale(refusal.stale)
+      setChange(done.data)
       if (done.errors.length === 0) {
-        setChange(done.data)
         if (done.data === null) {
           setOutcome('Nothing came out — these entries were already gone.')
         }
@@ -60,6 +69,7 @@ export function Orphans() {
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
     } finally {
+      focusResult.current = true
       setBusy(false)
       // ADR-0006: the store is the state. A refusal is as good a reason to
       // re-read as a removal — a stale file means these rows described bytes
@@ -72,34 +82,39 @@ export function Orphans() {
 
   return (
     <div>
-      {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
-      {stale !== null && <div role="status" className="band band-note text-note">{stale}</div>}
-      {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
-      <LastChange key={change?.id} entry={change} onUndone={reload} />
+      <div className="sheet-head">
+        <h2>Settings leftovers</h2>
+      </div>
+      <p className="mb-3 max-w-2xl">
+        Remove saved settings for projects, connections, plugins or skills that no
+        longer exist. Review each reason before selecting a setting.
+      </p>
+      <p className="mb-5 max-w-2xl">
+        Only the selected settings are removed. This tidies Claude&rsquo;s configuration;
+        it does not delete project files. One Undo restores the selected settings.
+      </p>
+      <div ref={resultRef} tabIndex={-1} aria-label="Settings cleanup result">
+        {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
+        {stale !== null && <div role="status" className="band band-note text-note">{stale}</div>}
+        {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
+        <LastChange key={change?.id} entry={change} onUndone={reload} />
+      </div>
 
       <AsyncView
         state={state}
-        empty="Nothing is left over — every project entry, MCP server, plugin switch and skill setting in your configuration still has something behind it."
+        empty="No settings leftovers found in the files kondo could read. There is nothing to select here."
       >
         {(scan) => {
           const chosen: ConfigOrphan[] = chosenFrom(scan.data, selected)
 
           return (
             <div>
-              <section className="sheet hero">
-                <h2>Preview — nothing has changed</h2>
-                <p className="mt-1 max-w-2xl text-ink-2">
-                  Claude still reads every line below, and nothing stands behind any of
-                  them any more. Removing takes only those lines out of the files that
-                  hold them; every other setting keeps its bytes, and one undo puts the
-                  whole removal back.
-                </p>
-              </section>
+              <h3 className="mb-5">1. Choose settings to remove</h3>
 
               {groupByKind(scan.data).map((group) => (
                 <section key={group.kind} className="sheet" data-tone="coral">
                   <div className="sheet-head">
-                    <h2>{group.label}</h2>
+                    <h3>{group.label}</h3>
                     <span className="count">{group.rows.length}</span>
                   </div>
                   <p className="mb-3">{group.hint}</p>
@@ -112,7 +127,6 @@ export function Orphans() {
                         <tr>
                           <th className="w-8" />
                           <th>Name</th>
-                          <th>In</th>
                           <th>Why it is a leftover</th>
                         </tr>
                       </thead>
@@ -128,12 +142,15 @@ export function Orphans() {
                                 onChange={() => pick(orphan.id)}
                               />
                             </td>
-                            <td className="max-w-md font-mono text-xs">
-                              <div className="truncate" title={orphan.name}>
+                            <td className="max-w-md">
+                              <div className="break-all">
                                 {orphan.name}
                               </div>
+                              <details className="technical-details mt-2">
+                                <summary>Settings file</summary>
+                                <p className="mt-2 break-all font-mono text-xs text-ink-2">{orphan.source}</p>
+                              </details>
                             </td>
-                            <td className="font-mono text-xs text-ink-2">{orphan.source}</td>
                             <td className="max-w-md text-ink-2">{orphan.reason}</td>
                           </tr>
                         ))}
@@ -144,43 +161,55 @@ export function Orphans() {
               ))}
 
               {confirming ? (
-                <div className="band band-pencil" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
-                  <span id={questionId}>
-                    Take {formatCount(chosen.length, 'leftover')} out of Claude&rsquo;s
-                    configuration?
-                  </span>
-                  <button
-                    type="button"
-                    disabled={busy || chosen.length === 0}
-                    className="btn btn-pencil btn-sm"
-                    onClick={() => void remove(chosen.map((orphan) => orphan.id))}
-                  >
-                    Remove
-                  </button>
-                  <button
-                    ref={confirmation.cancelRef}
-                    type="button"
-                    className="btn btn-quiet btn-sm"
-                    onClick={confirmation.cancel}
-                  >
-                    Cancel
-                  </button>
+                <div className="band band-pencil flex-col items-start gap-3" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
+                  <h3 id={questionId}>2. Review settings to remove</h3>
+                  <p>Remove {formatCount(chosen.length, 'setting')} from Claude&rsquo;s configuration?</p>
+                  <ul className="space-y-2">
+                    {chosen.map((orphan) => <li key={orphan.id} className="break-all">{orphan.name}</li>)}
+                  </ul>
+                  {chosen.some((orphan) => orphan.kind === 'project-entry') && (
+                    <p>Removing a project entry also removes the connections saved inside it.</p>
+                  )}
+                  <p>One Undo restores this change.</p>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      ref={confirmation.cancelRef}
+                      type="button"
+                      className="btn btn-quiet btn-sm"
+                      onClick={confirmation.cancel}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || chosen.length === 0 || state.loading}
+                      className="btn btn-pencil btn-sm"
+                      onClick={() => void remove(chosen.map((orphan) => orphan.id))}
+                    >
+                      Remove selected settings
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <button
-                  id={removeButtonId}
-                  type="button"
-                  disabled={chosen.length === 0 || busy}
-                  className="btn btn-go"
-                  onClick={() => {
-                    confirmation.rememberFocus(removeButtonId)
-                    setConfirming(true)
-                  }}
-                >
-                  {chosen.length === 0
-                    ? 'Pick what to remove'
-                    : `Remove ${formatCount(chosen.length, 'leftover')}`}
-                </button>
+                <div>
+                  <p className="mb-3" role="status">
+                    {busy ? 'Removing selected settings…' : chosen.length === 0
+                      ? 'No settings selected.'
+                      : `${formatCount(chosen.length, 'setting')} selected.`}
+                  </p>
+                  <button
+                    id={removeButtonId}
+                    type="button"
+                    disabled={chosen.length === 0 || busy || state.loading}
+                    className="btn btn-go"
+                    onClick={() => {
+                      confirmation.rememberFocus(removeButtonId)
+                      setConfirming(true)
+                    }}
+                  >
+                    Review selected settings
+                  </button>
+                </div>
               )}
             </div>
           )

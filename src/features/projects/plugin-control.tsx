@@ -27,7 +27,7 @@ import { Refusal } from '../../ui/refusal'
 /** Nothing stated at this level is "follows global" in a project, and simply
  *  "not set" in the user store, which has nothing above it to follow. */
 function inheritLabel(global: boolean): string {
-  return global ? 'Not set' : 'Follows global'
+  return global ? 'Not set' : 'Follow shared setting'
 }
 
 function positions(global: boolean): Array<{ choice: ProjectPluginChoice; label: string }> {
@@ -54,7 +54,7 @@ function moveRefusal(state: ProjectPluginState): string | null {
   }
   return state.choice === 'on'
     ? null
-    : 'Only a place that turns the plugin on has one to hand over.'
+    : 'Turn this plugin on here before moving its activation to another project.'
 }
 
 export function PluginControl({
@@ -123,7 +123,7 @@ export function PluginControl({
           disabled={busy || refusal !== null || destinations.length === 0}
           title={
             refusal === null
-              ? `Turns it off in ${target?.path ?? state.targetLayerId} and on where it lands`
+              ? 'Turns this plugin off here and on at the destination. It stays installed.'
               : undefined
           }
           onMove={onMove}
@@ -131,9 +131,9 @@ export function PluginControl({
         {/* What Claude actually honours here, which is not always what this
             scope says: a silent project is answered by the user layer. */}
         <span className="text-xs text-ink-2">
-          in effect:{' '}
+          Configured here:{' '}
           <span className={state.effective ? 'font-medium text-ink' : ''}>
-            {state.effective === null ? 'nothing says' : state.effective ? 'on' : 'off'}
+            {state.effective === null ? 'not specified' : state.effective ? 'on' : 'off'}
           </span>
         </span>
       </div>
@@ -145,11 +145,11 @@ export function PluginControl({
         type="button"
         aria-expanded={open}
         aria-controls={open ? layersId : undefined}
-        aria-label={`Where ${state.name} is set`}
+        aria-label={`Settings details for ${state.name}`}
         className="disclose"
         onClick={() => setOpen((value) => !value)}
       >
-        where this is set
+        Settings details
       </button>
       {open && (
         <div id={layersId} className="ml-1 flex flex-col gap-1 border-l border-line pl-3">

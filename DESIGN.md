@@ -277,10 +277,12 @@ tracked-out label roles. The old negative tracking has no job in a mono face.
 
 ## Layout
 
-The window is a 24px gutter holding a 208px sidebar column and the page beside
-it. The sidebar has no panel: it is text against one vertical `--rule-strong`
-line. At the enforced 900px minimum this leaves about 295px for the project
-detail pane, against 264px under the old identity.
+The wide window has a 24px gutter, a 208px sidebar and the page beside it.
+The sidebar has no panel: it is text against one vertical `--rule-strong`
+line. Library and Projects use a 288px browser beside a flexible detail pane.
+Below 1180px, the sidebar is 180px and the workspace shows either the browser
+or the selected detail, with a visible Back action. At 900px this leaves over
+600px for the active pane. Hidden panes are excluded from keyboard navigation.
 
 Every page is a stack of sections separated by 28px of nothing. A section is a
 header line, a `--rule-strong` beneath it, and rows on `--rule` hairlines.
@@ -295,8 +297,34 @@ nothing at all for an ordinary row.
 
 Every row in every table sits on the same 20px baseline unit; a table row is
 28px. The spacing scale is 4 / 8 / 12 / 20 / 28 / 40, with 20 as the line
-unit. The window opens at 1360×860 and never goes below 900×600; there is no
-mobile treatment.
+unit. Browser rows and category choices have additional vertical space for
+their second line. The window opens at 1360×860 and never goes below 900×600.
+
+## Navigation and reading order
+
+Library opens first. Four destinations express user goals: Library (find),
+Projects (manage by location), Clean up (review removals), History (recover).
+Each sidebar label has a short purpose line in Plex Sans. Clean up contains
+Files and caches, Settings leftovers and Duplicate skills as separate flows.
+
+An item page leads with its name, purpose, management locations and availability.
+Project pages start with an overview and show one category at a time. Category
+links are flat rows with a description and count; section navigation is a row
+of native buttons, with the current one marked in the accent color.
+Paths, hashes, raw settings and IDs belong in native details disclosures when
+they are not needed to identify the change. Read failures and refusal reasons
+remain visible. Configured connections are not presented as live connections.
+
+Library search and selection survive trips to Projects and History. When a
+navigation action removes its originating control, focus moves to the item
+heading; Back to Library restores the selected row. Inline confirmations focus
+Cancel first, Escape cancels, and completed changes focus their result. These
+choices follow [WAI keyboard guidance](https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/)
+and the [disclosure pattern](https://www.w3.org/WAI/ARIA/apg/patterns/disclosure/).
+
+Cleanup always follows choose → review → apply → undo. No category is selected
+automatically. The review names the selected categories and size estimate;
+moving files to trash is distinct from permanently emptying it in History.
 
 ## Elevation & Depth
 

@@ -17,17 +17,14 @@ machine; nothing is ever sent anywhere.
 
 ## What it does
 
-- **Library** — the named object is the row. One page per skill, plugin,
-  hook, agent, command, rule, MCP server or settings file, showing every scope
-  it lives in, what each one says about it, and which settings file decided
-  it. Plus what the machine loads at a glance, and the findings worth a look:
-  a hook whose script is gone, a declaration whose folder is gone, a name
-  repeated with different contents, a switch for a plugin nothing installed.
-- **Projects first** — one row per project Claude knows about, the global
-  store above them, and for the one you pick a page with everything attached
-  to it: skills, plugins, hooks, agents, commands, rules, MCP servers,
-  settings files, sessions. Throwaway runs and projects whose folder is gone
-  fold away behind a count.
+- **Library** — the starting screen. Find a skill, plugin or connection by
+  name or type, understand its locations, and open the matching management
+  section in a project. Return to the same item and search afterwards.
+  Technical details and findings remain available when needed.
+- **Projects** — choose All projects for shared configuration or a specific
+  project for its own settings. Start with an overview, then focus on skills,
+  plugins, connections, other tools, conversations or technical details.
+  Throwaway runs and projects whose folder is gone fold behind a count.
 - **Sessions** — one inventory across every store: Claude Code's
   `~/.claude/projects` and the desktop app's session directories. See per
   project how many sessions exist, how large they are, which are stale,
@@ -46,17 +43,21 @@ machine; nothing is ever sent anywhere.
   between scopes the way a skill is.
 - **Hooks** — every hook that will fire, which settings file arms it, and
   whether the script it names is still there.
-- **MCP servers** — user, project and `.mcp.json` declarations, read-only.
+- **MCP servers** — locally configured connections and the on/off controls
+  their scope supports. Kondo does not test live connectivity or approval.
 - **Settings** — the layered view: user, project, local. See what wins and why.
-- **Clean up** — reclaim space by category: throwaway folders, projects that
+- **Clean up** — review files and caches, settings leftovers, or duplicate
+  skills. File categories include saved Claude data for throwaway folders, projects that
   are gone, old and empty conversations, conversations the desktop app
   deleted, leftover session folders and snapshots, caches Claude rebuilds,
-  old plugin versions and residue, hook scripts nothing runs. Preview first;
-  one undoable step.
-- **Leftovers** — dead lines in Claude's configuration files: registry
+  old plugin versions and residue, hook scripts nothing runs. Select, review,
+  then move to trash in one undoable step. Disk space is freed only when the
+  trash is permanently emptied.
+- **Settings leftovers**, inside Clean up — entries flagged in Claude's configuration: registry
   entries and MCP declarations for folders that no longer exist, plugin
   switches for plugins no longer installed, skill settings for skills no
-  scope ships. Spliced out byte-exactly, undoable.
+  scanned location supplies. Review the evidence before removing them;
+  supported changes are spliced out byte-exactly and undoable.
 - **History** — every change kondo made, with Undo beside each, and the
   trash's size. Kondo never hard-deletes until you empty the trash.
 
@@ -76,8 +77,10 @@ machine; nothing is ever sent anywhere.
 
 ## Status
 
-Pre-release, v0.5. Everything above ships and has been run against a real
-store of 11,517 projects and 1.6 GB of transcripts. Installers are built by
+Pre-release, v0.5. The current UX workflow has passed Windows validation using
+synthetic stores; see the [implementation and evidence](docs/plans/2026-09-06-ux-workflow.md)
+and the preceding [Claude Code review](docs/plans/2026-09-06-claude-usability-review.md)
+for remaining release work. Installers are built by
 CI from a version tag and published as drafts a person promotes
 ([docs/release.md](docs/release.md)). What comes next is in
 [ROADMAP.md](ROADMAP.md).

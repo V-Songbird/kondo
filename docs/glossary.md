@@ -28,6 +28,18 @@ spelling, and no string a user can read is ever left on the left-hand one.
 | Scope | Where it applies |
 | Winning / effective layer | In effect |
 | Unknown entries | Files kondo did not recognize |
+| Global / user scope | All projects |
+| Inherited from Global | Shared from All projects |
+| Inherit / follows global | Follow shared setting |
+| MCP server | Connection (MCP) |
+| Session (in project management) | Conversation |
+| Effective plugin state | Configured here |
+
+"All projects" names the shared configuration; a project can override it.
+"Configured here" and connection listings describe saved settings, not a
+runtime connection check. Technical details retain the actual settings file
+names and storage identifiers. Conversation numbers label rows within the
+current list; the saved ID is available in Conversation details.
 
 - **Store** — a root directory where a Claude product keeps its state. Kondo
   knows three kinds: the *user store* (`~/.claude`), *project stores*
@@ -91,12 +103,14 @@ spelling, and no string a user can read is ever left on the left-hand one.
   hook until a settings entry names it.
 - **MCP server** — a Model Context Protocol server declared for Claude: at
   user scope in `~/.claude.json`, at project scope in `<project>/.mcp.json`,
-  or locally for one project in `~/.claude.json`'s `projects` map. Not yet
-  read by kondo (ROADMAP, entry 023).
+  or locally for one project in `~/.claude.json`'s `projects` map. Kondo lists
+  their declarations under Connections and exposes supported configuration
+  switches; it does not check runtime connectivity.
 - **Agent / command / rule / output style** — the other things a scope can
   hold beside skills: `agents/*.md`, `commands/*.md`, `rules/*.md`,
-  `output-styles/*.md` under `~/.claude` or `<project>/.claude`. Not yet read
-  by kondo (ROADMAP, entry 024).
+  `output-styles/*.md` under `~/.claude` or `<project>/.claude`. Kondo lists
+  these under Other tools, with moves where supported. Output styles are
+  listed in All projects.
 - **Registry** — `~/.claude.json`, Claude Code's own record of projects,
   MCP servers and usage (ADR-0009).
 - **Bridge / seam** — the context-isolated preload API; the only door between

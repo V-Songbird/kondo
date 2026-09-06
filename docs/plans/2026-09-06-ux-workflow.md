@@ -1,6 +1,6 @@
 # Plan: a complete, approachable management workflow
 
-Status: **in progress**
+Status: **in progress** — implementation complete and fixture-verified; awaiting owner review.
 
 Keep the existing Flat File visual identity while making discovery, project
 management, cleanup and recovery understandable without knowing Claude Code's
@@ -70,3 +70,59 @@ A person can find a skill, understand where it is available, manage it in the
 correct project, undo the change and return to the same Library item. Cleanup
 has an explicit review step and understandable consequences. The workflow is
 usable with keyboard and at the minimum window size, with fixture evidence.
+
+## Implemented workflow
+
+```mermaid
+flowchart LR
+  Library --> Item[Item and its locations]
+  Item --> Project[Matching project section]
+  Project --> Change[Apply a change]
+  Change --> Undo[Undo and restore]
+  Project --> Return[Return to the same Library item]
+  Undo --> Return
+  Cleanup[Clean up] --> Choose[Choose files, settings or copies]
+  Choose --> Review[Review the selection]
+  Review --> Apply[Apply explicitly]
+  Apply --> Undo
+  History --> Undo
+  History --> Trash[Separate permanent trash confirmation]
+```
+
+The Library overview explains each category in flat rows. Search and a native
+type selector lead to item details; management links appear immediately below
+the heading. Missing plugin installations lead to Settings leftovers instead
+of an empty management page. Global is explained as All projects.
+
+Project overview and category sections replace the single long inventory.
+The current project is excluded from move destinations. Closing a project or
+switching contexts discards staged confirmations. Immediate Undo refreshes
+both the detail and the project list. Cleanup retains Undo when a partial
+operation returns a journal entry together with errors.
+
+Library and Projects switch from split panes to browser/detail navigation
+below 1180px. Back restores the Library row and filters. Resize, clear-filter
+and mutation-result transitions leave focus on a visible, meaningful element.
+The lasting navigation decision is recorded in
+[ADR-0012](../adr/0012-organize-navigation-around-user-tasks.md).
+
+## Validation, 2026-09-06
+
+- `npm test`: **364 passed** across 32 files.
+- `npm run typecheck`, `npm run lint`, `npm run build`: passed.
+- Built Electron on Windows: **13/13 e2e scenarios passed**, including
+  Tab/Enter/Space navigation, native disclosures, resize focus, all cleanup
+  sections, Library/project return, and 900x600 geometry checks.
+- The visible cleanup workflow moved two fixture directories to trash and
+  restored their exact saved bytes with Undo. The synthetic project working
+  tree remained byte-for-byte unchanged. Cancellation left settings and
+  journal bytes unchanged; damaged-history and partial-read cases still pass.
+- Visual review covered Library overview, narrow browser/detail/return,
+  project Skills, staged move, file/settings cleanup review, applied/restored
+  results and permanent trash confirmation. Captures were emitted through
+  `KONDO_E2E_SHOTS`; no screenshots contain real user stores.
+
+The fixture run used port 9448 and closed its own Electron process afterwards.
+No real store was mutated or used by tests. This validates the Windows workflow;
+screen-reader testing and usability sessions with new users remain separate
+evidence, as do the backend release blockers in the preceding review.

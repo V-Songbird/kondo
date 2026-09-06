@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
   HookInfo,
@@ -35,6 +36,11 @@ const KIND_HELP: Record<LibraryKind, string> = {
   settings: 'Preferences for Claude Code'
 }
 
+const CATEGORY: Record<LibraryKind, string> = {
+  skill: 'Skills', plugin: 'Plugins', mcp: 'Connections', hook: 'Hooks',
+  agent: 'Agents', command: 'Commands', rule: 'Rules', 'output-style': 'Output styles', settings: 'Settings'
+}
+
 /**
  * The Library: the named object is the row.
  *
@@ -54,6 +60,13 @@ const KIND_HELP: Record<LibraryKind, string> = {
 function Chip({ flag }: { flag: Flag }) {
   if (flag.tone === 'fact') return <span className="stamp">{flag.text}</span>
   return <span className={`stamp-${flag.tone === 'unknown' ? 'unknown' : flag.tone}`}>{flag.text}</span>
+}
+
+function itemFlag(kind: LibraryKind, flag: Flag): Flag {
+  if (kind === 'mcp' && flag.text === 'on') return { text: 'configured', tone: 'fact' }
+  if (kind === 'plugin' && flag.text === 'leftover') return { text: 'installation not found', tone: 'unknown' }
+  if (flag.text === 'nothing says') return { ...flag, text: 'no explicit setting' }
+  return flag
 }
 
 function Section({
@@ -83,7 +96,9 @@ export function Library({
   onKind,
   picked,
   onPick,
-  onOpenProject
+  onOpenProject,
+  onOpenHistory,
+  onReviewSettings
 }: {
   query: string
   onQuery: (value: string) => void
@@ -91,8 +106,14 @@ export function Library({
   onKind: (value: LibraryKind | null) => void
   picked: string | null
   onPick: (key: string | null) => void
-  onOpenProject: (projectId: string) => void
+  onOpenProject: (projectId: string, kind: LibraryKind) => void
+  onOpenHistory: () => void
+  onReviewSettings: () => void
 }) {
+  const detail = useRef<HTMLDivElement>(null)
+  const browser = useRef<HTMLDivElement>(null)
+  const lastPicked = useRef(picked)
+  const [overviewOpen, setOverviewOpen] = useState(false)
   // Every read contributes its data AND its diagnostics (ADR-0005).
   const skills = useScan((api) => api.skillsList())
   const duplicates = useScan((api) => api.skillDuplicates())
@@ -128,8 +149,30 @@ export function Library({
   const counts = countByKind(catalog, found)
   const shown = filterCatalog(catalog, query, kind)
   const open = catalog.find((object) => object.key === picked) ?? null
-  const management = open === null ? [] : managementProjects(open, input)
+  const missingInstallation = open?.kind === 'plugin' &&
+    input.plugins.some((plugin) => plugin.name === open.name && !plugin.installed)
+  const management = open === null || missingInstallation ? [] : managementProjects(open, input)
   const kinds = counts.map((count) => count.kind)
+
+  useEffect(() => {
+    if (open !== null) {
+      lastPicked.current = open.key
+      detail.current?.querySelector<HTMLElement>('h1')?.focus()
+      detail.current?.scrollTo(0, 0)
+    }
+  }, [open?.key])
+
+  const backToLibrary = (): void => {
+    onPick(null)
+    setOverviewOpen(false)
+    requestAnimationFrame(() => {
+      const row = [...(browser.current?.querySelectorAll<HTMLButtonElement>('[data-library-key]') ?? [])]
+        .find((button) => button.dataset.libraryKey === lastPicked.current)
+      const target = row ?? browser.current?.querySelector<HTMLInputElement>('input')
+      target?.focus()
+      row?.scrollIntoView({ block: 'nearest' })
+    })
+  }
 
   const reads = [
     { label: 'Skills', state: skills },
@@ -151,126 +194,105 @@ export function Library({
   )
 
   return (
-    <div className="flex h-full min-h-0 gap-6">
-      <div className="flex w-80 shrink-0 flex-col gap-3">
-        <input
-          aria-label="Search the Library"
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
-          placeholder="Search skills, plugins, hooks…"
-          className="field"
-        />
-        <div className="seg flex-wrap">
-          <button
-            type="button"
-            className="btn btn-sm"
-            aria-pressed={kind === null}
-            onClick={() => onKind(null)}
-          >
-            All
-          </button>
-          {kinds.map((entry) => (
-            <button
-              key={entry}
-              type="button"
-              className="btn btn-sm"
-              aria-pressed={kind === entry}
-              onClick={() => onKind(kind === entry ? null : entry)}
-            >
-              {KIND_LABEL[entry]}
-            </button>
-          ))}
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto">
-          {loading ? (
-            <div className="slot">
-              <i />
-              <i />
-              <i />
-            </div>
-          ) : shown.length === 0 ? (
-            <p>{incomplete
-              ? 'No matching items in the information Kondo could read. Check the reading problems.'
-              : catalog.length === 0
-                ? 'No items found in the Claude Code locations Kondo checks.'
-                : 'No items match these filters. Try another name or choose All.'}</p>
-          ) : (
-            shown.map((object) => (
-              <button
-                key={object.key}
-                type="button"
-                aria-current={object.key === picked ? 'true' : undefined}
-                className="row-item"
-                onClick={() => onPick(object.key === picked ? null : object.key)}
-              >
+    <div className="destination-stack">
+      {open === null && <header className="page-intro">
+        <h1>Library</h1>
+        <p>Your skills, plugins and connections, together. Choose an item to see where it works.</p>
+      </header>}
+      {loading && <p role="status">Reading your Claude Code setup…</p>}
+      {incomplete && <div className="read-notice">
+        <p role="status">Some information could not be read or recognized. The items below are still available.</p>
+        {reads.map(({ label, state }) => <div key={label}>
+          {state.failure !== null && <div role="alert" className="band band-pencil">
+            {label} could not be read: {state.failure}
+            <button type="button" className="btn btn-sm" onClick={state.reload}>Try again</button>
+          </div>}
+          {state.scan && (state.scan.errors.length > 0 || state.scan.unknown.length > 0) &&
+            <div aria-label={label + ' reading problems'}>
+              <p>{label}</p><Problems scan={state.scan} />
+            </div>}
+        </div>)}
+      </div>}
+      <div className="workspace-split library-workspace" data-detail-open={picked !== null || overviewOpen}>
+        <div ref={browser} className="workspace-browser">
+          <label className="field-label" htmlFor="library-search">Find an item</label>
+          <input id="library-search" aria-label="Search the Library" value={query}
+            onChange={(event) => onQuery(event.target.value)} placeholder="Search by name…" className="field" />
+          <label className="field-label" htmlFor="library-kind">Item type</label>
+          <select id="library-kind" aria-label="Item type" className="field" value={kind ?? ''}
+            onChange={(event) => {
+              onKind(event.target.value === '' ? null : event.target.value as LibraryKind)
+              onPick(null)
+              setOverviewOpen(false)
+            }}>
+            <option value="">All items</option>
+            {kinds.map((entry) => <option key={entry} value={entry}>
+              {CATEGORY[entry]} ({counts.find((count) => count.kind === entry)?.objects ?? 0})
+            </option>)}
+          </select>
+          {kind !== null && <p className="browser-help">{KIND_HELP[kind]}.</p>}
+          <div className="browser-summary">
+            <span>{shown.length} {shown.length === 1 ? 'item' : 'items'}</span>
+            {(query !== '' || kind !== null) && <button type="button" className="btn btn-sm"
+              onClick={() => {
+                onQuery(''); onKind(null)
+                requestAnimationFrame(() => browser.current?.querySelector<HTMLInputElement>('input')?.focus())
+              }}>Clear filters</button>}
+          </div>
+          <div className="browser-items">
+            {loading && shown.length === 0 ? <div className="slot"><i /><i /><i /></div>
+              : shown.length === 0 ? <p>{incomplete
+                ? 'No matching items in the information Kondo could read. Check the reading problems.'
+                : catalog.length === 0 ? 'No items found in the Claude Code locations Kondo checks.'
+                  : 'No items match these filters. Try another name or choose All items.'}</p>
+              : shown.map((object) => <button key={object.key} type="button"
+                data-library-key={object.key} aria-current={object.key === picked ? 'true' : undefined}
+                className="row-item library-item" onClick={() => { setOverviewOpen(false); onPick(object.key) }}>
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="truncate">{object.name}</span>
-                  <span className="shrink-0 text-[11px] text-ink-3">
-                    {object.places === 1 ? '1 place' : `${object.places} places`}
-                  </span>
+                  <span className="shrink-0 text-[11px] text-ink-3">{object.kind === 'plugin'
+                    ? `${object.places} saved ${object.places === 1 ? 'setting' : 'settings'}`
+                    : `${object.places} ${object.places === 1 ? 'location' : 'locations'}`}</span>
                 </div>
                 <div className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
-                  <span className="stamp">{KIND_LABEL[object.kind]}</span>
-                  {object.flags.map((flag) => (
-                    <Chip key={flag.text} flag={flag} />
-                  ))}
+                  <span className="text-ink-3">{CATEGORY[object.kind]}</span>
+                  {object.flags.filter((flag) => flag.tone !== 'fact').slice(0, 2).map((flag) =>
+                    <Chip key={flag.text} flag={itemFlag(object.kind, flag)} />)}
                 </div>
-              </button>
-            ))
-          )}
-        </div>
-        <p className="text-[11px]">
-          {catalog.length} objects across {counts.length} kinds.
-        </p>
-      </div>
-
-      <div className="min-w-0 flex-1 overflow-auto">
-        {loading && <p role="status">Reading your Claude Code setup…</p>}
-        {incomplete && (
-          <p role="status" className="mb-3">
-            Some information could not be read or recognized. The items below are still available.
-          </p>
-        )}
-        {reads.map(({ label, state }) => (
-          <div key={label}>
-            {state.failure !== null && (
-              <div role="alert" className="band band-pencil">
-                {label} could not be read: {state.failure}
-                <button type="button" className="btn btn-sm" onClick={state.reload}>Try again</button>
-              </div>
-            )}
-            {state.scan && (state.scan.errors.length > 0 || state.scan.unknown.length > 0) && (
-              <div aria-label={`${label} reading problems`}>
-                <p>{label}</p>
-                <Problems scan={state.scan} />
-              </div>
-            )}
+              </button>)}
           </div>
-        ))}
-        {open === null ? (
-          <Machine counts={counts} found={found} onPick={onPick} onKind={onKind}
-            complete={!loading && !incomplete} />
-        ) : (
-          <>
-            <ObjectPage object={open} input={input} />
-            {management.length > 0 && <Section title="Manage this item">
-              <p className="mb-2">
-                Open a location to see its available controls for turning items on or off,
-                moving them, and undoing changes. Global applies across projects.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {management.map((project) => (
-                  <button key={project.id} type="button" className="btn btn-sm"
-                    title={project.label}
-                    onClick={() => onOpenProject(project.id)}>
-                    Manage in {management.filter((item) => item.name === project.name).length > 1
-                      ? project.label : project.name}
-                  </button>
-                ))}
-              </div>
-            </Section>}
-          </>
-        )}
+          <button type="button" className="btn overview-link" onClick={() => {
+            onPick(null); setOverviewOpen(true)
+            requestAnimationFrame(() => detail.current?.querySelector<HTMLElement>('[data-overview-title]')?.focus())
+          }}>Setup overview{found.length > 0 ? ' · ' + found.length + ' to review' : ''}</button>
+        </div>
+        <div ref={detail} className="workspace-detail">
+          {(picked !== null || overviewOpen) && <button type="button" className="btn mb-4"
+            onClick={backToLibrary}>Back to Library</button>}
+          {open === null ? picked !== null ? <p role="status">{loading
+            ? 'Reading this item…' : 'This item is no longer in the current scan. Return to the Library to choose another.'}</p>
+            : <Machine counts={counts} found={found} onPick={onPick} onKind={(next) => {
+              onKind(next); onQuery(''); setOverviewOpen(false)
+              requestAnimationFrame(() => browser.current?.querySelector<HTMLInputElement>('input')?.focus())
+            }} complete={!loading && !incomplete} />
+            : <>
+              <ObjectPage object={open} input={input} management={<Section title="Manage this item">
+                {management.length > 0 ? <>
+                  <p className="mb-2">Choose where to manage this {KIND_LABEL[open.kind]}. Global means all projects.</p>
+                  <div className="flex flex-wrap gap-3">
+                    {management.map((project) => <button key={project.id} type="button" className="btn"
+                      title={project.label} onClick={() => onOpenProject(project.id, open.kind)}>
+                      Manage in {management.filter((item) => item.name === project.name).length > 1 ? project.label : project.name}
+                    </button>)}
+                  </div>
+                </> : missingInstallation ? <>
+                  <p className="mb-2">Kondo did not find this plugin's installation. Review its saved settings before deciding whether to remove anything.</p>
+                  <button type="button" className="btn" onClick={onReviewSettings}>Review settings leftovers</button>
+                </> : <p>This item has no linked management location in the current scan. Its information is available below.</p>}
+              </Section>} />
+              <button type="button" className="btn mb-4" onClick={onOpenHistory}>Open History to undo changes</button>
+            </>}
+        </div>
       </div>
     </div>
   )
@@ -292,58 +314,19 @@ function Machine({
 }) {
   return (
     <div>
-      <div className="hero">
-        <h1>Library</h1>
-        <p className="mt-2">
-          Find your Claude Code skills, plugins and connections. Choose an item to see
-          where it is configured and open its management controls.
-        </p>
-      </div>
-
       <Section title="Your Claude Code setup">
-        <div className="overflow-x-auto">
-        <table className="ledger">
-          <thead>
-            <tr>
-              <th>Kind</th>
-              <th className="num">Objects</th>
-              <th className="num">Copies</th>
-              <th className="num">Needs a look</th>
-            </tr>
-          </thead>
-          <tbody>
-            {counts.map((count) => (
-              <tr key={count.kind}>
-                <td><button type="button" className="btn btn-sm"
-                  onClick={() => onKind(count.kind)}>{KIND_LABEL[count.kind]}</button>
-                  <p className="text-xs">{KIND_HELP[count.kind]}</p>
-                </td>
-                <td className="num">{count.objects}</td>
-                <td className="num">{count.copies}</td>
-                <td className="num">
-                  {count.findings === 0 ? <span className="null">—</span> : count.findings}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td>Items found</td>
-              <td className="num">
-                {counts.reduce((sum, count) => sum + count.objects, 0)}
-              </td>
-              <td className="num">{counts.reduce((sum, count) => sum + count.copies, 0)}</td>
-              <td className="num">{found.length}</td>
-            </tr>
-          </tfoot>
-        </table>
+        <h2 data-overview-title tabIndex={-1} className="overview-title">Make Claude Code your own</h2>
+        <p className="mb-4">Start with skills for repeatable tasks, plugins for bundles of features,
+          or connections for other tools. Nothing changes while you browse.</p>
+        <div className="category-list">
+          {counts.map((count) => <button key={count.kind} type="button" className="category-row"
+            onClick={() => onKind(count.kind)}>
+            <span><strong>{CATEGORY[count.kind]}</strong><span className="category-description">{KIND_HELP[count.kind]}</span></span>
+            <span className="category-count">{count.objects}<span aria-hidden="true"> →</span></span>
+          </button>)}
         </div>
-        {/* A hook exists exactly once; a skill in four scopes is one object
-            and four copies. The two columns are not the same question. */}
-        <p className="mt-3 text-xs">
-          An item can be available globally or in individual projects. One skill saved
-          in two locations counts as one item with two copies.
-        </p>
+        <p className="mt-3">An item can be available in all projects or saved for one project.
+          Choose it to compare locations and see the available controls.</p>
       </Section>
 
       <Section title="Needs a look" count={found.length === 0 ? undefined : found.length}>
@@ -354,41 +337,16 @@ function Machine({
           </p>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="ledger">
-                <thead>
-                  <tr>
-                    <th>Object</th>
-                    <th>Kind</th>
-                    <th>Where</th>
-                    <th>What is wrong</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {found.map((finding) => (
-                    <tr key={`${finding.key} ${finding.why}`}>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn btn-quiet btn-sm"
-                          onClick={() => onPick(finding.key)}
-                        >
-                          {finding.name}
-                        </button>
-                      </td>
-                      <td className="text-ink-3">{KIND_LABEL[finding.kind]}</td>
-                      <td className="max-w-xs truncate text-ink-2" title={finding.where}>
-                        {finding.where}
-                      </td>
-                      <td>
-                        <Chip flag={finding.chip} />
-                        <p className="mt-1 text-xs">{finding.why}</p>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ul className="finding-list">
+              {found.map((finding) => <li key={finding.key + ' ' + finding.why}>
+                <button type="button" className="btn" onClick={() => onPick(finding.key)}>{finding.name}</button>
+                <span className="ml-3 text-ink-3">{CATEGORY[finding.kind]}</span>
+                <p className="mt-1">{finding.why}</p>
+                <details className="technical-details"><summary>Location details</summary>
+                  <p className="break-all">{finding.where}</p>
+                </details>
+              </li>)}
+            </ul>
             <p className="mt-3 text-xs">
               Review these items before changing anything. A finding does not mean an item
               should be removed.
@@ -400,20 +358,26 @@ function Machine({
   )
 }
 
-function ObjectPage({ object, input }: { object: LibraryObject; input: CatalogInput }) {
+interface ObjectPageProps {
+  object: LibraryObject
+  input: CatalogInput
+  management: ReactNode
+}
+
+function ObjectPage({ object, input, management }: ObjectPageProps) {
   switch (object.kind) {
     case 'skill':
-      return <SkillPage object={object} input={input} />
+      return <SkillPage object={object} input={input} management={management} />
     case 'plugin':
-      return <PluginPage object={object} input={input} />
+      return <PluginPage object={object} input={input} management={management} />
     case 'hook':
-      return <HookPage object={object} input={input} />
+      return <HookPage object={object} input={input} management={management} />
     case 'mcp':
-      return <McpPage object={object} input={input} />
+      return <McpPage object={object} input={input} management={management} />
     case 'settings':
-      return <SettingsPage object={object} input={input} />
+      return <SettingsPage object={object} input={input} management={management} />
     default:
-      return <PlacedPage object={object} input={input} />
+      return <PlacedPage object={object} input={input} management={management} />
   }
 }
 
@@ -429,7 +393,7 @@ function Head({
 }) {
   return (
     <div className="hero">
-      <h1>{object.name}</h1>
+      <h1 tabIndex={-1}>{object.name}</h1>
       <div className="mt-1 text-xs text-ink-3">
         {KIND_LABEL[object.kind]} · {facts}
       </div>
@@ -446,12 +410,11 @@ function Head({
  * and referenced nowhere under `src/` — it is the answer to "which file
  * switched that off", and it is printed rather than hovered for.
  */
-function SkillPage({ object, input }: { object: LibraryObject; input: CatalogInput }) {
+function SkillPage({ object, input, management }: ObjectPageProps) {
   const members = input.skills.filter((skill) => skill.name === object.name)
   const group = input.duplicates.find((entry) => entry.name === object.name)
   const digest = (skill: SkillInfo): string | null =>
     group?.members.find((member) => member.skill.id === skill.id)?.digest ?? null
-  const stated = members.filter((skill) => skill.override !== null)
   const ids = new Set(members.map((skill) => skill.id))
   const on = members.filter((skill) => skill.enabled).length
 
@@ -459,107 +422,35 @@ function SkillPage({ object, input }: { object: LibraryObject; input: CatalogInp
     <div>
       <Head
         object={object}
-        facts={`in ${members.length === 1 ? '1 scope' : `${members.length} scopes`} · on in ${on}`}
+        facts={`${members.length} ${members.length === 1 ? 'location' : 'locations'} · enabled in ${on}`}
         description={members.find((skill) => skill.description !== null)?.description ?? null}
       />
+      {management}
 
       <Section title="Where it lives" count={members.length}>
-        <div className="overflow-x-auto">
-          <table className="ledger">
-            {/* The answers first, the address last: a path is context, and
-                putting it second pushed "in effect" off the right edge. */}
-            <thead>
-              <tr>
-                <th>Scope</th>
-                <th>Status</th>
-                <th>Setting</th>
-                <th>Contents</th>
-                <th>File</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((skill) => (
-                <tr key={skill.id} data-force={skill.enabled ? undefined : 'off'}>
-                  <td className="whitespace-nowrap">
-                    {scopeLabel(skill.projectId, input.projects)}
-                  </td>
-                  <td>
-                    {skill.enabled ? (
-                      <span className="stamp-ok">on</span>
-                    ) : (
-                      <span className="stamp-off">off</span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap">
-                    {skill.override === null ? (
-                      <span className="stamp-unknown">no explicit setting</span>
-                    ) : (
-                      <>
-                        <span className="stamp-off">{skill.override.value}</span>
-                        <div
-                          className="max-w-xs truncate text-[11px] text-ink-3"
-                          title={skill.override.layerPath}
-                        >
-                          {skill.override.layerPath}
-                        </div>
-                      </>
-                    )}
-                  </td>
-                  {/* Eight characters is enough to compare two digests at a
-                      glance, and the whole tree hash is on the title. */}
-                  <td className="text-ink-2" title={digest(skill) ?? undefined}>
-                    {digest(skill)?.slice(0, 8) ?? <span className="null">—</span>}
-                  </td>
-                  <td className="max-w-xs truncate text-ink-2" title={skill.origin}>
-                    {skill.origin}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {group !== undefined && (
-          <p className="mt-3 text-xs">
-            {group.identical
-              ? 'These copies have identical contents. Choose which location you want to keep before removing a copy.'
-              : group.members.some((member) => member.digest === null)
-                ? 'Some contents could not be compared. Keep both copies until they can be read.'
-                : 'These copies have different contents. Keep both unless you have reviewed the differences.'}
-          </p>
-        )}
+        <p className="mb-3">Global is available across projects. A copy in a project belongs to that project.</p>
+        <table className="ledger">
+          <thead><tr><th>Location</th><th>Availability</th><th>Details</th></tr></thead>
+          <tbody>{members.map((skill) => <tr key={skill.id} data-force={skill.enabled ? undefined : 'off'}>
+            <td>{scopeLabel(skill.projectId, input.projects)}<p>{skill.projectId === null ? 'All projects' : 'This project'}</p></td>
+            <td><span className={skill.enabled ? 'stamp-ok' : 'stamp-off'}>{skill.enabled ? 'Enabled' : 'Disabled'}</span></td>
+            <td><details className="technical-details">
+              <summary>Technical details</summary>
+              <p className="break-all">File: {skill.origin}</p>
+              <p className="break-all">Contents hash: {digest(skill) ?? 'Not compared'}</p>
+              {skill.override === null ? <p>No explicit override in settings.</p>
+                : <p className="break-all">Setting: {skill.override.value} in {skill.override.layerPath}</p>}
+            </details></td>
+          </tr>)}</tbody>
+        </table>
+        {group !== undefined && <p className="mt-3">
+          {group.identical
+            ? 'These copies have identical contents. Choose which location you want to keep before removing a copy.'
+            : group.members.some((member) => member.digest === null)
+              ? 'Some contents could not be compared. Keep both copies until they can be read.'
+              : 'These copies have different contents. Keep both unless you have reviewed the differences.'}
+        </p>}
       </Section>
-
-      {stated.length > 0 && (
-        <Section title="Where it is switched off" count={stated.length}>
-          <table className="ledger">
-            <thead>
-              <tr>
-                <th>Scope</th>
-                <th>Layer</th>
-                <th>File</th>
-                <th>Says</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stated.map((skill) => (
-                <tr key={skill.id}>
-                  <td className="whitespace-nowrap">
-                    {scopeLabel(skill.projectId, input.projects)}
-                  </td>
-                  <td>
-                    <span className="stamp">{skill.override?.layer}</span>
-                  </td>
-                  <td className="max-w-md truncate text-ink-2">{skill.override?.layerPath}</td>
-                  <td>
-                    <span className="stamp-off">{skill.override?.value}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="mt-3 text-xs">Every other scope loads the copy it holds.</p>
-        </Section>
-      )}
 
       <Changes ids={ids} noun="skill" />
     </div>
@@ -567,7 +458,7 @@ function SkillPage({ object, input }: { object: LibraryObject; input: CatalogInp
 }
 
 /** One plugin: which layers state it, what is in effect, and what it ships. */
-function PluginPage({ object, input }: { object: LibraryObject; input: CatalogInput }) {
+function PluginPage({ object, input, management }: ObjectPageProps) {
   const plugin = input.plugins.find((entry) => entry.name === object.name)
   const shipped = useScan(
     (api) => api.pluginSkills(plugin?.id ?? ''),
@@ -583,60 +474,32 @@ function PluginPage({ object, input }: { object: LibraryObject; input: CatalogIn
         facts={[
           plugin.marketplace,
           plugin.version ?? 'no version recorded',
-          plugin.installed ? 'installed' : 'not installed',
+          plugin.installed ? 'installation found' : 'installation not found',
           plugin.lastUpdated === null ? null : `updated ${formatAgo(Date.parse(plugin.lastUpdated))}`
         ]
           .filter((part): part is string => part !== null)
           .join(' · ')}
       />
+      {management}
 
-      <Section title="Where it is stated" count={stated.length}>
-        {stated.length === 0 ? (
-          <p>
-            No settings file states this plugin. Absence is not a `false` — nothing here
-            has switched it off, nothing has switched it on.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="ledger">
-              <thead>
-                <tr>
-                  <th>Scope</th>
-                  <th>Says</th>
-                  <th>Layer</th>
-                  <th>File</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stated.map((scope) => (
-                  <tr key={scope.layerId} data-force={scope.enabled ? undefined : 'off'}>
-                    <td className="whitespace-nowrap">
-                      {scope.projectLabel ?? scopeLabel(scope.projectId, input.projects)}
-                    </td>
-                    <td>
-                      {scope.enabled ? (
-                        <span className="stamp-ok">on</span>
-                      ) : (
-                        <span className="stamp-off">off</span>
-                      )}
-                    </td>
-                    <td>
-                      <span className="stamp">{scope.layer}</span>
-                    </td>
-                    <td className="max-w-xs truncate text-ink-2" title={scope.path}>
-                      {scope.path}
-                      {scope.exists ? '' : ' (not created yet)'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <Section title="Where it is configured" count={stated.length}>
+        <p className="mb-3">These are explicit settings. A project's own setting can override the shared one.</p>
+        {stated.length === 0 ? <p>No explicit on/off setting was found. Kondo cannot determine availability from this alone.</p>
+          : <table className="ledger">
+            <thead><tr><th>Location</th><th>Setting</th><th>Details</th></tr></thead>
+            <tbody>{stated.map((scope) => <tr key={scope.layerId} data-force={scope.enabled ? undefined : 'off'}>
+              <td>{scope.projectLabel ?? scopeLabel(scope.projectId, input.projects)}
+                <p>{scope.projectId === null ? 'All projects' : 'This project'}</p></td>
+              <td><span className={scope.enabled ? 'stamp-ok' : 'stamp-off'}>{scope.enabled ? 'Enabled' : 'Disabled'}</span></td>
+              <td><details className="technical-details"><summary>Technical details</summary>
+                <p>Settings layer: {scope.layer}</p><p className="break-all">File: {scope.path}{scope.exists ? '' : ' (not created yet)'}</p>
+              </details></td>
+            </tr>)}</tbody>
+          </table>}
       </Section>
 
       <Section title="Skills it ships">
-        <AsyncView state={shipped} empty="This plugin ships no skills.">
+        <AsyncView state={shipped} empty="No skills found in the plugin locations Kondo checks.">
           {(scan) => (
             <table className="ledger">
               <thead>
@@ -659,8 +522,7 @@ function PluginPage({ object, input }: { object: LibraryObject; input: CatalogIn
           )}
         </AsyncView>
         <p className="mt-3 text-xs">
-          A plugin-shipped skill follows its plugin: kondo will not bench or move one,
-          because that would leave the plugin pointing at a directory that is gone.
+          These skills are managed together with their plugin. Open a management location above to see its controls.
         </p>
       </Section>
 
@@ -669,7 +531,7 @@ function PluginPage({ object, input }: { object: LibraryObject; input: CatalogIn
   )
 }
 
-function HookPage({ object, input }: { object: LibraryObject; input: CatalogInput }) {
+function HookPage({ object, input, management }: ObjectPageProps) {
   const hook = allHooks(input.hookGroups).find(
     (entry) => objectKey('hook', `${hookName(entry)} ${entry.id}`) === object.key
   )
@@ -680,6 +542,7 @@ function HookPage({ object, input }: { object: LibraryObject; input: CatalogInpu
         object={object}
         facts={`${hook.layer} · ${hook.projectLabel ?? 'Global'}`}
       />
+      {management}
       <Section title="What it runs">
         <Row label="Event">{hook.event}</Row>
         <Row label="Matcher">
@@ -722,63 +585,43 @@ function ScriptCell({ script }: { script: NonNullable<HookInfo['script']> }) {
   )
 }
 
-function McpPage({ object, input }: { object: LibraryObject; input: CatalogInput }) {
+function McpPage({ object, input, management }: ObjectPageProps) {
   const members = (input.mcp as McpServerInfo[]).filter(
     (server) => server.name === object.name
   )
   return (
     <div>
-      <Head object={object} facts={`declared in ${members.length}`} />
-      <Section title="Where it is declared" count={members.length}>
-        <div className="overflow-x-auto">
-          <table className="ledger">
-            <thead>
-              <tr>
-                <th>Scope</th>
-                <th>Transport</th>
-                <th>In</th>
-                <th>State</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((server) => (
-                <tr key={server.id} data-force={server.enabled ? undefined : 'off'}>
-                  <td className="whitespace-nowrap">{server.project ?? server.scope}</td>
-                  <td>
-                    <span className="stamp">{server.transport}</span>
-                  </td>
-                  <td className="max-w-md truncate text-ink-2" title={server.source}>
-                    {server.source}
-                  </td>
-                  <td className="whitespace-nowrap">
-                    {server.orphan ? (
-                      <span className="stamp-bad">project is gone</span>
-                    ) : server.enabled ? (
-                      <span className="stamp-ok">on</span>
-                    ) : (
-                      <span className="stamp-off">off</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <Head object={object} facts={`${members.length} configured ${members.length === 1 ? 'location' : 'locations'}`} description="Connections let Claude Code use other tools and services." />
+      {management}
+      <Section title="Where it is configured" count={members.length}>
+        <table className="ledger">
+          <thead><tr><th>Location</th><th>Configuration</th><th>Details</th></tr></thead>
+          <tbody>{members.map((server) => <tr key={server.id}>
+            <td>{server.project ?? (server.scope === 'user' ? 'Global' : server.scope)}</td>
+            <td>{server.orphan ? <span className="stamp-bad">project is gone</span>
+              : server.enabled ? <span className="stamp">configured</span> : <span className="stamp-off">disabled setting</span>}</td>
+            <td><details className="technical-details"><summary>Technical details</summary>
+              <p>Connection type: {server.transport}</p><p className="break-all">File: {server.source}</p>
+            </details></td>
+          </tr>)}</tbody>
+        </table>
         <p className="mt-3 text-xs">
-          Connections let Claude Code use other tools and services. Open a project to
-          see the available on/off controls. Private connection values are hidden.
+          Kondo reads local configuration; it does not test whether a connection is running or approved in Claude Code. Private connection values are hidden.
         </p>
       </Section>
     </div>
   )
 }
 
-function SettingsPage({ object, input }: { object: LibraryObject; input: CatalogInput }) {
+function SettingsPage({ object, input, management }: ObjectPageProps) {
   const layer = input.layers.find((entry) => objectKey('settings', entry.id) === object.key)
   if (layer === undefined) return <p>That settings file is no longer in the scan.</p>
   return (
     <div>
       <Head object={object} facts={layer.exists ? formatBytes(layer.bytes) : 'not created yet'} />
+      {management}
+      <p className="mb-3">Preferences saved for {scopeLabel(layer.projectId, input.projects)}. Settings are shown for reference.</p>
+      <details className="technical-details"><summary>Technical details</summary>
       <Section title="What it states" count={layer.keys.length}>
         <Row label="File">
           <span className="break-all text-ink-2">{layer.path}</span>
@@ -797,12 +640,12 @@ function SettingsPage({ object, input }: { object: LibraryObject; input: Catalog
           The highest layer that states a value wins: local over project over user. A
           settings file is a file, not a toggle.
         </p>
-      </Section>
+      </Section></details>
     </div>
   )
 }
 
-function PlacedPage({ object, input }: { object: LibraryObject; input: CatalogInput }) {
+function PlacedPage({ object, input, management }: ObjectPageProps) {
   const members = input.placed.filter(
     (entry) => objectKey(entry.kind as LibraryKind, entry.name) === object.key
   )
@@ -810,16 +653,17 @@ function PlacedPage({ object, input }: { object: LibraryObject; input: CatalogIn
     <div>
       <Head
         object={object}
-        facts={`in ${members.length === 1 ? '1 scope' : `${members.length} scopes`}`}
+        facts={`in ${members.length} ${members.length === 1 ? 'location' : 'locations'}`}
         description={members.find((entry) => entry.description !== null)?.description ?? null}
       />
+      {management}
       <Section title="Where it lives" count={members.length}>
         <div className="overflow-x-auto">
           <table className="ledger">
             <thead>
               <tr>
                 <th>Scope</th>
-                <th>File</th>
+                <th>Details</th>
               </tr>
             </thead>
             <tbody>
@@ -828,17 +672,16 @@ function PlacedPage({ object, input }: { object: LibraryObject; input: CatalogIn
                   <td className="whitespace-nowrap">
                     {scopeLabel(entry.projectId, input.projects)}
                   </td>
-                  <td className="max-w-md truncate text-ink-2" title={entry.origin}>
-                    {entry.origin}
-                  </td>
+                  <td><details className="technical-details"><summary>Technical details</summary>
+                    <p className="break-all">File: {entry.origin}</p>
+                  </details></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <p className="mt-3 text-xs">
-          Claude has no way to switch one of these off; move the file out of the folder
-          instead.
+          Open a management location above to see the actions available for this item.
         </p>
       </Section>
       <Changes ids={new Set(members.map((entry) => entry.id))} noun={KIND_LABEL[object.kind]} />

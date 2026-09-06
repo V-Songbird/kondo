@@ -61,7 +61,7 @@ before(async () => {
     throw new Error(`${cause.message}\n${log.join('')}`)
   }
   // The bridge and the first render, both: a blank frame is a failed launch.
-  await client.waitFor(`typeof window.kondo === 'object' && document.querySelectorAll('nav button').length > 0`)
+  await client.waitFor(`typeof window.kondo === 'object' && document.querySelectorAll('nav[aria-label="Main navigation"] button').length > 0`)
 })
 
 after(async () => {
@@ -75,8 +75,105 @@ after(async () => {
 
 const call = (expression) => client.evaluate(`(async () => ${expression})()`)
 
+const button = (label, within = 'document') =>
+  `[...${within}.querySelectorAll('button')].find((b) => (b.getAttribute('aria-label') ?? b.textContent.trim()) === ${JSON.stringify(label)})`
+
 const navigate = async (label) => {
-  await client.evaluate(`[...document.querySelectorAll('nav button')].find((b) => b.textContent.trim() === ${JSON.stringify(label)}).click()`)
+  await client.evaluate(`${button(label, 'document.querySelector(\'nav[aria-label="Main navigation"]\')')}.click()`)
+  await client.waitFor(`document.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.getAttribute('aria-label') === ${JSON.stringify(label)}`)
+}
+
+const section = async (navigation, label) => {
+  const nav = `document.querySelector(${JSON.stringify(`nav[aria-label="${navigation}"]`)})`
+  await client.waitFor(`${nav} !== null`)
+  await client.evaluate(`${button(label, nav)}.click()`)
+  await client.waitFor(`${button(label, nav)}?.getAttribute('aria-current') === 'page'`)
+}
+
+const press = async (key, modifiers = 0) => {
+  const codes = { Enter: 13, Escape: 27, Tab: 9, ' ': 32, Backspace: 8 }
+  const params = { key, code: key === ' ' ? 'Space' : key, windowsVirtualKeyCode: codes[key], modifiers }
+  await client.send('Input.dispatchKeyEvent', {
+    ...params, type: 'keyDown',
+    ...(key === 'Enter' ? { text: '\r', unmodifiedText: '\r' } : {}),
+    ...(key === ' ' ? { text: ' ', unmodifiedText: ' ' } : {})
+  })
+  await client.send('Input.dispatchKeyEvent', { ...params, type: 'keyUp' })
+}
+
+const keyboardActivate = async (expression) => {
+  await client.waitFor(`${expression} !== undefined && ${expression} !== null`)
+  await client.evaluate(`${expression}.focus()`)
+  await press('Enter')
+}
+
+/** Follow the real Tab order rather than jumping over inaccessible controls. */
+const tabTo = async (expression, limit = 40) => {
+  for (let step = 0; step < limit; step++) {
+    if (await client.evaluate(`document.activeElement === ${expression}`)) return
+    await press('Tab')
+  }
+  assert.fail(`Keyboard focus did not reach ${expression} in ${limit} Tab presses`)
+}
+
+const browseLibrary = async () => {
+  await navigate('Library')
+  const back = button('Back to Library', 'document.querySelector(\'.library-workspace\')')
+  await client.waitFor(`document.querySelector('.library-workspace') !== null`)
+  if (await client.evaluate(`${back} !== undefined`)) await client.evaluate(`${back}.click()`)
+  await client.waitFor(`document.querySelector('input[aria-label="Search the Library"]') !== null`)
+}
+
+const openProject = async (name) => {
+  await navigate('Projects')
+  const back = button('Back to projects')
+  if (await client.evaluate(`${back} !== undefined`)) await client.evaluate(`${back}.click()`)
+  await client.waitFor(`document.querySelector('.workspace-browser li button') !== null`)
+  const show = button('Show them')
+  if (await client.evaluate(`${show} !== undefined`)) await client.evaluate(`${show}.click()`)
+  const row = `[...document.querySelectorAll('li button')].find((b) => b.textContent.includes(${JSON.stringify(name)}))`
+  await client.waitFor(`${row} !== undefined`)
+  await client.evaluate(`${row}.click()`)
+}
+
+const openGlobalSkills = async () => {
+  await openProject('All projects')
+  await section('Project sections', 'Skills')
+  await client.waitFor(`document.querySelector('select[aria-label="Move to: commit-writer"]') !== null`)
+}
+
+const assertNoHorizontalOverflow = async () => {
+  const widths = await client.evaluate(`(() => {
+    const main = document.querySelector('main');
+    const right = main.getBoundingClientRect().left + main.clientWidth;
+    return {
+      viewport: innerWidth,
+      document: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+      main: main.clientWidth, mainScroll: main.scrollWidth,
+      overflow: [...main.querySelectorAll('*')].filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.right > right + 1;
+      }).slice(0, 8).map((element) => ({ tag: element.tagName, class: element.className,
+        right: element.getBoundingClientRect().right, text: element.textContent.trim().slice(0, 60) }))
+    };
+  })()`)
+  if (widths.document > widths.viewport + 1 || widths.mainScroll > widths.main + 1) {
+    await capture('horizontal-overflow-failure')
+  }
+  assert.ok(widths.document <= widths.viewport + 1, `Document overflows: ${JSON.stringify(widths)}`)
+  assert.ok(widths.mainScroll <= widths.main + 1, `Main content overflows: ${JSON.stringify(widths)}`)
+}
+
+const assertInViewport = async (expression, minWidth = 40) => {
+  const rect = await client.evaluate(`(() => {
+    const element = ${expression};
+    const box = element.getBoundingClientRect();
+    return { x: box.x, y: box.y, right: box.right, bottom: box.bottom,
+      width: box.width, height: box.height, viewportWidth: innerWidth, viewportHeight: innerHeight };
+  })()`)
+  assert.ok(rect.width >= minWidth && rect.height >= 16, `Control has no usable size: ${JSON.stringify(rect)}`)
+  assert.ok(rect.x >= -1 && rect.right <= rect.viewportWidth + 1, `Control is clipped horizontally: ${JSON.stringify(rect)}`)
+  assert.ok(rect.y >= -1 && rect.bottom <= rect.viewportHeight + 1, `Control is outside the viewport: ${JSON.stringify(rect)}`)
 }
 
 const capture = async (name) => {
@@ -85,14 +182,28 @@ const capture = async (name) => {
   await fs.writeFile(path.join(process.env.KONDO_E2E_SHOTS, `${name}.png`), await client.screenshot())
 }
 
-test('the nav has its five destinations and opens on Projects', async () => {
-  const labels = await client.evaluate(`[...document.querySelectorAll('nav button')].map((b) => b.textContent.trim())`)
-  assert.deepEqual(labels, ['Library', 'Projects', 'Clean up', 'Leftovers', 'History'])
-  await client.waitFor(`document.querySelectorAll('li button').length > 0`)
+test('the four destinations open on Library and retain native keyboard navigation', async () => {
+  const labels = await client.evaluate(`[...document.querySelectorAll('nav[aria-label="Main navigation"] button')].map((b) => b.getAttribute('aria-label'))`)
+  assert.deepEqual(labels, ['Library', 'Projects', 'Clean up', 'History'])
+  assert.equal(await client.evaluate(`document.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]').getAttribute('aria-label')`), 'Library')
+  await client.waitFor(`document.querySelector('input[aria-label="Search the Library"]') !== null`)
+  await client.evaluate(`document.querySelector('.skip-link').focus()`)
+  await press('Enter')
+  assert.equal(await client.evaluate(`document.activeElement?.id`), 'main-content')
+
+  await client.evaluate(`document.querySelector('nav[aria-label="Main navigation"] button[aria-label="Library"]').focus()`)
+  await press('Tab')
+  assert.equal(await client.evaluate(`document.activeElement?.getAttribute('aria-label')`), 'Projects')
+  await press('Tab', 8)
+  assert.equal(await client.evaluate(`document.activeElement?.getAttribute('aria-label')`), 'Library')
+  await press('Tab')
+  await press(' ')
+  await client.waitFor(`document.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.getAttribute('aria-label') === 'Projects'`)
+  await navigate('Library')
 })
 
 test('Library lists the machine by object, and finds what needs a look', async () => {
-  await client.evaluate(`[...document.querySelectorAll('nav button')].find((b) => b.textContent.trim() === 'Library').click()`)
+  await browseLibrary()
   // The verdict chip comes from a second scan than the list, so waiting on a
   // row would race it. Wait on the answer instead.
   await client.waitFor(`document.body.textContent.includes('identical copies')`)
@@ -103,17 +214,24 @@ test('Library lists the machine by object, and finds what needs a look', async (
   // The fixture's two designed verdicts, and the two leftovers behind them.
   assert.ok(objects.some((row) => row.startsWith('api-notes') && row.includes('identical copies')))
   assert.ok(objects.some((row) => row.startsWith('db-migrate') && row.includes('same name, different contents')))
-  assert.ok(objects.some((row) => row.startsWith('ghost') && row.includes('leftover')))
+  assert.ok(objects.some((row) => row.startsWith('ghost') && row.includes('installation not found')))
   assert.ok(objects.some((row) => row.startsWith('apiserver') && row.includes('project is gone')))
   // A skill's every scope, which no other screen in the app can show.
   await client.evaluate(
     `[...document.querySelectorAll('.row-item')].find((b) => b.textContent.includes('api-notes')).click()`
   )
-  await client.waitFor(`document.body.textContent.includes('Where it lives')`)
-  const scopes = await client.evaluate(`document.querySelectorAll('.ledger tbody tr').length`)
-  assert.equal(scopes, 2)
+  await client.waitFor(`document.querySelector('.library-workspace h1')?.textContent === 'api-notes'`)
+  assert.equal(await client.evaluate(`${button('Manage in Global')} !== undefined`), true)
+  assert.equal(await client.evaluate(`${button('Manage in apiserver')} !== undefined`), true)
+  await browseLibrary()
+  await client.evaluate(`[...document.querySelectorAll('.row-item')].find((b) => b.textContent.startsWith('ghost')).click()`)
+  await client.waitFor(`${button('Review settings leftovers')} !== undefined`)
+  await keyboardActivate(button('Review settings leftovers'))
+  await client.waitFor(`document.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.getAttribute('aria-label') === 'Clean up'`)
+  await client.waitFor(`document.querySelector('nav[aria-label="Cleanup sections"] [aria-current="page"]')?.textContent.trim() === 'Settings leftovers'`)
+  await client.waitFor(`document.body.textContent.includes('ghost@acme')`)
   // Back to Projects, so the destinations that follow start where they used to.
-  await client.evaluate(`[...document.querySelectorAll('nav button')].find((b) => b.textContent.trim() === 'Projects').click()`)
+  await navigate('Projects')
   await client.waitFor(`document.querySelectorAll('li button').length > 0`)
 })
 
@@ -139,18 +257,27 @@ test('the Global page lists the fixture skills and the two plugins', async () =>
   assert.equal(detail.storage.sessions.projectCount, 5)
 })
 
-test('Clean up renders its preview and Leftovers finds every orphan kind', async () => {
-  await client.evaluate(`[...document.querySelectorAll('nav button')].find((b) => b.textContent.trim() === 'Clean up').click()`)
-  await client.waitFor(`document.body.textContent.includes('Preview — nothing has moved')`)
+test('Clean up contains files, settings leftovers and duplicate skills', async () => {
+  await navigate('Clean up')
+  await section('Cleanup sections', 'Files and caches')
+  const sections = await client.evaluate(`[...document.querySelectorAll('nav[aria-label="Cleanup sections"] button')].map((b) => b.textContent.trim())`)
+  assert.deepEqual(sections, ['Files and caches', 'Settings leftovers', 'Duplicate skills'])
+  await client.waitFor(`document.querySelector('input[aria-label^="Select "]') !== null`)
   const tidy = await call(`(await window.kondo.tidyPreview()).data`)
   const throwaway = tidy.categories.find((entry) => entry.category === 'scratch-projects')
   assert.equal(throwaway.count, 2)
 
+  await section('Cleanup sections', 'Settings leftovers')
+  await client.waitFor(`document.body.textContent.includes('ghost@acme') && document.body.textContent.includes('retired-helper')`)
   const orphans = await call(`(await window.kondo.configOrphansPreview()).data`)
   assert.deepEqual(
     [...new Set(orphans.map((row) => row.kind))].sort(),
     ['enabled-plugin', 'mcp-declaration', 'project-entry', 'skill-override']
   )
+  await capture('cleanup-settings')
+  await section('Cleanup sections', 'Duplicate skills')
+  await client.waitFor(`document.body.textContent.includes('api-notes') && document.body.textContent.includes('db-migrate')`)
+  await capture('cleanup-duplicates')
 })
 
 test('a skill move round-trips through the bridge and its undo puts the store back', async () => {
@@ -177,51 +304,264 @@ test('a skill move round-trips through the bridge and its undo puts the store ba
   assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').length, 2)
 })
 
-test('Library explains the kinds and opens the selected management location', async () => {
-  await navigate('Library')
+test('the Library-to-project keyboard workflow preserves the item and search at 900px', async () => {
+  await browseLibrary()
   await client.waitFor(`document.querySelectorAll('.row-item').length > 0 && !document.body.textContent.includes('Reading your Claude Code setup…')`)
-  // Clear any previous selection without discarding the catalogue filters.
-  await client.evaluate(`document.querySelector('.row-item[aria-current="true"]')?.click()`)
-  await client.waitFor(`document.body.textContent.includes('Instructions for a repeatable task')`)
   await capture('library-overview')
   await client.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 600, deviceScaleFactor: 1, mobile: false })
-  await capture('library-minimum')
-  await client.send('Emulation.clearDeviceMetricsOverride')
-  await client.evaluate(`[...document.querySelectorAll('.row-item')].find((b) => b.textContent.includes('api-notes')).click()`)
-  await client.waitFor(`document.body.textContent.includes('Manage in apiserver')`)
-  await capture('library-skill')
-  await client.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Manage in apiserver').click()`)
-  await client.waitFor(`document.querySelector('h1')?.textContent === 'apiserver'`)
-  assert.equal(await client.evaluate(`document.querySelector('nav [aria-current="page"]').textContent.trim()`), 'Projects')
-  // Session details must open through a native button, including Enter.
-  await client.waitFor(`document.querySelector('button[aria-label^="Session "]') !== null`)
-  await client.evaluate(`document.querySelector('button[aria-label^="Session "]').focus()`)
-  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', text: '\r', unmodifiedText: '\r', windowsVirtualKeyCode: 13 })
-  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
-  await client.waitFor(`document.querySelector('button[aria-label^="Session "]')?.getAttribute('aria-expanded') === 'true'`)
-  assert.equal(await client.evaluate(`[...document.querySelectorAll('input, select')].every((el) => Boolean(el.getAttribute('aria-label') || el.labels?.length))`), true)
+  try {
+    const search = `document.querySelector('input[aria-label="Search the Library"]')`
+    const kind = `document.querySelector('select[aria-label="Item type"]')`
+    await client.evaluate(`(() => {
+      const select = ${kind};
+      const option = [...select.options].find((entry) => entry.textContent.startsWith('Skills'));
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, option.value);
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`)
+    await client.waitFor(`${kind}.value !== ''`)
+    const selectedKind = await client.evaluate(`${kind}.value`)
+    assert.ok(selectedKind)
+    await client.evaluate(`${search}.focus(); ${search}.select()`)
+    await client.send('Input.insertText', { text: 'api-notes' })
+    await client.waitFor(`document.querySelectorAll('.row-item').length === 1`)
+    await assertNoHorizontalOverflow()
+    await assertInViewport(search, 200)
+    await capture('library-minimum-browser')
+
+    const row = `document.querySelector('.row-item')`
+    const selectedKey = await client.evaluate(`${row}.getAttribute('data-library-key')`)
+    assert.ok(selectedKey)
+    await tabTo(row)
+    await press('Enter')
+    const heading = `document.querySelector('.library-workspace .workspace-detail h1')`
+    await client.waitFor(`${heading}?.textContent === 'api-notes' && document.activeElement === ${heading}`)
+    // A resize must not leave focus in the browser after that pane is hidden.
+    await client.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
+    await client.waitFor(`getComputedStyle(document.querySelector('.library-workspace .workspace-browser')).display !== 'none'`)
+    await client.evaluate(`${search}.focus()`)
+    assert.equal(await client.evaluate(`document.activeElement === ${search}`), true)
+    await client.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 600, deviceScaleFactor: 1, mobile: false })
+    try {
+      await client.waitFor(`document.activeElement === ${heading}`)
+    } catch (cause) {
+      const focused = await client.evaluate(`({ tag: document.activeElement?.tagName,
+        label: document.activeElement?.getAttribute('aria-label'),
+        rects: document.activeElement?.getClientRects().length,
+        headingRects: ${heading}.getClientRects().length,
+        browserDisplay: getComputedStyle(document.querySelector('.library-workspace .workspace-browser')).display })`)
+      assert.fail(`${cause.message}; focus after resizing: ${JSON.stringify(focused)}`)
+    }
+    assert.equal(await client.evaluate(`getComputedStyle(document.querySelector('.library-workspace .workspace-browser')).display`), 'none')
+    const detailWidth = await client.evaluate(`document.querySelector('.library-workspace .workspace-detail').getBoundingClientRect().width`)
+    assert.ok(detailWidth >= 400, `Detail is compressed to ${detailWidth}px`)
+    await assertNoHorizontalOverflow()
+    await assertInViewport(heading, 300)
+    await capture('library-minimum-detail')
+
+    // Technical metadata is optional, and its native disclosure works with
+    // both activation keys without changing where keyboard focus lives.
+    const disclosure = `document.querySelector('.library-workspace .workspace-detail details')`
+    await client.waitFor(`${disclosure} !== null`)
+    assert.equal(await client.evaluate(`${disclosure}.open`), false)
+    const summary = `${disclosure}.querySelector('summary')`
+    await tabTo(summary)
+    await press(' ')
+    await client.waitFor(`${disclosure}.open`)
+    assert.equal(await client.evaluate(`document.activeElement === ${summary}`), true)
+    await press('Enter')
+    await client.waitFor(`!${disclosure}.open`)
+
+    const manage = button('Manage in apiserver')
+    await keyboardActivate(manage)
+    await client.waitFor(`document.querySelector('h1')?.textContent.startsWith('apiserver')`)
+    await client.waitFor(`document.activeElement === document.querySelector('main') || document.activeElement === document.querySelector('h1')`)
+    assert.equal(await client.evaluate(`document.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]').getAttribute('aria-label')`), 'Projects')
+    const sections = await client.evaluate(`[...document.querySelectorAll('nav[aria-label="Project sections"] button')].map((b) => b.getAttribute('aria-label') ?? b.textContent.trim())`)
+    assert.deepEqual(sections, ['Overview', 'Skills', 'Plugins', 'Connections', 'Other tools', 'Conversations', 'Technical details'])
+    assert.equal(await client.evaluate(`${button('Skills', 'document.querySelector(\'nav[aria-label="Project sections"]\')')}.getAttribute('aria-current')`), 'page')
+    await client.waitFor(`document.querySelector('select[aria-label="Move to: api-notes"]') !== null`)
+    assert.equal(await client.evaluate(`getComputedStyle(document.querySelector('.workspace-browser')).display`), 'none')
+    await assertInViewport(`document.querySelector('.workspace-detail h1')`, 300)
+    await assertNoHorizontalOverflow()
+    await capture('project-minimum-skills')
+
+    await keyboardActivate(button('Back to Library item'))
+    await client.waitFor(`${heading}?.textContent === 'api-notes' && document.activeElement === ${heading}`)
+    assert.equal(await client.evaluate(`${search}.value`), 'api-notes')
+    assert.equal(await client.evaluate(`${kind}.value`), selectedKind)
+    await keyboardActivate(button('Back to Library', 'document.querySelector(\'.library-workspace\')'))
+    await client.waitFor(`document.activeElement?.getAttribute('data-library-key') === ${JSON.stringify(selectedKey)}`)
+    assert.equal(await client.evaluate(`${search}.value`), 'api-notes')
+    assert.equal(await client.evaluate(`${kind}.value`), selectedKind)
+    assert.equal(await client.evaluate(`document.querySelectorAll('.row-item').length`), 1)
+    await assertNoHorizontalOverflow()
+    await capture('library-minimum-return')
+    await keyboardActivate(button('Clear filters'))
+    await client.waitFor(`document.querySelectorAll('.row-item').length > 1`)
+    assert.equal(await client.evaluate(`${search}.value`), '')
+    assert.equal(await client.evaluate(`${kind}.value`), '')
+    assert.equal(await client.evaluate(`document.activeElement === ${search}`), true)
+  } finally {
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
 })
 
-test('a staged move focuses Cancel and Escape restores the picker without writing', async () => {
-  await navigate('Projects')
-  await client.waitFor(`[...document.querySelectorAll('li button')].some((b) => b.textContent.includes('Global'))`)
-  await client.evaluate(`[...document.querySelectorAll('li button')].find((b) => b.textContent.includes('Global')).click()`)
-  await client.waitFor(`document.querySelector('select[aria-label="Move to: commit-writer"]') !== null`)
+test('project conversations and technical details remain reachable with native controls', async () => {
+  await openProject('apiserver')
+  await section('Project sections', 'Conversations')
+  await client.waitFor(`document.querySelector('button[aria-label^="Session "]') !== null`)
+  const conversation = `document.querySelector('button[aria-label^="Session "]')`
+  await keyboardActivate(conversation)
+  await client.waitFor(`${conversation}?.getAttribute('aria-expanded') === 'true'`)
+  await press(' ')
+  await client.waitFor(`${conversation}?.getAttribute('aria-expanded') === 'false'`)
+  assert.equal(await client.evaluate(`[...document.querySelectorAll('input, select')].every((el) => Boolean(el.getAttribute('aria-label') || el.labels?.length))`), true)
+  await section('Project sections', 'Technical details')
+  await capture('project-technical-details')
+})
+
+test('move cancellation and leaving a project discard pending writes at 900px', async () => {
   const journal = path.join(base, 'kondo-data', 'journal.jsonl')
   const before = await fs.readFile(journal, 'utf8')
-  await client.evaluate(`(() => {
-    const picker = document.querySelector('select[aria-label="Move to: commit-writer"]');
-    picker.focus();
-    const target = [...picker.options].find((o) => o.textContent.includes('apiserver'));
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(picker, target.value);
-    picker.dispatchEvent(new Event('change', { bubbles: true }));
-  })()`)
-  await client.waitFor(`document.activeElement?.textContent === 'Cancel'`)
-  assert.equal(await fs.readFile(journal, 'utf8'), before)
-  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
-  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
-  await client.waitFor(`document.activeElement?.getAttribute('aria-label') === 'Move to: commit-writer'`)
-  assert.equal(await fs.readFile(journal, 'utf8'), before)
+  const stageMove = async () => {
+    await client.evaluate(`(() => {
+      const picker = document.querySelector('select[aria-label="Move to: commit-writer"]');
+      picker.focus();
+      const target = [...picker.options].find((o) => o.textContent.includes('apiserver'));
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(picker, target.value);
+      picker.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`)
+    await client.waitFor(`document.activeElement?.textContent === 'Cancel'`)
+  }
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 600, deviceScaleFactor: 1, mobile: false })
+  try {
+    await openGlobalSkills()
+    await stageMove()
+    assert.equal(await fs.readFile(journal, 'utf8'), before)
+    await assertNoHorizontalOverflow()
+    await assertInViewport('document.activeElement')
+    await capture('move-minimum-confirmation')
+    await press('Escape')
+    await client.waitFor(`document.activeElement?.getAttribute('aria-label') === 'Move to: commit-writer'`)
+    assert.equal(await fs.readFile(journal, 'utf8'), before)
+
+    await stageMove()
+    await keyboardActivate(button('Back to projects'))
+    await openGlobalSkills()
+    assert.equal(await client.evaluate(`${button('Move commit-writer to apiserver')} === undefined`), true)
+    assert.equal(await fs.readFile(journal, 'utf8'), before)
+  } finally {
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
+})
+
+test('cleanup review and permanent trash confirmation cancel safely at 900px', async () => {
+  const journal = path.join(base, 'kondo-data', 'journal.jsonl')
+  const settings = path.join(base, 'home', '.claude', 'settings.json')
+  const beforeJournal = await fs.readFile(journal, 'utf8')
+  const beforeSettings = await fs.readFile(settings, 'utf8')
+  const beforeTrash = await call(`(await window.kondo.trashSize()).data`)
+  assert.ok(beforeTrash.bytes > 0)
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 600, deviceScaleFactor: 1, mobile: false })
+  try {
+    await navigate('Clean up')
+    for (const [label, reviewLabel, shot] of [
+      ['Files and caches', 'Review selected items', 'cleanup-minimum-files-review'],
+      ['Settings leftovers', 'Review selected settings', 'cleanup-minimum-settings-review']
+    ]) {
+      await section('Cleanup sections', label)
+      const checkbox = `document.querySelector('main input[type="checkbox"]:not(:disabled)')`
+      await client.waitFor(`${checkbox} !== null`)
+      await client.evaluate(`${checkbox}.focus()`)
+      await press(' ')
+      const review = button(reviewLabel)
+      await client.waitFor(`${review} !== undefined && !${review}.disabled`)
+      await keyboardActivate(review)
+      await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel'`)
+      await assertNoHorizontalOverflow()
+      await assertInViewport('document.activeElement')
+      await capture(shot)
+      assert.equal(await fs.readFile(journal, 'utf8'), beforeJournal)
+      assert.equal(await fs.readFile(settings, 'utf8'), beforeSettings)
+      await press('Escape')
+      await client.waitFor(`document.activeElement === ${review}`)
+      assert.equal(await fs.readFile(journal, 'utf8'), beforeJournal)
+    }
+
+    await section('Cleanup sections', 'Files and caches')
+    assert.equal(await client.evaluate(`${button('Move to trash')} === undefined`), true)
+    await navigate('History')
+    const empty = `[...document.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith('Empty the trash'))`
+    await client.waitFor(`${empty} !== undefined && !${empty}.disabled`)
+    await keyboardActivate(empty)
+    await client.waitFor(`document.activeElement?.textContent.trim() === 'Keep the trash'`)
+    await assertNoHorizontalOverflow()
+    await assertInViewport('document.activeElement')
+    await capture('history-minimum-trash-confirmation')
+    await press('Escape')
+    await client.waitFor(`document.activeElement === ${empty}`)
+    assert.equal(await fs.readFile(journal, 'utf8'), beforeJournal)
+    assert.equal(await fs.readFile(settings, 'utf8'), beforeSettings)
+    assert.deepEqual(await call(`(await window.kondo.trashSize()).data`), beforeTrash)
+  } finally {
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
+})
+
+test('file cleanup review applies once and Undo restores all fixture bytes', async () => {
+  const snapshot = async (root) => {
+    const files = []
+    const visit = async (directory, relative = '') => {
+      for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+        const name = path.join(relative, entry.name)
+        if (entry.isDirectory()) await visit(path.join(directory, entry.name), name)
+        else files.push([name, (await fs.readFile(path.join(directory, entry.name))).toString('base64')])
+      }
+    }
+    await visit(root)
+    return files.sort(([left], [right]) => left.localeCompare(right))
+  }
+  const savedProjects = path.join(base, 'home', '.claude', 'projects')
+  const actualProjects = path.join(base, 'work')
+  const journal = path.join(base, 'kondo-data', 'journal.jsonl')
+  const beforeSaved = await snapshot(savedProjects)
+  const beforeWork = await snapshot(actualProjects)
+  const beforeJournal = (await fs.readFile(journal, 'utf8')).trim().split('\n').length
+  assert.ok(beforeSaved.length > 0)
+  assert.equal((await fs.readdir(savedProjects)).length, 2)
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 600, deviceScaleFactor: 1, mobile: false })
+  try {
+    await navigate('Clean up')
+    await section('Cleanup sections', 'Files and caches')
+    const checkbox = `document.querySelector('input[aria-label="Select Throwaway folders"]')`
+    await client.waitFor(`${checkbox} !== null && !${checkbox}.disabled`)
+    assert.equal(await client.evaluate(`${checkbox}.checked`), false)
+    await client.evaluate(`${checkbox}.focus()`)
+    await press(' ')
+    await keyboardActivate(button('Review selected items'))
+    await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel'`)
+    assert.deepEqual(await snapshot(savedProjects), beforeSaved)
+    await keyboardActivate(button('Move to trash'))
+    const result = `document.querySelector('[aria-label="Cleanup result"]')`
+    const undo = `${result}.querySelector('button[aria-label^="Undo "]')`
+    await client.waitFor(`${undo} !== null && ${result}.contains(document.activeElement)`)
+    assert.deepEqual(await fs.readdir(savedProjects), [])
+    assert.deepEqual(await snapshot(actualProjects), beforeWork)
+    assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').length, beforeJournal + 1)
+    await assertNoHorizontalOverflow()
+    await assertInViewport(undo)
+    await capture('cleanup-minimum-applied')
+
+    await keyboardActivate(undo)
+    await client.waitFor(`${result}.querySelector('[role="status"]')?.textContent.startsWith('Undone —')`)
+    assert.deepEqual(await snapshot(savedProjects), beforeSaved)
+    assert.deepEqual(await snapshot(actualProjects), beforeWork)
+    assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').length, beforeJournal + 2)
+    assert.equal(await client.evaluate(`${undo} === null`), true)
+    await capture('cleanup-minimum-restored')
+  } finally {
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
 })
 
 test('Library keeps healthy items visible when the MCP read is malformed', async () => {
@@ -229,10 +569,10 @@ test('Library keeps healthy items visible when the MCP read is malformed', async
   const original = await fs.readFile(file, 'utf8')
   try {
     await fs.writeFile(file, '{ broken MCP fixture')
-    await navigate('Library')
+    await browseLibrary()
     await client.waitFor(`document.body.textContent.includes('Some information could not be read or recognized.')`)
+    await client.waitFor(`[...document.querySelectorAll('.row-item')].some((b) => b.textContent.includes('api-notes'))`)
     assert.equal(await client.evaluate(`[...document.querySelectorAll('.row-item')].some((b) => b.textContent.includes('api-notes'))`), true)
-    await client.evaluate(`document.querySelector('.row-item[aria-current="true"]')?.click()`)
     await client.waitFor(`document.querySelector('[aria-label="MCP servers reading problems"]') !== null`)
     await client.evaluate(`document.querySelector('[aria-label="MCP servers reading problems"] button').click()`)
     assert.ok((await client.evaluate(`document.body.textContent`)).includes('parse-failed'))
@@ -245,16 +585,14 @@ test('Library keeps healthy items visible when the MCP read is malformed', async
 })
 
 test('inline undo reports success even when a different history line is malformed', async () => {
-  await navigate('Projects')
-  await client.waitFor(`[...document.querySelectorAll('li button')].some((b) => b.textContent.includes('Global'))`)
-  await client.evaluate(`[...document.querySelectorAll('li button')].find((b) => b.textContent.includes('Global')).click()`)
+  await openGlobalSkills()
   await client.waitFor(`document.querySelector('button[aria-label="Disable commit-writer"]') !== null`)
   const settings = path.join(base, 'home', '.claude', 'settings.json')
   const before = await fs.readFile(settings, 'utf8')
-  await client.evaluate(`document.querySelector('button[aria-label="Disable commit-writer"]').click()`)
+  await keyboardActivate(`document.querySelector('button[aria-label="Disable commit-writer"]')`)
   await client.waitFor(`document.querySelector('.band-stamp button[aria-label^="Undo "]') !== null`)
   await fs.appendFile(path.join(base, 'kondo-data', 'journal.jsonl'), '{}\n')
-  await client.evaluate(`document.querySelector('.band-stamp button[aria-label^="Undo "]').click()`)
+  await keyboardActivate(`document.querySelector('.band-stamp button[aria-label^="Undo "]')`)
   await client.waitFor(`document.querySelector('.band-stamp [role="status"]')?.textContent.startsWith('Undone —')`)
   assert.equal(await client.evaluate(`document.querySelector('.band-stamp button[aria-label^="Undo "]') === null`), true)
   assert.equal(await fs.readFile(settings, 'utf8'), before)

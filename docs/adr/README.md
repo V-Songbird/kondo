@@ -16,6 +16,8 @@ re-asked. Numbered, never renumbered; a superseded ADR stays and gains a
 - [0008 — Composite identity, ids across the seam](0008-composite-identity-ids-across-the-seam.md)
 - [0009 — Projects come from Claude's registry](0009-projects-come-from-claudes-registry.md)
 - [0010 — Splice configuration files; never write one whole](0010-splice-config-files-never-whole-file-writes.md)
+- [0011 — Unsigned releases for now](0011-unsigned-releases-for-now.md)
+- [0012 — Organize navigation around user tasks](0012-organize-navigation-around-user-tasks.md)
 
 ## Template
 

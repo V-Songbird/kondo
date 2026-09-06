@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import type { JournalEntryInfo, JournalOp } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
@@ -12,7 +12,7 @@ import { formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/forma
  * mutation can be undone; this is where that promise stops being invisible —
  * newest first, each row saying what it did and offering to reverse it.
  *
- * Above it sits the one destructive act kondo has. Emptying is its own
+ * Below it sits the one destructive act kondo has. Emptying is its own
  * button on its own channel, confirmed on its own, and it is never a step of
  * anything else on this screen or off it.
  *
@@ -45,6 +45,15 @@ export function Journal() {
   const confirmation = useConfirmationFocus(confirming, () => setConfirming(false))
   const reloadJournal = journal.reload
   const reloadTrash = trash.reload
+  const resultRef = useRef<HTMLDivElement>(null)
+  const focusResult = useRef(false)
+
+  useLayoutEffect(() => {
+    if (busy === null && focusResult.current) {
+      resultRef.current?.focus()
+      focusResult.current = false
+    }
+  })
 
   /**
    * ADR-0006: the store is the state, and so is kondo's trash. An undo moves
@@ -74,6 +83,7 @@ export function Journal() {
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
     } finally {
+      focusResult.current = true
       setBusy(null)
       refresh()
     }
@@ -97,6 +107,7 @@ export function Journal() {
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
     } finally {
+      focusResult.current = true
       setBusy(null)
       refresh()
     }
@@ -106,14 +117,7 @@ export function Journal() {
   const held = report?.bytes ?? 0
   const points = report?.entryCount ?? 0
 
-  return (
-    <div>
-      {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
-      {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
-      {trash.failure !== null && <div role="alert" className="band band-pencil">{trash.failure}</div>}
-
-      {trash.scan && <Problems scan={trash.scan} />}
-
+  const trashSection = (
       <section className="sheet" data-tone="coral">
         <div className="sheet-head">
           <h2>Kondo&rsquo;s trash</h2>
@@ -122,14 +126,17 @@ export function Journal() {
           </span>
         </div>
         <div role="status" className="busy">{trash.loading ? 'Reading trash…' : ''}</div>
+        {trash.failure !== null && <div role="alert" className="band band-pencil">{trash.failure}</div>}
+        {trash.scan && <Problems scan={trash.scan} />}
         <p className="max-w-2xl text-ink-2">
-          Everything kondo has displaced still sits here, and stays until you empty it.
-          Nothing expires on its own.
+          Files moved out of the way are kept here so you can restore them. They still
+          use disk space until you empty the trash. Nothing expires on its own.
         </p>
         {report && (
-          <div className="mt-1 font-mono text-xs text-ink-2" title={report.root}>
-            {report.root}
-          </div>
+          <details className="technical-details mt-3">
+            <summary>Trash location</summary>
+            <p className="mt-2 break-all font-mono text-xs text-ink-2">{report.root}</p>
+          </details>
         )}
 
         <div className="mt-3">
@@ -140,8 +147,8 @@ export function Journal() {
                 {formatCount(points, 'restore point')}?
               </div>
               <div className="text-ink-2">
-                History keeps its record, but the files those entries would put back are
-                gone. This is the one thing kondo cannot undo.
+                History will keep its record, but the files needed to restore these
+                changes will be deleted. Kondo cannot undo this.
               </div>
               <div className="flex flex-wrap gap-3">
                 {/* Cancel comes first and takes the focus: the destructive
@@ -186,24 +193,37 @@ export function Journal() {
           )}
         </div>
       </section>
+  )
 
+  return (
+    <div>
+      <div className="hero">
+        <h1>History</h1>
+        <p className="mt-2 max-w-2xl">
+          Review what kondo changed and restore a change with Undo. Files in the trash
+          remain available to restore until you permanently empty it.
+        </p>
+      </div>
+      <div ref={resultRef} tabIndex={-1} aria-label="History result">
+        {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
+        {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
+      </div>
       <section className="sheet" data-tone="orchid">
         <div className="sheet-head">
-          <h2>History</h2>
+          <h2>Recent changes</h2>
           {journal.scan && <span className="count">{journal.scan.data.length}</span>}
         </div>
         <AsyncView
           state={journal}
-          empty="Nothing yet — kondo has not changed anything on this machine. Every change it makes is listed here, with a way to undo it."
+          empty="No changes yet. After you move, disable or remove something in kondo, its history and Undo action appear here."
         >
           {(scan) => (
             <table className="ledger">
               <thead>
                 <tr>
                   <th>When</th>
-                  <th>What it did</th>
-                  <th>Kind</th>
-                  <th className="num">Steps</th>
+                  <th>What changed</th>
+                  <th>Status</th>
                   <th />
                 </tr>
               </thead>
@@ -218,24 +238,27 @@ export function Journal() {
                       <td className="max-w-lg">
                         <div>{entry.summary}</div>
                         <Refusal reason={entry.failed ? 'A step of this change failed. Undo restores the steps that were applied.' : null} />
-                        <div
-                          className="truncate font-mono text-xs text-ink-2"
-                          title={entry.entityId}
-                        >
-                          {entry.entityId}
-                        </div>
+                        <details className="technical-details mt-2">
+                          <summary>Technical details</summary>
+                          <dl className="mt-2 text-xs text-ink-2">
+                            <div className="line"><dt>When</dt><dd>{entry.at}</dd></div>
+                            <div className="line"><dt>Kind</dt><dd>{entry.kind} · {OP_LABEL[entry.op]}</dd></div>
+                            <div className="line"><dt>Steps</dt><dd>{entry.stepCount}</dd></div>
+                            <div className="line"><dt>Item</dt><dd className="break-all">{entry.entityId}</dd></div>
+                          </dl>
+                        </details>
                       </td>
                       <td className="space-x-1 whitespace-nowrap">
-                        <span className="stamp">{entry.kind}</span>
-                        <span className="stamp">{OP_LABEL[entry.op]}</span>
                         {entry.undoneBy !== null && <span className="stamp-off" data-sigil="undone">undone</span>}
                         {entry.failed && (
                           <span className="stamp-bad">
-                            failed
+                            partly applied
                           </span>
                         )}
+                        {!entry.failed && entry.undoneBy === null && (
+                          <span className="stamp-ok">{entry.isUndo ? 'restored' : 'applied'}</span>
+                        )}
                       </td>
-                      <td className="num text-ink-2">{entry.stepCount}</td>
                       <td className="text-right">
                         <button
                           type="button"
@@ -258,6 +281,7 @@ export function Journal() {
           )}
         </AsyncView>
       </section>
+      {trashSection}
     </div>
   )
 }

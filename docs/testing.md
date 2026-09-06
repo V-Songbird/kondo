@@ -59,9 +59,9 @@ in temp directories by the builders in `test/helpers.ts`.
    runner) builds the run-kondo fixture in a fresh temp directory, launches
    the built app against it through the three `KONDO_*_ROOT` overrides with
    `--remote-debugging-port`, and drives it over Chromium's debugging
-   protocol: the nav renders, the projects list is the fixture's union, the
-   Global page lists the fixture's skills and plugins, Clean up and Leftovers
-   answer, and one skill move goes through the bridge and comes back with its
+   protocol: Library starts selected among four destinations, the projects list
+   is the fixture's union, All projects lists the fixture's skills and plugins,
+   the three Clean up sections answer, and one skill move goes through the bridge and comes back with its
    undo — the journal on disk checked both times. It runs on all three OSes in
    CI (`smoke` job, xvfb on Linux) after `npm run build`, and it shares its
    protocol client (`.claude/skills/run-kondo/cdp.mjs`) with the `run-kondo`
@@ -77,11 +77,15 @@ Two things to know about the suite as it stands:
   boundary and workspace suites use it, the rest should follow. CI does not
   assert that gated tests ran.
 - The renderer has no isolated DOM unit suite; the built Electron smoke covers
-  Library-to-project navigation, keyboard session details, named controls,
-  staged-move cancellation with unchanged journal bytes, and partial Library
-  reads when a fixture MCP file is malformed. Set `KONDO_E2E_SHOTS` to an output
-  directory to capture the overview, 900px layout, skill page and partial read.
-  The tests continue to use only synthetic stores.
+  Library-to-project navigation and return with preserved filters/selection,
+  real Tab/Enter/Space routes, native disclosures, named controls, focus on
+  results, cancellation with unchanged journal/settings bytes, and partial
+  Library reads when a fixture MCP file is malformed. Layout checks at 900x600
+  assert pane width and absence of horizontal document/content overflow, in
+  addition to screenshots. Cleanup and permanent trash confirmation stay
+  separate. Set `KONDO_E2E_SHOTS` to an output directory for visual evidence.
+  These checks use only synthetic stores and do not establish screen-reader
+  or cross-platform desktop behavior beyond the platform actually tested.
 
 ## Rules
 
