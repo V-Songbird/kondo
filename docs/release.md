@@ -29,12 +29,20 @@ decision.
 1. `npm version <bump> --no-git-tag-version` on a clean `main`; move the
    CHANGELOG's `[Unreleased]` items under the new version; commit.
 2. CI green on all three OSes (`verify` and `smoke` jobs).
-3. `git tag v<version> && git push --tags`. The `release` workflow builds the
-   NSIS installer, the DMG and the AppImage, runs the end-to-end smoke against
-   the packaged binary on Windows and Linux, and attaches everything to a
-   **draft** GitHub Release.
-4. Download one artifact per OS and run it against a fixture store
+3. Rehearse. Run the `release` workflow from the Actions tab — it takes a
+   `workflow_dispatch` — against `main`. All three installers build and the
+   smoke test drives them; the `publish` job is skipped, because a rehearsal
+   has no tag to attach anything to. A red leg here is a blocker the tag
+   would have hit anyway, found without burning a version number.
+4. `git tag v<version> && git push --tags`. The `package` job builds the NSIS
+   installer, the DMG and the AppImage, runs the end-to-end smoke against the
+   packaged binary on Windows and Linux, and uploads each installer as a
+   workflow artifact. `publish` waits on all three and attaches them to one
+   **draft** GitHub Release, so an OS that fails yields no draft rather than
+   an incomplete one. The run also stops before building if the tag does not
+   name the version in `package.json`.
+5. Download one artifact per OS and run it against a fixture store
    (`.claude/skills/run-kondo/fixture.mjs` prints the three env values); a
    blank window or any network request is a blocker.
-5. Publish the draft. `npm run package` builds the same artifacts locally,
+6. Publish the draft. `npm run package` builds the same artifacts locally,
    unsigned, when a check is wanted before the tag.

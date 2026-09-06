@@ -2,7 +2,9 @@ name: release
 
 # A tag `v<version>` on main produces one installer per OS — NSIS, DMG,
 # AppImage — and attaches them to a DRAFT GitHub Release; publishing is a
-# person's click (docs/release.md). Artifacts are unsigned for now
+# person's click (docs/release.md). The draft is made once, by a publish job
+# that waits on all three, so a single OS failing yields no draft rather than an
+# incomplete one. Artifacts are unsigned for now
 # (docs/adr/0011-unsigned-releases-for-now.md): no identity is looked up and no
 # certificate is read, so the workflow needs no secret beyond GITHUB_TOKEN.
 #
@@ -15,9 +17,14 @@ name: release
 on:
   push:
     tags: ['v*']
+  # Rehearsal. Run the whole pipeline from the Actions tab with no tag pushed:
+  # everything builds and the smoke test runs, and the publish job stands down
+  # because there is no tag to attach a draft to (docs/release.md).
+  workflow_dispatch:
 
+# Only the publish job below writes, and it says so itself.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   package:
@@ -44,6 +51,18 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # A tag must name the version it ships, and it is cheaper to find out
+      # here than after three OS builds. Rehearsal runs carry a branch name in
+      # ref_name, so this only binds on a tag push.
+      - if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not name package.json version ${pkg}" >&2
+            exit 1
+          fi
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -66,12 +85,35 @@ jobs:
         env:
           KONDO_E2E_BINARY: ${{ matrix.binary }}
       # The macOS app bundle's path carries the architecture; the dev-electron
-      # smoke already ran in ci.yml on this OS, so the packaged bundle is
-      # attached on the strength of the build succeeding.
+      # smoke already ran in ci.yml on this OS, so the packaged bundle is handed
+      # on on the strength of the build succeeding.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installer-${{ matrix.os }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # One draft, made once, after all three legs have produced an installer. The
+  # release step used to sit inside the matrix above, so a single OS failing
+  # left a published draft missing that installer; now it yields no draft at
+  # all. Skipped on a rehearsal run, which has no tag to attach anything to.
+  publish:
+    needs: package
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: installers
+          pattern: installer-*
+          merge-multiple: true
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           draft: true
-          files: ${{ matrix.files }}
+          files: installers/*
           generate_release_notes: false
           body: |
             Unsigned build — see the install notes in README.md.
