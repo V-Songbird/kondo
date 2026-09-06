@@ -164,6 +164,15 @@ can disagree, and only the filename is unique within a directory. Frontmatter
 that is missing or malformed leaves `description` null and is not an error
 (ADR-0005).
 
+A `description` in the wild is usually a paragraph, and a paragraph is
+written as a YAML block scalar — `description: >-` with the text indented
+beneath it, `|` where the breaks matter. The reader takes the lines a key
+owns: folded blocks collapse to one line, literal ones keep their breaks, a
+blank line inside a block is a paragraph break rather than the end of the
+value, and a plain value continued across indented lines is folded the same
+way. It stays deliberately lossy — kondo displays these, it does not
+round-trip them.
+
 | Kind | User store | Project store | Id |
 |---|---|---|---|
 | `agent` | `~/.claude/agents/*.md` ◇ | `<project>/.claude/agents/*.md` ✅ | `agent:user:<name>` · `agent:project/<flat>:<name>` |

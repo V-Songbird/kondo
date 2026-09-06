@@ -43,6 +43,15 @@ const flatten = (target) =>
 const skill = (name, description) =>
   `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`
 
+/**
+ * The same, with the description written as a folded YAML block scalar. That
+ * is how nearly every real skill writes one, and a reader that looks only at
+ * the key's own line answers with the header instead of the paragraph, so one
+ * fixture skill is written this way on purpose.
+ */
+const foldedSkill = (name, description) =>
+  `---\nname: ${name}\ndescription: >-\n  ${description}\n---\n\n# ${name}\n`
+
 /** An agent, command or output style: one markdown file with frontmatter. */
 const entry = (name, description) => `---\nname: ${name}\ndescription: ${description}\n---\n`
 
@@ -158,7 +167,10 @@ await write(desktopRoot, {
 // Ships inside a plugin, so kondo's skills catalogue must not list it. Two of
 // them, so the per-plugin listing is a list rather than a single row.
 await write(pluginInstall, {
-  'skills/roadmap/SKILL.md': skill('roadmap', 'Ships with the foreman plugin, not the user'),
+  'skills/roadmap/SKILL.md': foldedSkill(
+    'roadmap',
+    'Ships with the foreman plugin, not the user'
+  ),
   'skills/survey/SKILL.md': skill('survey', 'Also ships with foreman, never with the user')
 })
 

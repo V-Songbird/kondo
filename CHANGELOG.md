@@ -94,6 +94,17 @@ All notable changes to kondo are documented here. The format follows
   - The window's `backgroundColor` moves with `--base`, so the first painted
     frame is already the page.
 
+### Fixed
+
+- **Descriptions read as `>-`.** A description written as a YAML block scalar
+  — `description: >-` and the paragraph indented beneath it, which is how
+  nearly every skill on a real machine writes one — was read as the header
+  alone, so the Library printed `>-` where the sentence belonged.
+  `readFrontmatter` now takes the lines a key owns: folded blocks collapse to
+  one line, literal ones keep their breaks, and a plain value continued across
+  indented lines is picked up the same way. Every kind read from markdown
+  frontmatter benefits, not just skills.
+
 ## [0.5.0] - 2026-09-05
 
 The first version stamped as such. It collects everything since the
