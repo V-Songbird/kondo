@@ -44,9 +44,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm install
+      - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # The same lint and jig guards ci.yml runs — a tag must not ship what a
+      # pull request would have been rejected for.
+      - run: npm run lint
+      - run: node .jig/checks/run.mjs
+      - run: node .jig/checks/run.mjs --selftest
       - run: npm run build
       - run: npx electron-builder --publish never
       - if: runner.os == 'Windows'
@@ -63,7 +68,7 @@ jobs:
       # The macOS app bundle's path carries the architecture; the dev-electron
       # smoke already ran in ci.yml on this OS, so the packaged bundle is
       # attached on the strength of the build succeeding.
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           draft: true
           files: ${{ matrix.files }}

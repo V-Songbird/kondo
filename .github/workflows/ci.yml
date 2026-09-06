@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only by default; nothing in this workflow writes to the repository.
+permissions:
+  contents: read
+
 jobs:
   verify:
     strategy:
@@ -18,10 +22,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      # npm install, not npm ci: @tailwindcss/oxide ships per-OS native
-      # binaries a single-platform lockfile can't satisfy under ci's strict
-      # sync check (lesson inherited from skilldex's release workflow).
-      - run: npm install
+      - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run lint
@@ -51,7 +52,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm install
+      - run: npm ci
       - run: npm run build
       - if: runner.os == 'Linux'
         run: |
