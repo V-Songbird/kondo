@@ -140,11 +140,34 @@ entry and shipped the same day:
   driving the built app in CI (065), and packaged installers from a tag,
   unsigned for now under ADR-0011 (066).
 
+## Shipped — Library and the Flat File look, 2026-09-05
+
+- **Library**, a fifth destination and the other lens on the same set: the
+  named object is the row, a project is one filter over it, and `Needs a
+  look` collects the findings and says why each one is a finding (067). It
+  answers where a skill lives and which hooks fire on this machine without
+  opening 11,517 project pages, and needed no main-process work — five bridge
+  channels were already wired and never called.
+- The **Flat File** look applied: dark only, mono, sigils instead of
+  containers, a `k_` mark drawn once for the icon, the rail and the splash,
+  and IBM Plex bundled so nothing is fetched (068).
+- The splash **owns the first read** rather than the first painted frame, so
+  the window opens with rows in it and `Scanning…` never appears on launch
+  (069). ADR-0004 gains the amendment for the lifecycle channel that carries
+  the handover.
+- A `description` written as a YAML block scalar is read as the paragraph
+  rather than as its `>-` header (070) — the shape nearly every skill on a
+  real machine uses, and every kind read from markdown frontmatter benefits.
+
 ## Now
 
-Every entry the roadmap holds is done. The first release is the owner's to
-cut ([docs/release.md](docs/release.md)); what comes after is chosen from
-Later, or from what the released app turns up.
+One entry is open: rehearse every destructive path against a copy of a real
+store, with undo, before the first release (071). The journal on the owner's
+machine holds ten writes, all of them toggles, and no trash directory — so
+ADR-0001's reversibility promise has never been tested on a real byte. The
+release itself is the owner's to cut ([docs/release.md](docs/release.md));
+what comes after is chosen from Later, or from what the released app turns
+up.
 
 ## Later
 
