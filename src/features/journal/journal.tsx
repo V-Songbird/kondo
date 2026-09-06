@@ -11,7 +11,7 @@ import { formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/forma
  * mutation can be undone; this is where that promise stops being invisible —
  * newest first, each row saying what it did and offering to reverse it.
  *
- * Below it sits the one destructive act kondo has. Emptying is its own
+ * Above it sits the one destructive act kondo has. Emptying is its own
  * button on its own channel, confirmed on its own, and it is never a step of
  * anything else on this screen or off it.
  *
@@ -103,88 +103,90 @@ export function Journal() {
   const points = report?.entryCount ?? 0
 
   return (
-    <div className="space-y-4">
-      {problem !== null && <div className="card border-bad/50 text-bad">{problem}</div>}
-      {outcome !== null && <div className="card border-ok/50 text-ok">{outcome}</div>}
+    <div>
+      {problem !== null && <div className="band band-pencil text-pencil">{problem}</div>}
+      {outcome !== null && <div className="band band-stamp">{outcome}</div>}
 
       {trash.scan && <Problems scan={trash.scan} />}
 
-      <div className="card space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <div>
-            <h2 className="font-semibold">Kondo&rsquo;s trash</h2>
-            <p className="max-w-2xl text-mut">
-              Everything kondo has displaced still sits here, and stays until you empty
-              it. Nothing expires on its own.
-            </p>
-          </div>
-          <div className="text-right">
-            <div className="text-lg">{formatBytes(held)}</div>
-            <div className="text-xs text-mut">
-              {formatCount(points, 'restore point')}
-            </div>
-          </div>
+      <section className="sheet" data-tone="coral">
+        <div className="sheet-head">
+          <h2>Kondo&rsquo;s trash</h2>
+          <span className="count">
+            {formatBytes(held)} · {formatCount(points, 'restore point')}
+          </span>
         </div>
+        <p className="max-w-2xl text-ink-2">
+          Everything kondo has displaced still sits here, and stays until you empty it.
+          Nothing expires on its own.
+        </p>
         {report && (
-          <div className="font-mono text-xs text-mut" title={report.root}>
+          <div className="mt-1 font-mono text-xs text-ink-2" title={report.root}>
             {report.root}
           </div>
         )}
 
-        {confirming ? (
-          <div className="space-y-3 rounded-md border border-bad/60 bg-inset p-3">
-            <div className="text-bad">
-              Permanently delete {formatBytes(held)} from{' '}
-              {formatCount(points, 'restore point')}?
+        <div className="mt-3">
+          {confirming ? (
+            <div className="band band-pencil flex-col items-start gap-2">
+              <div className="text-pencil">
+                Permanently delete {formatBytes(held)} from{' '}
+                {formatCount(points, 'restore point')}?
+              </div>
+              <div className="text-ink-2">
+                History keeps its record, but the files those entries would put back are
+                gone. This is the one thing kondo cannot undo.
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {/* Cancel comes first and takes the focus: the destructive
+                    choice is never the default one (ADR-0001). */}
+                <button
+                  type="button"
+                  autoFocus
+                  className="btn btn-go btn-sm"
+                  onClick={() => setConfirming(false)}
+                >
+                  Keep the trash
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-fill btn-sm"
+                  onClick={() => void empty()}
+                >
+                  Empty it permanently
+                </button>
+              </div>
             </div>
-            <div className="text-mut">
-              History keeps its record, but the files those entries would put back are
-              gone. This is the one thing kondo cannot undo.
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {/* Cancel comes first and takes the focus: the destructive
-                  choice is never the default one (ADR-0001). */}
-              <button
-                type="button"
-                autoFocus
-                className="cursor-pointer rounded-md border border-edge px-3 py-1 hover:bg-panel"
-                onClick={() => setConfirming(false)}
-              >
-                Keep the trash
-              </button>
-              <button
-                type="button"
-                className="cursor-pointer rounded-md border border-bad/60 px-3 py-1 text-bad hover:bg-bad/10"
-                onClick={() => void empty()}
-              >
-                Empty it permanently
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            disabled={held === 0 || busy !== null}
-            className="cursor-pointer rounded-md border border-bad/50 px-3 py-1.5 text-bad hover:bg-bad/10 disabled:cursor-not-allowed disabled:opacity-40"
-            onClick={() => setConfirming(true)}
-          >
-            {held === 0 ? 'Nothing to empty' : `Empty the trash · ${formatBytes(held)}`}
-          </button>
-        )}
-      </div>
+          ) : (
+            <button
+              type="button"
+              disabled={held === 0 || busy !== null}
+              className="btn btn-pencil btn-sm"
+              onClick={() => setConfirming(true)}
+            >
+              {held === 0 ? 'Nothing to empty' : `Empty the trash · ${formatBytes(held)}`}
+            </button>
+          )}
+        </div>
+      </section>
 
-      <AsyncView
-        state={journal}
-        empty="Nothing yet — kondo has not changed anything on this machine. Every change it makes is listed here, with a way to undo it."
-      >
-        {(scan) => (
-          <table className="tbl">
+      <section className="sheet" data-tone="orchid">
+        <div className="sheet-head">
+          <h2>History</h2>
+          {journal.scan && <span className="count">{journal.scan.data.length}</span>}
+        </div>
+        <AsyncView
+          state={journal}
+          empty="Nothing yet — kondo has not changed anything on this machine. Every change it makes is listed here, with a way to undo it."
+        >
+          {(scan) => (
+            <table className="ledger">
               <thead>
                 <tr>
                   <th>When</th>
                   <th>What it did</th>
                   <th>Kind</th>
-                  <th className="text-right">Steps</th>
+                  <th className="num">Steps</th>
                   <th />
                 </tr>
               </thead>
@@ -192,46 +194,38 @@ export function Journal() {
                 {scan.data.map((entry) => {
                   const blocked = blockedReason(entry)
                   return (
-                    <tr key={entry.id} className={blocked === null ? '' : 'opacity-60'}>
-                      <td className="whitespace-nowrap text-mut" title={entry.at}>
+                    <tr key={entry.id} data-force={blocked === null ? undefined : 'off'}>
+                      <td className="whitespace-nowrap text-ink-2" title={entry.at}>
                         {formatAgo(Date.parse(entry.at))}
                       </td>
                       <td className="max-w-lg">
                         <div>{entry.summary}</div>
                         <div
-                          className="truncate font-mono text-xs text-mut"
+                          className="truncate font-mono text-xs text-ink-2"
                           title={entry.entityId}
                         >
                           {entry.entityId}
                         </div>
                       </td>
-                      <td className="whitespace-nowrap">
-                        <span className="pill">{entry.kind}</span>{' '}
-                        <span className="pill">{OP_LABEL[entry.op]}</span>
-                        {entry.undoneBy !== null && (
-                          <>
-                            {' '}
-                            <span className="pill text-warn">undone</span>
-                          </>
-                        )}
+                      <td className="space-x-1 whitespace-nowrap">
+                        <span className="stamp">{entry.kind}</span>
+                        <span className="stamp">{OP_LABEL[entry.op]}</span>
+                        {entry.undoneBy !== null && <span className="stamp-off" data-sigil="undone">undone</span>}
                         {entry.failed && (
-                          <>
-                            {' '}
-                            <span
-                              className="pill text-warn"
-                              title="A step of this change failed; the store never got all of it. Undo puts back whatever did happen."
-                            >
-                              failed
-                            </span>
-                          </>
+                          <span
+                            className="stamp-bad"
+                            title="A step of this change failed; the store never got all of it. Undo puts back whatever did happen."
+                          >
+                            failed
+                          </span>
                         )}
                       </td>
-                      <td className="text-right text-mut">{entry.stepCount}</td>
+                      <td className="num text-ink-2">{entry.stepCount}</td>
                       <td className="text-right">
                         <button
                           type="button"
                           disabled={blocked !== null || busy !== null}
-                          className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                          className="btn btn-quiet btn-sm"
                           onClick={() => void undo(entry)}
                         >
                           {busy === entry.id ? 'Undoing…' : 'Undo'}
@@ -244,9 +238,10 @@ export function Journal() {
                   )
                 })}
               </tbody>
-          </table>
-        )}
-      </AsyncView>
+            </table>
+          )}
+        </AsyncView>
+      </section>
     </div>
   )
 }

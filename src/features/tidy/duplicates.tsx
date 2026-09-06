@@ -44,29 +44,29 @@ export function SkillDuplicates() {
   }
 
   return (
-    <div className="space-y-3">
-      <div>
-        <h2 className="font-semibold">Skills kept twice</h2>
-        <p className="max-w-2xl text-xs text-mut">
-          The same skill name in more than one place. Copies with identical contents can
-          lose all but one; copies that differ are two skills and stay.
-        </p>
+    <section className="sheet" data-tone="mustard">
+      <div className="sheet-head">
+        <h2>Skills kept twice</h2>
       </div>
-      {problem !== null && <div className="card border-bad/50 text-bad">{problem}</div>}
+      <p className="mb-4 max-w-2xl text-[13px] text-ink-2">
+        The same skill name in more than one place. Copies with identical contents can
+        lose all but one; copies that differ are two skills and stay.
+      </p>
+      {problem !== null && <div className="band band-pencil text-pencil">{problem}</div>}
       <LastChange key={change?.id} entry={change} onUndone={reload} />
 
       <AsyncView state={state} empty="No skill name is kept twice across your scopes.">
         {(scan) => (
-          <div className="space-y-3">
+          <div className="space-y-5">
             {scan.data.map((group) => {
               const verdict = verdictFor(group)
               return (
-                <div key={group.name} className="card space-y-2">
-                  <h3 className="font-mono">
+                <div key={group.name}>
+                  <h3 className="mb-1">
                     {group.name}
-                    <span className={`pill ml-2 ${verdict.tone}`}>{verdict.label}</span>
+                    <span className={`${verdict.tone} ml-2`}>{verdict.label}</span>
                   </h3>
-                  <table className="tbl">
+                  <table className="ledger">
                     <thead>
                       <tr>
                         <th>Where</th>
@@ -81,19 +81,19 @@ export function SkillDuplicates() {
                         return (
                           <tr key={member.skill.id}>
                             <td>{member.skill.scope}</td>
-                            <td className="max-w-md font-mono text-xs text-mut">
+                            <td className="max-w-md font-mono text-xs text-ink-2">
                               <div className="truncate" title={member.skill.origin}>
                                 {member.skill.origin}
                               </div>
                             </td>
-                            <td className="font-mono text-xs text-mut">
+                            <td className="font-mono text-xs text-ink-2">
                               {shortDigest(member.digest)}
                             </td>
                             <td className="text-right">
                               <button
                                 type="button"
                                 disabled={reason !== null || busy}
-                                className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                                className="btn btn-quiet btn-sm"
                                 onClick={() => void trash(member.skill.id)}
                               >
                                 Move this copy to trash
@@ -111,6 +111,6 @@ export function SkillDuplicates() {
           </div>
         )}
       </AsyncView>
-    </div>
+    </section>
   )
 }

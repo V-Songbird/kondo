@@ -6,6 +6,94 @@ All notable changes to kondo are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A mark**: `k_`, the first letter of the wordmark and the caret that closes
+  it, drawn once in [src/assets/kondo-mark.svg](src/assets/kondo-mark.svg) and
+  used everywhere — the window and taskbar icon, the left rail, the splash, and
+  the head of both READMEs.
+
+- **A splash window** that owns kondo's first read. The main window stays
+  hidden until the renderer says its first scan has settled, so what replaces
+  the splash is a page with rows in it rather than a skeleton, and `Scanning…`
+  no longer appears on launch. The splash holds for 900 ms at minimum — a store
+  small enough to read in a blink used to make it a flash — and hands over
+  after 8 s regardless, so a read that never settles still shows a window.
+
+- **Library**, a fifth destination, and the other lens on the same set: the
+  *named object* is the row rather than the project. One page per skill,
+  plugin, hook, MCP server, agent, command, rule, output style or settings
+  file, listing every scope it lives in with that scope's own state, the
+  settings file that decided it, and the digest that says whether two copies
+  are actually the same skill.
+  - It answers four questions no screen answered before: where does this skill
+    live, which hooks will fire on this machine, which settings file switched
+    that off, and am I done. On the owner's store the first three used to cost
+    11,517 project pages.
+  - `Needs a look` collects the findings and says why each one is a finding —
+    a hook naming a script that is not on disk, a declaration whose folder is
+    gone, a name repeated with different contents, a plugin switch with no
+    plugin. Getting it to zero is the answer to the fourth question. Every row
+    is evidence, never a verdict about what to remove.
+  - Five bridge channels were already wired and never called — `skillsList`,
+    `pluginsList`, `hooksList`, `settingsLayers`, `pluginSkills` — so this
+    needed **no main-process work at all**. `SkillOverrideState.layerPath` was
+    computed for every skill and referenced nowhere under `src/`; it is now
+    printed rather than hovered for.
+  - Read-only on purpose. Every mutation still runs from the project page,
+    where it is tested; moving the controls here wants a pending destination
+    row and a plan-without-applying step, and both are their own change.
+  - The catalog is a pure module beside `project-rows.ts` and
+    `orphan-rows.ts`, tested without a DOM.
+
+### Changed
+
+- **No OS title bar.** The window is `titleBarStyle: 'hidden'` with a native
+  overlay for minimise/maximise/close in kondo's own colours, the page's top
+  strip drags the window, and the default `File Edit View Window` menu is gone
+  off macOS, where the system menu bar owns the editing accelerators.
+
+- Where you are inside a destination now lives in `App` rather than inside the
+  view. Going to History to undo something and coming back used to unmount the
+  Projects list and drop you at the top of an unfiltered list — on a real store
+  that is 11,517 rows and up to twelve presses of "Show 200 more" to get back.
+
+- A new look, "Flat File" ([DESIGN.md](DESIGN.md)). Everything kondo shows you
+  is plaintext somebody else wrote, so kondo stops putting it in cards and
+  sets itself in the material it reads: IBM Plex Mono on a warm near-black,
+  no containers at all, and colour applied the way a syntax highlighter
+  applies it. **Dark only** — the previous rule forbidding a dark theme is
+  void, and there is no toggle.
+  - **Two faces, one rule.** Mono is the store's text — every cell, chip,
+    path, id, digest and button label. IBM Plex Sans is kondo's own voice —
+    refusals, empty states, explanations, section headers. Both are bundled
+    under the SIL OFL; Inter Tight is gone.
+  - **Sigils before hue.** Every non-affirmative state leads with a character:
+    `-` stated off, `~` aged out or already happened, `!` broken, `?` kondo
+    cannot tell. The affirmative has no mark, because the resting state needs
+    none. Green, amber and red collapse under deuteranopia, and "off" beside
+    "not found" is exactly the pair that must never be confused.
+  - **A control is a word in brackets.** `[ Undo ]`. Disabled loses its
+    brackets and drops one ink tier rather than fading, so it stays at 5.03:1
+    and still reads as unpressable. `[ Empty it permanently ]` is the only
+    control in the app whose brackets are coloured.
+  - **Opacity is never a signal.** The five `opacity-60`/`opacity-50` row
+    dimmings become `data-force="off"` and one measured ink step; 0.35 alpha
+    on this ground would have put a 12.15:1 label at roughly 2.3:1.
+  - **No cards, no shadows, no gradients, no pills.** Regions are a header, a
+    rule and 28px of nothing; the sidebar loses its panel, which hands about
+    30px back to the project pane at the 900×600 minimum. The store cards stop
+    being a `grid-cols-2` that never collapsed.
+  - **Kind stops being a hue.** A kind is a grey word on a fill; a state is a
+    coloured word with a character and no fill. That resolves the collision
+    where lime meant both "Storage" and "on".
+  - The flattened project key shows its own damage: where kondo could not
+    locate a project, its name is the flattened directory key, drawn with the
+    surviving runs in the primary ink and the hyphen runs faint — lossy and
+    irreversible by construction, drawn rather than explained.
+  - The window's `backgroundColor` moves with `--base`, so the first painted
+    frame is already the page.
+
 ## [0.5.0] - 2026-09-05
 
 The first version stamped as such. It collects everything since the

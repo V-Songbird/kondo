@@ -67,10 +67,10 @@ export function Orphans() {
   }
 
   return (
-    <div className="space-y-4">
-      {problem !== null && <div className="card border-bad/50 text-bad">{problem}</div>}
-      {stale !== null && <div className="card border-warn/50 text-warn">{stale}</div>}
-      {outcome !== null && <div className="card border-ok/50 text-ok">{outcome}</div>}
+    <div>
+      {problem !== null && <div className="band band-pencil text-pencil">{problem}</div>}
+      {stale !== null && <div className="band band-note text-note">{stale}</div>}
+      {outcome !== null && <div className="band band-stamp">{outcome}</div>}
       <LastChange key={change?.id} entry={change} onUndone={reload} />
 
       <AsyncView
@@ -81,28 +81,29 @@ export function Orphans() {
           const chosen: ConfigOrphan[] = chosenFrom(scan.data, selected)
 
           return (
-            <div className="space-y-4">
-              <div className="card">
-                <h2 className="mb-1 font-semibold">Preview — nothing has changed</h2>
-                <p className="max-w-2xl text-mut">
+            <div>
+              <section className="sheet hero">
+                <h2>Preview — nothing has changed</h2>
+                <p className="mt-1 max-w-2xl text-ink-2">
                   Claude still reads every line below, and nothing stands behind any of
                   them any more. Removing takes only those lines out of the files that
                   hold them; every other setting keeps its bytes, and one undo puts the
                   whole removal back.
                 </p>
-              </div>
+              </section>
 
               {groupByKind(scan.data).map((group) => (
-                <div key={group.kind} className="space-y-1">
-                  <div>
-                    <h3 className="font-semibold">{group.label}</h3>
-                    <div className="text-xs text-mut">{group.hint}</div>
+                <section key={group.kind} className="sheet" data-tone="coral">
+                  <div className="sheet-head">
+                    <h2>{group.label}</h2>
+                    <span className="count">{group.rows.length}</span>
                   </div>
+                  <p className="mb-3">{group.hint}</p>
                   {/* A project entry's name is a full path and its source is
                       another one, so the table scrolls inside its own box
                       rather than pushing the page sideways. */}
                   <div className="overflow-x-auto">
-                    <table className="tbl">
+                    <table className="ledger">
                       <thead>
                         <tr>
                           <th className="w-8" />
@@ -117,7 +118,6 @@ export function Orphans() {
                             <td>
                               <input
                                 type="checkbox"
-                                className="cursor-pointer disabled:cursor-not-allowed"
                                 disabled={busy}
                                 checked={selected.includes(orphan.id)}
                                 onChange={() => pick(orphan.id)}
@@ -128,32 +128,32 @@ export function Orphans() {
                                 {orphan.name}
                               </div>
                             </td>
-                            <td className="font-mono text-xs text-mut">{orphan.source}</td>
-                            <td className="max-w-md text-mut">{orphan.reason}</td>
+                            <td className="font-mono text-xs text-ink-2">{orphan.source}</td>
+                            <td className="max-w-md text-ink-2">{orphan.reason}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                </div>
+                </section>
               ))}
 
               {confirming ? (
-                <div className="card flex flex-wrap items-center gap-3 border-warn/50">
+                <div className="band band-pencil">
                   <span>
                     Take {formatCount(chosen.length, 'leftover')} out of Claude&rsquo;s
                     configuration?
                   </span>
                   <button
                     type="button"
-                    className="cursor-pointer rounded-md border border-warn/60 px-3 py-1 text-warn hover:bg-inset"
+                    className="btn btn-pencil btn-sm"
                     onClick={() => void remove(chosen.map((orphan) => orphan.id))}
                   >
                     Remove
                   </button>
                   <button
                     type="button"
-                    className="cursor-pointer rounded-md border border-edge px-3 py-1 text-mut hover:text-ink"
+                    className="btn btn-quiet btn-sm"
                     onClick={() => setConfirming(false)}
                   >
                     Cancel
@@ -163,7 +163,7 @@ export function Orphans() {
                 <button
                   type="button"
                   disabled={chosen.length === 0 || busy}
-                  className="cursor-pointer rounded-md border border-edge px-3 py-1.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                  className="btn btn-go"
                   onClick={() => setConfirming(true)}
                 >
                   {chosen.length === 0

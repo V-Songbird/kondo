@@ -6,10 +6,11 @@ import type { Scan } from '../../shared/contract'
  * expands into the itemized list. Views must render this next to data.
  *
  * Two tones, because the two halves are not the same news. An error is
- * something kondo could not read and the user may want to act on, so it keeps
- * the warning border. A file kondo did not recognize is drift in Claude's own
- * store (domain.md) and nothing the user did or can fix — that alone is a
- * muted line, not a banner competing with the screen it sits above.
+ * something kondo could not read and the user may want to act on, so it is a
+ * note in the margin — a blue-ruled band. A file kondo did not recognize is
+ * drift in Claude's own store (domain.md) and nothing the user did or can
+ * fix — that alone is a muted line, not a band competing with the screen it
+ * sits above.
  */
 export function Problems({ scan }: { scan: Scan<unknown> }) {
   const [open, setOpen] = useState(false)
@@ -28,30 +29,29 @@ export function Problems({ scan }: { scan: Scan<unknown> }) {
     .join(' · ')
 
   return (
-    <div className={onlyUnrecognized ? 'mb-4' : 'card mb-4 border-warn/40 p-0'}>
+    <div className={onlyUnrecognized ? 'mb-4' : 'band band-note block'}>
       <button
         type="button"
-        className={`w-full cursor-pointer text-left ${
-          onlyUnrecognized ? 'py-1 text-xs text-mut hover:text-ink' : 'px-4 py-2 text-warn'
-        }`}
+        aria-expanded={open}
+        className={`disclose w-full ${onlyUnrecognized ? 'py-1' : 'py-0.5 text-note'}`}
         onClick={() => setOpen((value) => !value)}
       >
-        {open ? '▾' : '▸'} {label}
+        {label}
       </button>
       {open && (
         <div
           className={`max-h-64 overflow-auto font-mono text-xs ${
-            onlyUnrecognized ? 'py-1' : 'border-t border-edge px-4 py-2'
+            onlyUnrecognized ? 'py-1' : 'mt-2 border-t border-line pt-2'
           }`}
         >
           {scan.errors.map((error, index) => (
             <div key={`e${index}`} className="py-0.5">
-              <span className="text-bad">{error.code}</span>{' '}
-              <span className="text-mut">{error.path}</span> — {error.message}
+              <span className="text-pencil">{error.code}</span>{' '}
+              <span className="text-ink-2">{error.path}</span> — {error.message}
             </div>
           ))}
           {scan.unknown.map((entry, index) => (
-            <div key={`u${index}`} className="py-0.5 text-mut">
+            <div key={`u${index}`} className="py-0.5 text-ink-2">
               not recognized: {entry}
             </div>
           ))}

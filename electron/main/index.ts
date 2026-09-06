@@ -1,6 +1,7 @@
-import { app, BrowserWindow, session } from 'electron'
+import { app, BrowserWindow, Menu, session } from 'electron'
 import os from 'node:os'
 import path from 'node:path'
+import { rendererReadyChannel } from '../../shared/contract'
 import { createLocator } from './workspace/locator'
 import { createWorkspace } from './workspace/workspace'
 import { registerIpc } from './ipc'
@@ -30,13 +31,70 @@ function applyContentSecurityPolicy(): void {
   })
 }
 
+/**
+ * The splash is on screen for at least this long. The handover is honest —
+ * it waits for the first read — but a store small enough to read in 40ms made
+ * the splash a flash of a window rather than kondo arriving, which is worse
+ * than the wait it saves.
+ */
+const SPLASH_MIN_MS = 900
+
+/**
+ * And no longer than this after the page has painted. The renderer's signal is
+ * the real cue; this is the floor under a read that never settles, so a broken
+ * store shows a broken window instead of nothing at all (ADR-0005).
+ */
+const SPLASH_MAX_MS = 8000
+
+/**
+ * Shown while the main window loads and takes its first read, and destroyed
+ * once that read has settled. Frameless and out of the taskbar so it reads as
+ * kondo arriving rather than as a second window.
+ */
+function createSplashWindow(): BrowserWindow {
+  const splash = new BrowserWindow({
+    width: 400,
+    height: 240,
+    frame: false,
+    resizable: false,
+    center: true,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: '#1a1714',
+    webPreferences: { sandbox: true }
+  })
+  loadRendererPage(splash, 'splash.html')
+  splash.once('ready-to-show', () => splash.show())
+  return splash
+}
+
+function loadRendererPage(window: BrowserWindow, page: string): void {
+  const devUrl = process.env['ELECTRON_RENDERER_URL']
+  if (devUrl) void window.loadURL(`${devUrl}/${page}`)
+  else void window.loadFile(path.join(import.meta.dirname, '../renderer', page))
+}
+
 function createMainWindow(): void {
   const window = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#0f1115',
+    // No OS title bar: the page's own top strip drags the window and the
+    // minimise/maximise/close buttons come back as a native overlay drawn in
+    // kondo's colours. Its height has to match `.titlebar` in src/index.css.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#1a1714', symbolColor: '#918879', height: 36 },
+    // The ground colour (DESIGN.md), so the first frame is already the page.
+    // It has to move with `--base` in src/index.css or the window flashes the
+    // old colour on every launch.
+    backgroundColor: '#1a1714',
+    // The window is held back until the first read has settled, so the splash
+    // hands over to a page with rows in it rather than to a skeleton.
+    show: false,
+    // Packaged builds take the icon from the executable; a dev run would
+    // otherwise show Electron's own.
+    icon: app.isPackaged ? undefined : path.join(import.meta.dirname, '../../build/icon.png'),
     webPreferences: {
       preload: path.join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -44,16 +102,36 @@ function createMainWindow(): void {
       sandbox: true
     }
   })
+  const splash = createSplashWindow()
+  const openedAt = Date.now()
+  let handedOver = false
+  const handOver = (): void => {
+    if (handedOver) return
+    handedOver = true
+    setTimeout(
+      () => {
+        if (!splash.isDestroyed()) splash.destroy()
+        if (!window.isDestroyed()) window.show()
+      },
+      Math.max(0, SPLASH_MIN_MS - (Date.now() - openedAt))
+    )
+  }
+  // Scoped to this window's contents, so a second window cannot be shown by
+  // the first one's signal.
+  window.webContents.ipc.once(rendererReadyChannel, handOver)
+  window.once('ready-to-show', () => setTimeout(handOver, SPLASH_MAX_MS))
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())
 
-  const devUrl = process.env['ELECTRON_RENDERER_URL']
-  if (devUrl) void window.loadURL(devUrl)
-  else void window.loadFile(path.join(import.meta.dirname, '../renderer/index.html'))
+  loadRendererPage(window, 'index.html')
 }
 
 void app.whenReady().then(() => {
   applyContentSecurityPolicy()
+  // Windows and Linux draw the app menu inside the window, and kondo has no
+  // menu items of its own. macOS keeps it: there the system menu bar owns the
+  // copy/paste accelerators.
+  if (process.platform !== 'darwin') Menu.setApplicationMenu(null)
 
   const locator = createLocator({
     home: os.homedir(),

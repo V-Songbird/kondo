@@ -78,60 +78,69 @@ export function PluginControl({
   const refusal = moveRefusal(state)
 
   return (
-    <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-1">
-        {positions(global).map((position) => {
-          const here = position.choice === state.choice
-          return (
-            <button
-              key={position.choice}
-              type="button"
-              disabled={here || busy || !decision.allowed}
-              title={
-                decision.allowed
-                  ? `Writes ${target?.path ?? state.targetLayerId}`
-                  : undefined
-              }
-              className={`cursor-pointer rounded-md border px-2 py-0.5 text-xs disabled:cursor-not-allowed ${
-                here
-                  ? 'border-accent text-ink disabled:opacity-100'
-                  : 'border-edge text-mut hover:text-ink disabled:opacity-40'
-              }`}
-              onClick={() => onChoose(position.choice)}
-            >
-              {position.label}
-            </button>
-          )
-        })}
-        {/* Beside the chips because it is the same question they answer —
+    <div className="min-w-0 flex-1 space-y-1">
+      <div className="flex flex-wrap items-center gap-3">
+        {/* The three positions as one joined control; the one the plugin
+            sits in is inked, and pressing it again is not an action. */}
+        <div className="seg">
+          {positions(global).map((position) => {
+            const here = position.choice === state.choice
+            return (
+              <button
+                key={position.choice}
+                type="button"
+                aria-pressed={here}
+                // The chosen position is drawn in the colour of the state it
+                // represents, so the control is its own status chip
+                // (DESIGN.md). `unset` also grows a `?`, because nothing
+                // stating a value is not the same as stating a negative.
+                data-state={
+                  position.choice === 'inherit' ? 'unset' : position.choice
+                }
+                disabled={here || busy || !decision.allowed}
+                title={
+                  decision.allowed
+                    ? `Writes ${target?.path ?? state.targetLayerId}`
+                    : undefined
+                }
+                className="btn btn-quiet btn-sm"
+                onClick={() => onChoose(position.choice)}
+              >
+                {position.label}
+              </button>
+            )
+          })}
+        </div>
+        {/* Beside the positions because it is the same question they answer —
             where this plugin is on — asked of somewhere else. It writes two
             files, so it is one control rather than a fourth position. */}
-        <select
-          value=""
-          disabled={busy || refusal !== null || destinations.length === 0}
-          title={
-            refusal === null
-              ? `Turns it off in ${target?.path ?? state.targetLayerId} and on where it lands`
-              : undefined
-          }
-          className="max-w-[14rem] cursor-pointer rounded-md border border-edge bg-transparent px-2 py-0.5 text-xs text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
-          onChange={(event) => {
-            const destinationId = event.target.value
-            if (destinationId !== '') onMove(destinationId)
-          }}
-        >
-          <option value="">Move to…</option>
-          {destinations.map((destination) => (
-            <option key={destination.id} value={destination.id}>
-              {destination.label}
-            </option>
-          ))}
-        </select>
+        <span className="pick">
+          <select
+            value=""
+            disabled={busy || refusal !== null || destinations.length === 0}
+            title={
+              refusal === null
+                ? `Turns it off in ${target?.path ?? state.targetLayerId} and on where it lands`
+                : undefined
+            }
+            onChange={(event) => {
+              const destinationId = event.target.value
+              if (destinationId !== '') onMove(destinationId)
+            }}
+          >
+            <option value="">Move to…</option>
+            {destinations.map((destination) => (
+              <option key={destination.id} value={destination.id}>
+                {destination.label}
+              </option>
+            ))}
+          </select>
+        </span>
         {/* What Claude actually honours here, which is not always what this
             scope says: a silent project is answered by the user layer. */}
-        <span className="ml-1 text-xs text-mut">
+        <span className="text-xs text-ink-2">
           in effect:{' '}
-          <span className={state.effective ? 'text-ok' : 'text-mut'}>
+          <span className={state.effective ? 'font-medium text-ink' : ''}>
             {state.effective === null ? 'nothing says' : state.effective ? 'on' : 'off'}
           </span>
         </span>
@@ -143,25 +152,25 @@ export function PluginControl({
       <button
         type="button"
         aria-expanded={open}
-        className="cursor-pointer text-xs text-mut hover:text-ink"
+        className="disclose"
         onClick={() => setOpen((value) => !value)}
       >
-        {open ? '▾' : '▸'} where this is set
+        where this is set
       </button>
       {open && (
-        <div className="flex flex-col gap-0.5 border-l border-edge pl-2">
+        <div className="ml-1 flex flex-col gap-1 border-l border-line pl-3">
           {state.scopes.map((scope) => (
             <div key={scope.layerId} className="flex items-center gap-2 text-xs">
-              <span className="pill">{scope.layer}</span>
-              <span className={scope.enabled === true ? 'text-ok' : 'text-mut'}>
+              <span className="stamp">{scope.layer}</span>
+              <span className={scope.enabled === true ? 'font-medium text-ink' : 'text-ink-2'}>
                 {stateLabel(scope)}
               </span>
               {scope.layerId === state.effectiveLayerId && (
-                <span className="text-accent" title="This is the file in effect">
-                  ★
+                <span className="stamp-ok" title="This is the file in effect">
+                  in effect
                 </span>
               )}
-              <span className="truncate font-mono text-mut" title={scope.path}>
+              <span className="truncate font-mono text-ink-2" title={scope.path}>
                 {scope.path}
                 {scope.exists ? '' : ' (not created yet)'}
               </span>

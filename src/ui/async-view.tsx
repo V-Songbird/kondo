@@ -21,10 +21,21 @@ export function AsyncView<T>({
   children: (scan: Scan<T>) => ReactNode
 }) {
   if (state.failure) {
-    return <div className="card border-bad/50 text-bad">{state.failure}</div>
+    return <div className="band band-pencil text-pencil">{state.failure}</div>
   }
   if (state.loading && !state.scan) {
-    return <div className="p-8 text-center text-mut">Scanning…</div>
+    // Bars where the rows will be, and they do not move: a pulsing skeleton
+    // implies progress kondo has no way to measure (DESIGN.md).
+    return (
+      <div aria-busy="true">
+        <p>Scanning…</p>
+        <div className="slot">
+          <i />
+          <i />
+          <i />
+        </div>
+      </div>
+    )
   }
   if (!state.scan) return null
   const scan = state.scan
@@ -34,13 +45,12 @@ export function AsyncView<T>({
     <>
       <Problems scan={scan} />
       {/* A re-read over data already on screen keeps the data — flicker is
-          worse than a stale second — so the pill is what says it is stale. */}
-      {state.loading && (
-        <div className="mb-2">
-          <span className="pill">Refreshing…</span>
-        </div>
-      )}
-      {nothing ? <div className="card text-mut">{empty}</div> : children(scan)}
+          worse than a stale second — so a word is what says it is stale. The
+          slot is 12ch of reserved mono width whether or not it is filled, so
+          the indicator can never shift the rows beneath it (DESIGN.md); only
+          a mono grid can actually make that promise. */}
+      <div className="busy">{state.loading ? 'Refreshing…' : ''}</div>
+      {nothing ? <div className="empty">{empty}</div> : children(scan)}
     </>
   )
 }

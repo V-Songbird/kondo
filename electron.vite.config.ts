@@ -32,7 +32,9 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        input: 'index.html'
+        // Two pages: the app, and the splash the main process shows while
+        // the app's first frame is still being built.
+        input: { index: 'index.html', splash: 'splash.html' }
       }
     },
     plugins: [react(), tailwindcss()]

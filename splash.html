@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Shown by the main process while the first scan's window is still
+         building; it is replaced by the real window, never by a spinner. The
+         face stack is index.css's without the bundled Plex files: this page
+         lives for a second and must not wait on a font. -->
+    <title>Kondo</title>
+    <style>
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: #1a1714;
+        border: 1px solid #464035;
+        box-sizing: border-box;
+        font-family: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+        color: #dcd6c9;
+        -webkit-user-select: none;
+      }
+      .wordmark {
+        font-size: 15px;
+        font-weight: 500;
+        line-height: 20px;
+      }
+      .tagline {
+        font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+        font-size: 11px;
+        line-height: 18px;
+        color: #918879;
+      }
+      /* The first read happens behind this window, so it says so. No spinner
+         and no bar: kondo cannot measure how far through a store it is, and
+         DESIGN.md forbids implying progress it has not got. */
+      .status {
+        font-size: 11px;
+        line-height: 18px;
+        color: #6b6459;
+      }
+    </style>
+  </head>
+  <body>
+    <img src="./src/assets/kondo-mark.svg" width="56" height="56" alt="" />
+    <div class="wordmark">kondo_</div>
+    <div class="tagline">keep your Claude tight</div>
+    <div class="status">reading your store…</div>
+  </body>
+</html>

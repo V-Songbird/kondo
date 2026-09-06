@@ -1332,6 +1332,15 @@ export interface KondoApi {
   trashEmpty(): Promise<Scan<TrashReport>>
 }
 
+/**
+ * Window lifecycle, not data: the renderer sends this once its first read has
+ * settled, and the main process holds the splash until it arrives. It is kept
+ * out of `KondoApi` deliberately — the workspace has nothing to implement here
+ * (ADR-0004: the bridge carries operations against the store, and this is not
+ * one).
+ */
+export const rendererReadyChannel = 'kondo:renderer-ready'
+
 /** Channel names, keyed by KondoApi method — written once, imported twice. */
 export const channels = {
   entityList: 'kondo:entity-list',

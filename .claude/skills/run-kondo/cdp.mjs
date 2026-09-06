@@ -8,13 +8,17 @@
  */
 
 /**
- * The first page target on the debugging port, or null when nothing answers
- * yet — a launch in progress, or no kondo at all.
+ * The app's page on the debugging port, or null when nothing answers yet — a
+ * launch in progress, or no kondo at all. The splash the main process shows
+ * while the window builds is a page target too, and it is gone a second
+ * later, so it is never the one to drive.
  */
 export async function findPage(port) {
   try {
     const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
-    return targets.find((target) => target.type === 'page') ?? null
+    return (
+      targets.find((target) => target.type === 'page' && !target.url.endsWith('splash.html')) ?? null
+    )
   } catch {
     return null
   }

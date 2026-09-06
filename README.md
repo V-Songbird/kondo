@@ -1,3 +1,5 @@
+<img src="src/assets/kondo-mark.svg" width="56" height="56" alt="">
+
 # Kondo
 
 **Keep your Claude tight.**
@@ -15,6 +17,12 @@ machine; nothing is ever sent anywhere.
 
 ## What it does
 
+- **Library** — the named object is the row. One page per skill, plugin,
+  hook, agent, command, rule, MCP server or settings file, showing every scope
+  it lives in, what each one says about it, and which settings file decided
+  it. Plus what the machine loads at a glance, and the findings worth a look:
+  a hook whose script is gone, a declaration whose folder is gone, a name
+  repeated with different contents, a switch for a plugin nothing installed.
 - **Projects first** — one row per project Claude knows about, the global
   store above them, and for the one you pick a page with everything attached
   to it: skills, plugins, hooks, agents, commands, rules, MCP servers,

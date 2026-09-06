@@ -9,5 +9,5 @@
  */
 export function Refusal({ reason }: { reason: string | null }) {
   if (reason === null) return null
-  return <div className="max-w-md text-xs text-mut">{reason}</div>
+  return <p className="refusal">{reason}</p>
 }

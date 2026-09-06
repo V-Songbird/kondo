@@ -115,9 +115,9 @@ export function Tidy() {
   }
 
   return (
-    <div className="space-y-4">
-      {problem !== null && <div className="card border-bad/50 text-bad">{problem}</div>}
-      {outcome !== null && <div className="card border-ok/50 text-ok">{outcome}</div>}
+    <div>
+      {problem !== null && <div className="band band-pencil text-pencil">{problem}</div>}
+      {outcome !== null && <div className="band band-stamp">{outcome}</div>}
       {/* The way back, offered where the sweep was run rather than in
           History. Keyed on the entry so a second sweep starts a fresh one. */}
       <LastChange key={change?.id} entry={change} onUndone={reload} />
@@ -131,55 +131,54 @@ export function Tidy() {
           const bytes = chosen.reduce((sum, entry) => sum + entry.bytes, 0)
 
           return (
-            <div className="space-y-4">
-              <div className="card">
-                <h2 className="mb-1 font-semibold">Preview — nothing has moved</h2>
-                <p className="max-w-2xl text-mut">
+            <section className="sheet">
+              <div className="mb-5">
+                <h2>Preview — nothing has moved</h2>
+                <p className="mt-1 max-w-2xl text-ink-2">
                   These counts are a look, not a change. Pick what to reclaim; cleaning
                   up moves every chosen item into kondo&rsquo;s trash in one step you can
                   undo. Nothing is deleted.
                 </p>
               </div>
 
-              <table className="tbl">
+              <table className="ledger mb-5">
                 <thead>
                   <tr>
                     <th />
                     <th>Category</th>
-                    <th className="text-right">Items</th>
-                    <th className="text-right">Reclaims</th>
+                    <th className="num">Items</th>
+                    <th className="num">Reclaims</th>
                     <th>For example</th>
                   </tr>
                 </thead>
                 <tbody>
                   {scan.data.categories.map((entry) => (
-                    <tr key={entry.category} className={entry.count === 0 ? 'opacity-50' : ''}>
+                    <tr key={entry.category} data-force={entry.count === 0 ? 'off' : undefined}>
                       <td>
                         <input
                           type="checkbox"
-                          className="cursor-pointer disabled:cursor-not-allowed"
                           disabled={entry.count === 0 || entry.blocked !== null || busy}
                           checked={selected.includes(entry.category)}
                           onChange={() => pick(entry.category)}
                         />
                       </td>
                       <td>
-                        <div>{LABEL[entry.category]}</div>
-                        <div className="text-xs text-mut">
+                        <div className="font-medium">{LABEL[entry.category]}</div>
+                        <p className="text-xs">
                           {hintFor(entry.category, scan.data.staleAfterDays)}
-                        </div>
+                        </p>
                         {/* Why it cannot be swept right now, on screen and not
                             in a tooltip: a dark checkbox with no reason reads
                             as a broken app. */}
                         {entry.blocked !== null && (
-                          <div className="text-xs text-warn">{entry.blocked}</div>
+                          <p className="text-xs text-note">{entry.blocked}</p>
                         )}
                       </td>
-                      <td className="text-right">
+                      <td className="num">
                         {entry.count === 0 ? '—' : entry.count.toLocaleString()}
                       </td>
-                      <td className="text-right">{formatBytes(entry.bytes)}</td>
-                      <td className="max-w-md font-mono text-xs text-mut">
+                      <td className="num">{formatBytes(entry.bytes)}</td>
+                      <td className="max-w-md font-mono text-xs text-ink-2">
                         {entry.examples.map((example) => (
                           <div key={example} className="truncate" title={example}>
                             {example}
@@ -192,32 +191,26 @@ export function Tidy() {
                 <tfoot>
                   <tr>
                     <td />
-                    <td className="text-mut">Everything kondo can reclaim</td>
-                    <td className="text-right">
-                      {scan.data.totalCount.toLocaleString()}
-                    </td>
-                    <td className="text-right">{formatBytes(scan.data.totalBytes)}</td>
+                    <td>Everything kondo can reclaim</td>
+                    <td className="num">{scan.data.totalCount.toLocaleString()}</td>
+                    <td className="num">{formatBytes(scan.data.totalBytes)}</td>
                     <td />
                   </tr>
                 </tfoot>
               </table>
 
               {confirming ? (
-                <div className="card flex flex-wrap items-center gap-3 border-warn/50">
+                <div className="band band-pencil">
                   <span>
                     Move {formatCount(count, 'item')} ({formatBytes(bytes)}) into
                     kondo&rsquo;s trash?
                   </span>
-                  <button
-                    type="button"
-                    className="cursor-pointer rounded-md border border-warn/60 px-3 py-1 text-warn hover:bg-inset"
-                    onClick={() => void sweep()}
-                  >
+                  <button type="button" className="btn btn-pencil btn-sm" onClick={() => void sweep()}>
                     Move to trash
                   </button>
                   <button
                     type="button"
-                    className="cursor-pointer rounded-md border border-edge px-3 py-1 text-mut hover:text-ink"
+                    className="btn btn-quiet btn-sm"
                     onClick={() => setConfirming(false)}
                   >
                     Cancel
@@ -227,7 +220,7 @@ export function Tidy() {
                 <button
                   type="button"
                   disabled={count === 0 || busy}
-                  className="cursor-pointer rounded-md border border-edge px-3 py-1.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                  className="btn btn-go"
                   onClick={() => setConfirming(true)}
                 >
                   {count === 0
@@ -235,7 +228,7 @@ export function Tidy() {
                     : `Clean up ${formatCount(count, 'item')} · ${formatBytes(bytes)}`}
                 </button>
               )}
-            </div>
+            </section>
           )
         }}
       </AsyncView>

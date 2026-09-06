@@ -75,6 +75,26 @@ Channels shipped before this amendment stay, as thin aliases over the two
 above, so views already written against them keep working. New work takes the
 generic pair.
 
+## Amendment: window lifecycle rides beside the contract, not inside it
+
+The splash hands over when the renderer's first read has settled, which the
+main process cannot observe on its own — `ready-to-show` fires at the first
+painted frame, well before any data exists. So the renderer says so, over
+`rendererReadyChannel` in `shared/contract.ts`.
+
+That channel is deliberately **not** a `KondoApi` method. `channels` is
+`satisfies Record<keyof KondoApi, string>`, and adding a member would have
+forced `createWorkspace` to implement a window-lifecycle call that touches no
+store — domain surface bought for a splash. `KondoApi` stays the set of
+operations against a Claude store; anything about the window itself sits
+beside it, exposed on its own bridge key and listened for on the window's own
+`webContents.ipc` so one window cannot be shown by another's signal.
+
+It is one-way and unanswered: `ipcRenderer.send`, not `invoke`. Nothing
+crosses back, nothing is validated, and the renderer cannot reach any file
+through it. The security model is unchanged, because permission was never a
+property of the channel.
+
 ## Consequences
 
 - Electron's disk/memory footprint; accepted for a tool whose job is

@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KondoApi, Scan } from '../../shared/contract'
 
+/**
+ * The splash covers kondo's first read (electron/main/index.ts), so the window
+ * only appears once there is something in it. Whichever view mounts first owns
+ * that moment, and every view reads through this hook — so the latch lives here
+ * rather than in one view that a later default would silently break. It fires
+ * on failure too: an error belongs on screen, not behind a splash.
+ */
+let firstScanSettled = false
+function reportFirstScan(): void {
+  if (firstScanSettled) return
+  firstScanSettled = true
+  window.kondoReady?.()
+}
+
 export interface ScanState<T> {
   scan: Scan<T> | null
   loading: boolean
@@ -36,6 +50,7 @@ export function useScan<T>(
     if (!api) {
       setFailure('The kondo bridge is unavailable — run inside Electron (npm run dev).')
       setLoading(false)
+      reportFirstScan()
       return
     }
     setLoading(true)
@@ -51,6 +66,7 @@ export function useScan<T>(
       })
       .finally(() => {
         if (generation.current === current) setLoading(false)
+        reportFirstScan()
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, depsKey])

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="kondo">
+  <!-- One cell of kondo's own wordmark: the first letter and the caret that
+       closes it (DESIGN.md gives the brand no other mark). Ground, ink and
+       accent are written out rather than tokenised, because this file has to
+       read the same in a README, in the window and at 16px on a taskbar. -->
+  <rect width="64" height="64" rx="8" fill="#1A1714"/>
+  <g stroke="#DCD6C9" stroke-width="5.5" fill="none">
+    <path d="M15 14V48"/>
+    <path d="M35 23L19 39"/>
+    <path d="M24 34L34 45"/>
+  </g>
+  <rect x="38" y="42.5" width="13" height="5.5" fill="#74C4CC"/>
+</svg>

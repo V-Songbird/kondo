@@ -1,68 +1,920 @@
 @import 'tailwindcss';
 
-@theme {
-  --color-bg: #0f1115;
-  --color-panel: #171a21;
-  --color-inset: #1d222c;
-  --color-edge: #262b36;
-  --color-ink: #e6e4df;
-  --color-mut: #8b93a3;
-  --color-accent: #e8a13c;
-  --color-ok: #4cc38a;
-  --color-warn: #e5b455;
-  --color-bad: #e5646e;
-  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Cascadia Mono', 'Consolas', ui-monospace, monospace;
+/*
+ * Kondo's look — see DESIGN.md, "Flat File". Everything kondo shows you is
+ * plaintext somebody else wrote, so kondo stops putting it in cards and sets
+ * itself in the material it reads: one monospaced family on a warm
+ * near-black, no containers at all, and colour used the way a syntax
+ * highlighter uses it — to say what a token is and how it is doing.
+ *
+ * Two rules nothing in the toolchain enforces, so they are written here as
+ * well as in DESIGN.md:
+ *   1. Mono is the store's text; sans is kondo's own voice.
+ *   2. The sigils on a state chip are load-bearing. See .stamp below.
+ *
+ * Dark only. There is no light theme and no toggle.
+ */
+
+/* --- IBM Plex Sans (SIL OFL 1.1) — kondo's voice, variable 400–500 ------ */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('./assets/fonts/IBMPlexSans-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('./assets/fonts/IBMPlexSans-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* --- IBM Plex Mono (SIL OFL 1.1) — the store's text --------------------- */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/IBMPlexMono-400-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/IBMPlexMono-400-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/IBMPlexMono-500-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/IBMPlexMono-500-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* The three surfaces. Nothing stacks above --raised-more. */
+  --base: #1a1714;
+  --raised: #24201a;
+  --raised-more: #282219;
+
+  /* Two rule weights and no third. */
+  --rule: #332e26;
+  --rule-strong: #464035;
+
+  /* Three inks, every one measured against the surface behind it. */
+  --ink: #dcd6c9; /* 12.15:1 on --base */
+  --ink-2: #b7ae9e; /* 8.02:1 on --base, 7.18:1 on --raised-more */
+  --ink-3: #918879; /* 5.03:1 on --base, 4.50:1 on --raised-more */
+
+  /* The accent means two things: where you are, and what is staged but not
+     yet real. It is banned from the chip vocabulary. */
+  --accent: #74c4cc; /* 8.70:1 */
+  --accent-ink: #1a1714;
+
+  /* Four status hues in a narrow luminance band, so scanning a flags column
+     does not make the pupil re-adapt between cells. */
+  --ok: #a3c47f; /* 8.92:1 — in force, no sigil */
+  --off: #d0a755; /* 7.82:1 — `-` stated off, `~` aged out */
+  --bad: #e28170; /* 6.38:1 — `!` broken */
+  --unknown: #9aa6b8; /* 7.14:1 — `?` kondo cannot tell */
+
+  --focus: var(--accent);
+  --select-bg: color-mix(in srgb, var(--accent) 28%, transparent);
+  --scroll-thumb: #464035;
+
+  /* One radius, on everything that is filled. */
+  --radius: 3px;
+  --row: 28px;
+  --gutter: 2ch;
+}
+
+@theme inline {
+  --color-*: initial;
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-note: var(--off);
+  --color-pencil: var(--bad);
+  --color-line: var(--rule);
+  --font-sans: 'IBM Plex Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Cascadia Mono', Consolas, ui-monospace, monospace;
 }
 
 @layer base {
+  html {
+    background: var(--base);
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) transparent;
+  }
   body {
-    background: var(--color-bg);
-    color: var(--color-ink);
+    background: var(--base);
+    color: var(--ink);
+    /* The default face is the store's, not kondo's. */
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 20px;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    caret-color: var(--accent);
+  }
+  /* Kondo's own voice. Every <p> in this app is kondo explaining something —
+     the store's own text never arrives as a paragraph — so the two faces
+     split on the element and nobody has to remember a class. */
+  p {
     font-family: var(--font-sans);
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--ink-2);
   }
   ::selection {
-    background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+    background: var(--select-bg);
+  }
+  :focus-visible {
+    outline: 1px solid var(--focus);
+    outline-offset: 2px;
+  }
+  button,
+  select,
+  input {
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+  }
+  input[type='checkbox'] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  input[type='checkbox']:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+  /* The one h1 on a page is a project or object name — a path fragment, so
+     it belongs in the material's face. */
+  h1 {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 26px;
+    letter-spacing: 0;
+  }
+  /* A section title is kondo naming a region, so it is kondo's voice. The
+     positive tracking is what lets it read as a header with no box. */
+  h2 {
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 20px;
+    letter-spacing: 0.08em;
+    color: var(--ink-2);
+  }
+  h3 {
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--ink-2);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+    }
   }
 }
 
 @layer components {
-  .card {
-    background: var(--color-panel);
-    border: 1px solid var(--color-edge);
-    border-radius: 10px;
-    padding: 1rem;
+  /* The sidebar: no panel, no fill, no radius. A column of text against one
+     vertical rule, which hands ~30px back to the detail pane at 900px. */
+  /* The window drags by its top strip instead of an OS title bar. Its height
+     matches `titleBarOverlay` in electron/main/index.ts, and the shell's
+     `pt-10` keeps every control clear of it — anything under a drag region
+     stops taking clicks. */
+  .titlebar {
+    position: fixed;
+    inset: 0 0 auto;
+    height: 36px;
+    -webkit-app-region: drag;
   }
-  .tbl {
+  .side {
+    width: 208px;
+    flex-shrink: 0;
+    background: none;
+    border: 0;
+    border-right: 1px solid var(--rule-strong);
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0 24px 0 0;
+    display: flex;
+    flex-direction: column;
+  }
+  /* The mark sits on the same ground it carries, so what the rail shows is
+     the glyph and not a tile. */
+  .mark {
+    display: block;
+    margin-bottom: 10px;
+  }
+  .wordmark {
+    display: block;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 20px;
+    letter-spacing: 0;
+    color: var(--ink);
+  }
+  /* `kondo_` — a static character, not an animated caret. It is the only
+     mark the brand gets, and it replaces the blush disc and its glow. */
+  .wordmark::after {
+    content: '_';
+    color: var(--accent);
+  }
+  .wordmark-dot {
+    display: none;
+  }
+  .tagline {
+    display: block;
+    margin: 0 0 20px;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    line-height: 18px;
+    color: var(--ink-3);
+  }
+  /* Aligned with the destination labels above it, not with their gutter. */
+  .colophon {
+    display: block;
+    margin-top: auto;
+    padding-left: var(--gutter);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    line-height: 18px;
+    color: var(--ink-3);
+    background: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .tab {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 4px 0 4px var(--gutter);
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 400;
+    line-height: 20px;
+    color: var(--ink-2);
+    cursor: pointer;
+    position: relative;
+    transition: color 90ms;
+  }
+  .tab:hover {
+    color: var(--ink);
+    background: none;
+  }
+  .tab[aria-current='page'] {
+    color: var(--ink);
+    background: none;
+    box-shadow: none;
+  }
+  .tab[aria-current='page']::before {
+    content: '>';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+  }
+
+  /* A section. There is no card: a header, a rule, rows on hairlines, and
+     28px of nothing before the next one. `data-tone` survives in the JSX and
+     now does nothing — kind is a word, not a hue. */
+  .sheet {
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+    margin: 0 0 28px;
+  }
+  .sheet-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+  .sheet-head h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .sheet-head .count {
+    padding: 0;
+    border-radius: 0;
+    background: none;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--ink-3);
+  }
+  /* Reserved height for "Refreshing…" so the indicator can never shift the
+     rows beneath it. The line exists whether or not it is filled. */
+  .busy {
+    height: 20px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 20px;
+    color: var(--unknown);
+  }
+  .hero {
+    background: none;
+    padding: 0 0 8px;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+
+  /* The one table. */
+  .ledger {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 20px;
+    table-layout: auto;
   }
-  .tbl th {
+  .ledger th {
     text-align: left;
-    color: var(--color-mut);
+    font-family: var(--font-sans);
+    font-size: 11.5px;
     font-weight: 500;
-    padding: 0.4rem 0.75rem;
-    border-bottom: 1px solid var(--color-edge);
+    letter-spacing: 0.06em;
+    color: var(--ink-2);
+    padding: 0 12px 4px 0;
+    border-bottom: 1px solid var(--rule-strong);
     white-space: nowrap;
   }
-  .tbl td {
-    padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--color-edge) 55%, transparent);
-    vertical-align: top;
+  .ledger td {
+    padding: 4px 12px 4px 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: baseline;
+    height: var(--row);
   }
-  .tbl tbody tr:hover {
-    background: color-mix(in srgb, var(--color-inset) 70%, transparent);
+  .ledger th:last-child,
+  .ledger td:last-child {
+    padding-right: 0;
   }
-  .pill {
+  .ledger tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .ledger tbody tr:hover > td,
+  .ledger tr[aria-current='true'] > td {
+    background: var(--raised-more);
+  }
+  .ledger tfoot td {
+    padding-top: 8px;
+    border-top: 1px solid var(--rule-strong);
+    border-bottom: 0;
+    color: var(--ink);
+  }
+  .ledger:has(tfoot) tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .num {
+    text-align: right;
+    white-space: nowrap;
+  }
+  /* A unit is not a number, and an honest null is not a zero. */
+  .num .unit {
+    color: var(--ink-3);
+  }
+  .null {
+    color: var(--ink-3);
+  }
+  /* Replaces every opacity-60/50 row dimming: one ink tier, not an alpha. */
+  .ledger tr[data-force='off'] td {
+    color: var(--ink-2);
+  }
+
+  /* A chip has three shapes and only three:
+       a hued word with a leading sigil and no fill  — a state
+       a slate word with `?` and a hairline, no fill — kondo cannot tell
+       a grey word with no sigil on a fill           — a plain fact
+     The neutral chip is the ONLY one with a fill, which is exactly why it
+     cannot be misread as a status.
+
+     SIGILS ARE LOAD-BEARING. Amber carries two different kinds of news:
+     `-` is "someone stated no", `~` is "it aged out or already happened".
+     Delete the sigil and the two collapse into one colour. Do not. */
+  .stamp {
     display: inline-block;
-    border-radius: 999px;
-    padding: 0.1rem 0.55rem;
-    font-size: 11px;
-    line-height: 1.5;
-    border: 1px solid var(--color-edge);
-    color: var(--color-mut);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 400;
+    line-height: 18px;
+    padding: 1px 8px;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    color: var(--ink-2);
+    background: var(--raised);
     white-space: nowrap;
+  }
+  .stamp-ok,
+  .stamp-off,
+  .stamp-bad,
+  .stamp-unknown {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 400;
+    line-height: 18px;
+    padding: 1px 8px 1px 0;
+    border: 1px solid transparent;
+    background: none;
+    white-space: nowrap;
+  }
+  .stamp-ok {
+    color: var(--ok);
+  }
+  .stamp-off {
+    color: var(--off);
+  }
+  .stamp-bad {
+    color: var(--bad);
+  }
+  /* No fill, because a fill is a statement and kondo has nothing to state. */
+  .stamp-unknown {
+    color: var(--unknown);
+    border-color: var(--unknown);
+    border-radius: var(--radius);
+    padding-left: 8px;
+  }
+  .stamp-off::before {
+    content: '- ';
+  }
+  .stamp-off[data-sigil='undone']::before {
+    content: '~ ';
+  }
+  .stamp-bad::before {
+    content: '! ';
+  }
+  .stamp-unknown::before {
+    content: '? ';
+  }
+
+  /* A control is a word in real brackets. No border, no fill, no shadow. */
+  .btn {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 400;
+    line-height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    color: var(--ink);
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      color 90ms,
+      background-color 90ms;
+  }
+  .btn::before {
+    content: '[\00a0';
+    color: var(--ink-3);
+    transition: color 90ms;
+  }
+  .btn::after {
+    content: '\00a0]';
+    color: var(--ink-3);
+    transition: color 90ms;
+  }
+  .btn:hover::before,
+  .btn:hover::after {
+    color: var(--ink-2);
+  }
+  .btn:active {
+    background: var(--raised);
+    border-radius: var(--radius);
+    transform: none;
+  }
+  /* Disabled loses its brackets and drops one ink tier — a shape change, not
+     an opacity. 0.35 alpha on this ground would measure about 2.3:1. The
+     printed <Refusal> beneath it is not optional. */
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 1;
+    color: var(--ink-3);
+  }
+  .btn:disabled::before,
+  .btn:disabled::after {
+    content: none;
+  }
+  /* The page's one action. A fill is a bracket, so it has none — and it is
+     the only filled control in the app besides the trash's confirmation.
+     One per page: a second means one of them is not the action. */
+  .btn-go {
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-radius: var(--radius);
+    padding: 5px 14px;
+  }
+  .btn-go::before,
+  .btn-go::after {
+    content: none;
+  }
+  .btn-go:hover {
+    background: var(--accent);
+  }
+  .btn-go:disabled {
+    color: var(--ink-3);
+    background: var(--raised);
+  }
+
+  /* Every control is 12.5px now; kept as no-ops so their call sites need no
+     edit. Delete both in a later sweep. */
+  .btn-sm {
+    font-size: 12.5px;
+    padding: 0;
+    line-height: 18px;
+  }
+  .btn-quiet {
+    color: var(--ink);
+    background: none;
+    border: 0;
+    box-shadow: none;
+    font-weight: 400;
+  }
+  .btn-quiet:hover {
+    background: none;
+  }
+  /* Reversible destruction: amber, not red, because none of these destroys
+     anything — the bytes go to the trash and every one is undoable. */
+  .btn-pencil {
+    color: var(--off);
+    background: none;
+    border: 0;
+    box-shadow: none;
+    font-weight: 400;
+  }
+  .btn-pencil:hover {
+    background: none;
+  }
+  /* The single irreversible act, and the ONLY control whose brackets are
+     coloured. That is the whole distinction from .btn-pencil. */
+  .btn-fill {
+    color: var(--bad);
+    background: none;
+    box-shadow: none;
+  }
+  .btn-fill::before,
+  .btn-fill::after,
+  .btn-fill:hover::before,
+  .btn-fill:hover::after {
+    color: var(--bad);
+  }
+
+  /* The tri-state stops being a component: three words on one line, the
+     chosen one in the colour of the state it represents, so the control is
+     its own status chip. */
+  .seg {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0;
+    padding: 0;
+    border-radius: 0;
+    background: none;
+  }
+  .seg .btn {
+    color: var(--ink-3);
+  }
+  .seg .btn::before,
+  .seg .btn::after {
+    content: none;
+  }
+  .seg .btn + .btn::before {
+    content: '\00a0·\00a0';
+    color: var(--rule-strong);
+  }
+  .seg .btn:hover {
+    color: var(--ink-2);
+  }
+  .seg .btn[aria-pressed='true'] {
+    background: none;
+    box-shadow: none;
+    cursor: default;
+    color: var(--ok);
+  }
+  .seg .btn[aria-pressed='true'][data-state='off'] {
+    color: var(--off);
+  }
+  .seg .btn[aria-pressed='true'][data-state='unset'] {
+    color: var(--unknown);
+  }
+  .seg .btn[aria-pressed='true'][data-state='unset']::after {
+    content: '\00a0?';
+  }
+
+  /* The destination picker. A chosen destination is amber: this stages a
+     move, and a move is a departure from the resting state. */
+  .pick {
+    position: relative;
+    display: inline-block;
+    color: var(--ink);
+  }
+  .pick select {
+    appearance: none;
+    max-width: 16rem;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 400;
+    line-height: 18px;
+    padding: 2px 20px 2px 8px;
+    border: 0;
+    border-bottom: 1px solid var(--rule-strong);
+    border-radius: 0;
+    background: none;
+    color: var(--off);
+    cursor: pointer;
+    transition: color 90ms;
+  }
+  .pick select:hover {
+    color: var(--ink);
+  }
+  .pick::after {
+    content: '\25be';
+    position: absolute;
+    right: 6px;
+    top: 2px;
+    color: var(--ink-3);
+    pointer-events: none;
+  }
+  .pick:has(select:disabled) {
+    opacity: 1;
+  }
+  .pick:has(select:disabled) select {
+    color: var(--ink-3);
+    border-bottom-color: var(--rule);
+    cursor: not-allowed;
+  }
+
+  .field {
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 20px;
+    background: var(--raised);
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    padding: 4px 8px;
+    color: var(--ink);
+    outline: none;
+    transition: border-color 90ms;
+  }
+  .field::placeholder {
+    color: var(--ink-3);
+  }
+  .field:focus {
+    background: var(--raised);
+    border-color: var(--accent);
+    box-shadow: none;
+  }
+  .field:focus-visible {
+    outline: none;
+  }
+
+  /* A message is a sentence in kondo's voice with a character in the gutter.
+     The four tints became four marks; there is no coloured rail. */
+  .band {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+    padding: 8px 12px 8px var(--gutter);
+    margin-bottom: 12px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--ink-2);
+    position: relative;
+  }
+  .band::before {
+    position: absolute;
+    left: 0;
+    font-family: var(--font-mono);
+    content: '?';
+    color: var(--unknown);
+  }
+  .band-stamp::before {
+    content: '+';
+    color: var(--accent);
+  }
+  .band-note::before {
+    content: '-';
+    color: var(--off);
+  }
+  .band-pencil::before {
+    content: '!';
+    color: var(--bad);
+  }
+
+  /* + / − rather than a rotating chevron: less CSS, and the same diff
+     vocabulary the rest of the app now speaks. */
+  .disclose {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: color 90ms;
+  }
+  .disclose:hover {
+    color: var(--ink);
+  }
+  .disclose::before {
+    content: '+\00a0';
+    width: auto;
+    height: auto;
+    border: 0;
+    transform: none;
+    transition: none;
+    color: var(--ink-3);
+  }
+  .disclose[aria-expanded='true']::before {
+    content: '\2212\00a0';
+    transform: none;
+  }
+
+  /* A record keeps both lines a tile had and loses the container that made
+     it a tile. What made it a tile was the box; what makes it a record is
+     that every row starts on the same x. */
+  .row-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 4px 12px 4px var(--gutter);
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid var(--rule);
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    color: var(--ink-2);
+    cursor: pointer;
+    position: relative;
+    transition:
+      background-color 90ms,
+      color 90ms;
+  }
+  .row-item:hover {
+    background: var(--raised-more);
+    color: var(--ink);
+  }
+  .row-item[aria-current='true'] {
+    background: var(--raised-more);
+    color: var(--ink);
+    border-color: var(--rule);
+    box-shadow: none;
+  }
+  .row-item[aria-current='true']::before {
+    content: '>';
+    position: absolute;
+    left: 0;
+    font-family: var(--font-mono);
+    color: var(--accent);
+  }
+
+  /* One component, three occupants: a row not yet read, a row not yet real
+     and a row that moved away are the same fact. No shimmer, no pulse, no
+     fade — a moving skeleton implies progress kondo cannot measure. */
+  .slot {
+    display: block;
+    padding-left: var(--gutter);
+    position: relative;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 20px;
+  }
+  .slot > i {
+    display: block;
+    height: 12px;
+    margin: 4px 0;
+    border-radius: var(--radius);
+    background: var(--raised);
+  }
+  .slot > i:nth-child(1) {
+    width: 72%;
+  }
+  .slot > i:nth-child(2) {
+    width: 88%;
+  }
+  .slot > i:nth-child(3) {
+    width: 60%;
+  }
+  .slot[data-mark]::before {
+    position: absolute;
+    left: 0;
+    content: attr(data-mark);
+  }
+  .slot[data-mark='+']::before,
+  .slot[data-mark='+'] {
+    color: var(--accent);
+  }
+  .slot[data-mark='~']::before {
+    color: var(--off);
+  }
+
+  /* Kondo's own voice, at the body floor — not a hint, not a tooltip. A
+     disabled control with no printed reason reads like a broken app. */
+  .refusal {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    max-width: 62ch;
+    color: var(--ink-2);
+    margin-top: 2px;
+  }
+
+  /* The flattened project key shows its own damage: the surviving words
+     stand, the hyphen runs recede. Only ever applied to a key the seam
+     flattened — dimming a hyphen in a real path would draw a lie. */
+  .flat .word {
+    color: var(--ink);
+  }
+  .flat .gap {
+    color: var(--ink-3);
+  }
+}
+
+@layer components {
+  /* The empty states are the warmest writing in the app and they are all
+     about absence being fine, so they are set in kondo's own voice. */
+  .empty {
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    max-width: 62ch;
+    color: var(--ink-2);
+  }
+  .sheet .empty {
+    background: none;
+    box-shadow: none;
+    padding: 0;
+    border-radius: 0;
   }
 }

@@ -1,3 +1,5 @@
+<img src="../src/assets/kondo-mark.svg" width="56" height="56" alt="">
+
 # Documentation map
 
 Every document in this repo, what it is for, and — the part that prevents rot —
@@ -15,6 +17,7 @@ and its home is not obvious from the table below, fix the table in the same PR.
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Dev setup, workflow, conventions, review bar | Tooling or process changes |
 | [AGENTS.md](../AGENTS.md) | Operating manual for AI agents and humans working here | Working rules change |
 | [CLAUDE.md](../CLAUDE.md) | Claude Code entry point; defers to AGENTS.md | Rarely |
+| [DESIGN.md](../DESIGN.md) | The visual system: palette, type, shapes, cards, controls and rules | The look changes; a new control, state or colour is designed |
 | [docs/domain.md](domain.md) | Facts about Claude's on-disk world (stores, files, formats) | You observe a new store fact or Claude changes one |
 | [docs/foundations.md](foundations.md) | Architecture: processes, seams, modules, data flow | Structure changes |
 | [docs/adr/](adr/) | Decisions with reasons, one file each | A decision is made, revisited, or superseded |

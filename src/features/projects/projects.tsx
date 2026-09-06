@@ -22,7 +22,7 @@ import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { LastChange } from '../../ui/last-change'
 import { Refusal } from '../../ui/refusal'
-import { formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
+import { flatKeyParts, formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
 import { PluginControl } from './plugin-control'
 
 /**
@@ -57,35 +57,58 @@ function destinationsFrom(rows: ProjectRow[]): Destination[] {
   ]
 }
 
-export function Projects() {
+/**
+ * Where the user is in this list: the filter, the open project, whether the
+ * folded rows are showing, and how far down the page they have read.
+ *
+ * It lives in `App` rather than here. A trip to History to undo something
+ * used to unmount this view and drop the user at the top of an unfiltered
+ * list — which on a real store is 11,517 rows and up to twelve presses of
+ * "Show 200 more" to get back to where they were.
+ */
+export interface ProjectsPlace {
+  query: string
+  picked: string | null
+  showFolded: boolean
+  limit: number
+}
+
+export const FIRST_PLACE: ProjectsPlace = {
+  query: '',
+  picked: null,
+  showFolded: false,
+  limit: PAGE
+}
+
+export function Projects({
+  place,
+  onPlace
+}: {
+  place: ProjectsPlace
+  onPlace: (next: ProjectsPlace) => void
+}) {
   const list = useScan((api) => api.projectsList())
-  const [query, setQuery] = useState('')
-  const [picked, setPicked] = useState<string | null>(null)
+  const { query, picked, showFolded, limit } = place
   // Bumped by Rescan so the detail pane re-reads too: the list and the
-  // Storage card are projections of one inventory (ADR-0007) and must not
+  // Storage section are projections of one inventory (ADR-0007) and must not
   // disagree about the project set after a rescan.
   const [rescans, setRescans] = useState(0)
-  // Throwaway runs and projects whose directory is gone fold behind a count
-  // unless asked for, and the rest come a page at a time (project-rows.ts).
-  const [showFolded, setShowFolded] = useState(false)
-  const [limit, setLimit] = useState(PAGE)
 
   return (
-    <div className="flex h-full min-h-0 gap-6">
+    <div className="flex h-full min-h-0 gap-8">
       <div className="flex w-80 shrink-0 flex-col gap-3">
-        <div className="flex gap-2">
+        <div className="flex items-end gap-3">
           <input
             value={query}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setLimit(PAGE)
-            }}
+            onChange={(event) =>
+              onPlace({ ...place, query: event.target.value, limit: PAGE })
+            }
             placeholder="Filter projects…"
-            className="min-w-0 flex-1 rounded-md border border-edge bg-inset px-3 py-1.5 outline-none placeholder:text-mut focus:border-accent"
+            className="field min-w-0 flex-1"
           />
           <button
             type="button"
-            className="cursor-pointer rounded-md border border-edge px-3 py-1.5 text-mut hover:text-ink"
+            className="btn btn-quiet btn-sm"
             onClick={() =>
               void window.kondo?.projectsList(true).then(() => {
                 list.reload()
@@ -102,20 +125,20 @@ export function Projects() {
             // store lives, not one more project to search among.
             const view = listView(scan.data, { query, showFolded, limit })
             return (
-              <ul className="min-h-0 flex-1 space-y-1 overflow-auto pr-1">
+              <ul className="min-h-0 flex-1 overflow-auto">
                 {view.shown.map((row) => (
                   <li key={row.id}>
                     <ProjectButton
                       row={row}
                       active={(picked ?? scan.data[0]?.id) === row.id}
-                      onPick={() => setPicked(row.id)}
+                      onPick={() => onPlace({ ...place, picked: row.id })}
                     />
                   </li>
                 ))}
                 {/* Only the global row surviving means the filter matched no
                     project — a list of one that looks like a bug unless it says so. */}
                 {!view.matched && (
-                  <li className="px-3 py-2 text-mut">
+                  <li className="px-2 py-2 text-ink-2">
                     {query.trim() === ''
                       ? 'Claude has not recorded any project on this machine yet.'
                       : `No project matches “${query.trim()}”.`}
@@ -125,8 +148,8 @@ export function Projects() {
                   <li>
                     <button
                       type="button"
-                      className="w-full cursor-pointer rounded-md px-3 py-2 text-left text-xs text-mut hover:bg-inset/60 hover:text-ink"
-                      onClick={() => setLimit((current) => current + PAGE)}
+                      className="w-full cursor-pointer px-2 py-2 text-left text-xs text-ink-2 hover:text-ink"
+                      onClick={() => onPlace({ ...place, limit: limit + PAGE })}
                     >
                       Show {formatCount(Math.min(view.more, PAGE), 'more project')} of{' '}
                       {view.more.toLocaleString()} left
@@ -134,7 +157,7 @@ export function Projects() {
                   </li>
                 )}
                 {(view.hidden > 0 || showFolded) && (
-                  <li className="px-3 py-2 text-xs text-mut">
+                  <li className="px-2 py-2 text-xs text-ink-2">
                     {/* Nothing to open in a throwaway run or a project whose
                         folder is gone; Clean up is where those are dealt with. */}
                     {showFolded
@@ -144,11 +167,10 @@ export function Projects() {
                         } no longer on disk — Clean up lists them. `}
                     <button
                       type="button"
-                      className="cursor-pointer underline hover:text-ink"
-                      onClick={() => {
-                        setShowFolded((current) => !current)
-                        setLimit(PAGE)
-                      }}
+                      className="cursor-pointer underline underline-offset-2 hover:text-ink"
+                      onClick={() =>
+                        onPlace({ ...place, showFolded: !showFolded, limit: PAGE })
+                      }
                     >
                       {showFolded ? 'Hide them' : 'Show them'}
                     </button>
@@ -201,24 +223,39 @@ function ProjectButton({
       type="button"
       onClick={onPick}
       title={row.path ?? row.label}
-      className={`w-full cursor-pointer rounded-md px-3 py-2 text-left ${
-        active ? 'bg-inset text-ink' : 'text-mut hover:bg-inset/60 hover:text-ink'
-      }`}
+      aria-current={active ? 'true' : undefined}
+      className="row-item"
     >
       <div className="flex items-baseline justify-between gap-2">
         {/* The name, not the whole path: on a real store every path shares a
-            long prefix and the name is the part a truncation used to cut. */}
-        <span className={`truncate ${row.global ? 'font-semibold text-accent' : 'font-mono'}`}>
-          {row.name}
+            long prefix and the name is the part a truncation used to cut.
+
+            A null parent is main saying it could not locate the project, and
+            in that case the name IS the flattened directory key — so it is
+            drawn with its damage showing, the surviving runs in the primary
+            ink and the hyphens faint (DESIGN.md). Never anywhere else: a
+            hyphen in a real path is a legitimate character. */}
+        <span className={`truncate ${row.global ? 'font-semibold' : 'font-medium'}`}>
+          {row.parent === null && !row.global ? (
+            <span className="flat">
+              {flatKeyParts(row.name).map((part, index) => (
+                <span key={index} className={part.gap ? 'gap' : 'word'}>
+                  {part.text}
+                </span>
+              ))}
+            </span>
+          ) : (
+            row.name
+          )}
         </span>
         {row.lastActivityMs > 0 && (
-          <span className="shrink-0 text-[11px] text-mut">{formatAgo(row.lastActivityMs)}</span>
+          <span className="shrink-0 text-[11px] text-ink-2">{formatAgo(row.lastActivityMs)}</span>
         )}
       </div>
       {row.parent !== null && (
-        <div className="truncate font-mono text-[10px] text-mut/70">{row.parent}</div>
+        <div className="truncate font-mono text-[10.5px] text-ink-2">{row.parent}</div>
       )}
-      <div className="truncate text-[11px] text-mut">
+      <div className="truncate text-[11px] text-ink-2">
         {/* A project kondo can name and cannot look inside is still a project
             (ADR-0005), and says so rather than showing a row of zeroes. */}
         {!row.global && !row.hasStore
@@ -329,21 +366,17 @@ function ProjectPage({
   }
 
   return (
-    <div className="space-y-4">
-      {refusal !== null && <div className="card border-bad/50 text-bad">{refusal}</div>}
+    <div>
+      {refusal !== null && <div className="band band-pencil text-pencil">{refusal}</div>}
       {pending !== null && (
-        <div className="card flex flex-wrap items-center gap-3">
-          <span className="text-mut">{pending.message}</span>
-          <button
-            type="button"
-            className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-ink hover:text-accent"
-            onClick={pending.retry}
-          >
+        <div className="band">
+          <span className="text-ink-2">{pending.message}</span>
+          <button type="button" className="btn btn-go btn-sm" onClick={pending.retry}>
             Create it
           </button>
           <button
             type="button"
-            className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink"
+            className="btn btn-quiet btn-sm"
             onClick={() => setPending(null)}
           >
             Cancel
@@ -358,7 +391,7 @@ function ProjectPage({
         {(scan) => {
           const detail = scan.data
           if (detail === null) {
-            return <div className="card text-mut">That project is no longer in the scan.</div>
+            return <div className="sheet text-ink-2">That project is no longer in the scan.</div>
           }
           const { row } = detail
           // The user store names itself `user` as a destination; every other
@@ -366,17 +399,17 @@ function ProjectPage({
           const here = row.global ? 'user' : row.id
           const elsewhere = destinations.filter((destination) => destination.id !== here)
           return (
-            <div className="space-y-4">
-              <div>
-                <h1 className="text-lg font-semibold">{row.name}</h1>
-                <div className="font-mono text-xs text-mut">
+            <div>
+              <div className="sheet hero">
+                <h1>{row.name}</h1>
+                <div className="mt-1 font-mono text-xs text-ink-2">
                   {row.path ?? 'kondo cannot tell where this project is.'}
                 </div>
               </div>
 
               {detail.storage && (
-                <Section title="Storage" count={2}>
-                  <div className="grid grid-cols-2 gap-4">
+                <Section title="Storage" tone="lime">
+                  <div className="flex flex-col gap-7">
                     <StoreCard title="Claude Code store" report={detail.storage.user} />
                     <StoreCard title="Claude desktop store" report={detail.storage.desktop} />
                   </div>
@@ -400,6 +433,7 @@ function ProjectPage({
               {!row.global && (
                 <Section
                   title="Inherited from Global"
+                  tone="blush"
                   count={detail.inheritedSkills.length}
                   empty="Global has no skills for this project to inherit."
                 >
@@ -413,13 +447,17 @@ function ProjectPage({
 
               <Section
                 title="Plugins"
+                tone="orchid"
                 count={detail.plugins.length}
                 empty="No plugins are installed for Claude on this machine."
               >
-                <div className="space-y-3">
+                <div>
                   {detail.plugins.map((plugin) => (
-                    <div key={plugin.pluginId} className="flex flex-wrap items-start gap-3">
-                      <span className="w-56 shrink-0 truncate font-mono" title={plugin.marketplace}>
+                    <div
+                      key={plugin.pluginId}
+                      className="flex flex-wrap items-start gap-4 border-b border-line py-3 last:border-0"
+                    >
+                      <span className="w-56 shrink-0 truncate font-medium" title={plugin.marketplace}>
                         {plugin.name}
                       </span>
                       <PluginControl
@@ -437,13 +475,14 @@ function ProjectPage({
 
               <Section
                 title="Hooks"
+                tone="mustard"
                 count={detail.hooks.length}
                 empty="Nothing here runs a command on a Claude event. A hook only exists once a settings file names it."
               >
-                {/* Five columns of paths outgrow the card on a narrow window,
+                {/* Five columns of paths outgrow the sheet on a narrow window,
                     so the table scrolls inside it rather than the page. */}
                 <div className="overflow-x-auto">
-                  <table className="tbl">
+                  <table className="ledger">
                     <thead>
                       <tr>
                         <th>Event</th>
@@ -456,8 +495,8 @@ function ProjectPage({
                     <tbody>
                       {detail.hooks.map((hook) => (
                         <tr key={hook.id}>
-                          <td className="font-mono">{hook.event}</td>
-                          <td className="font-mono text-mut">{hook.matcher ?? '*'}</td>
+                          <td className="font-mono text-xs">{hook.event}</td>
+                          <td className="font-mono text-xs text-ink-2">{hook.matcher ?? '*'}</td>
                           <td className="max-w-xs truncate font-mono text-xs" title={hook.command}>
                             {hook.command}
                           </td>
@@ -465,7 +504,7 @@ function ProjectPage({
                             <HookScriptCell script={hook.script} />
                           </td>
                           <td
-                            className="max-w-xs truncate font-mono text-xs text-mut"
+                            className="max-w-xs truncate font-mono text-xs text-ink-2"
                             title={hook.source}
                           >
                             {hook.source}
@@ -479,6 +518,7 @@ function ProjectPage({
 
               <Section
                 title="Agents"
+                tone="teal"
                 count={detail.agents.length}
                 empty="No agents here — nothing in this scope's agents folder."
               >
@@ -486,6 +526,7 @@ function ProjectPage({
               </Section>
               <Section
                 title="Commands"
+                tone="lime"
                 count={detail.commands.length}
                 empty="No commands here — nothing in this scope's commands folder."
               >
@@ -493,6 +534,7 @@ function ProjectPage({
               </Section>
               <Section
                 title="Rules"
+                tone="coral"
                 count={detail.rules.length}
                 empty="No rules here — nothing in this scope's rules folder."
               >
@@ -501,6 +543,7 @@ function ProjectPage({
               {row.global && (
                 <Section
                   title="Output styles"
+                tone="orchid"
                   count={detail.outputStyles.length}
                   empty="No output styles here — nothing in ~/.claude/output-styles."
                 >
@@ -519,10 +562,11 @@ function ProjectPage({
 
               <Section
                 title="MCP servers"
+                tone="teal"
                 count={detail.mcpServers.length}
                 empty="No MCP servers are declared for this project."
               >
-                <table className="tbl">
+                <table className="ledger">
                   <thead>
                     <tr>
                       <th>Server</th>
@@ -544,43 +588,43 @@ function ProjectPage({
                         ? null
                         : server.capabilities[operation].reason
                       return (
-                      <tr key={server.id} className={server.enabled ? '' : 'opacity-60'}>
-                        <td className="font-mono">
-                          {server.name}
-                          {!server.enabled && <span className="pill ml-2 text-warn">off</span>}
-                          {server.orphan && (
-                            <span
-                              className="pill ml-2 text-bad"
-                              title="The folder this declaration points at is no longer on disk."
-                            >
-                              project is gone
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <span className="pill">{server.scope}</span>
-                        </td>
-                        <td className="text-mut">{server.transport}</td>
-                        <td
-                          className="max-w-xs truncate font-mono text-xs text-mut"
-                          title={server.source}
-                        >
-                          {server.source}
-                        </td>
-                        <td className="text-right">
-                          <button
-                            type="button"
-                            disabled={reason !== null || busy}
-                            className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
-                            onClick={() =>
-                              void run((api) => api.entityMutate(server.id, { op: operation }))
-                            }
+                        <tr key={server.id} data-force={server.enabled ? undefined : 'off'}>
+                          <td className="font-medium whitespace-nowrap">
+                            {server.name}
+                            {!server.enabled && <span className="stamp-off ml-2">off</span>}
+                            {server.orphan && (
+                              <span
+                                className="stamp-bad ml-2"
+                                title="The folder this declaration points at is no longer on disk."
+                              >
+                                project is gone
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span className="stamp">{server.scope}</span>
+                          </td>
+                          <td className="text-ink-2">{server.transport}</td>
+                          <td
+                            className="max-w-xs truncate font-mono text-xs text-ink-2"
+                            title={server.source}
                           >
-                            {operation === 'disable' ? 'Disable' : 'Enable'}
-                          </button>
-                          <Refusal reason={reason} />
-                        </td>
-                      </tr>
+                            {server.source}
+                          </td>
+                          <td className="text-right">
+                            <button
+                              type="button"
+                              disabled={reason !== null || busy}
+                              className="btn btn-quiet btn-sm"
+                              onClick={() =>
+                                void run((api) => api.entityMutate(server.id, { op: operation }))
+                              }
+                            >
+                              {operation === 'disable' ? 'Disable' : 'Enable'}
+                            </button>
+                            <Refusal reason={reason} />
+                          </td>
+                        </tr>
                       )
                     })}
                   </tbody>
@@ -589,26 +633,25 @@ function ProjectPage({
 
               <Section
                 title="Settings files"
+                tone="orchid"
                 count={detail.settings.length}
                 empty="No settings file exists here yet. Kondo creates one only when you ask it to."
               >
-                <div className="space-y-2">
+                <div>
                   {detail.settings.map((layer) => (
-                    <div key={layer.id}>
+                    <div key={layer.id} className="border-b border-line py-2.5 last:border-0">
                       <div className="flex flex-wrap items-baseline gap-2">
-                        <span className="pill">{layer.layer}</span>
+                        <span className="stamp">{layer.layer}</span>
                         <span className="font-mono text-xs">{layer.path}</span>
-                        <span className="text-xs text-mut">
+                        <span className="text-xs text-ink-2">
                           {layer.exists ? formatBytes(layer.bytes) : 'not created yet'}
                         </span>
                       </div>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {layer.keys.map((key) => (
-                          <span key={key} className="pill font-mono">
-                            {key}
-                          </span>
-                        ))}
-                      </div>
+                      {layer.keys.length > 0 && (
+                        <div className="mt-1 font-mono text-[11px] text-ink-2">
+                          {layer.keys.join(' · ')}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -617,6 +660,7 @@ function ProjectPage({
               {!row.global && (
                 <Section
                   title="Sessions"
+                tone="blush"
                   count={detail.sessions.length}
                   empty="Claude has recorded no conversation in this project."
                 >
@@ -649,13 +693,13 @@ function SessionCounts({ sessions }: { sessions: StoresOverview['sessions'] }) {
   const onRecordOnly = sessions.projectCount - sessions.transcriptProjectCount
   return (
     <>
-      <p className="mt-3 text-xs text-mut">
+      <p className="mt-4 text-xs text-ink-2">
         {formatCount(sessions.projectCount, 'project')} Claude has on record ·{' '}
         {formatCount(sessions.sessionCount, 'session')} ·{' '}
         {formatCount(sessions.staleCount, 'untouched session')} ·{' '}
         {formatBytes(sessions.transcriptBytes)} of transcripts
       </p>
-      <p className="mt-1 text-xs text-mut">
+      <p className="mt-1 text-xs text-ink-2">
         Of those: {formatCount(sessions.transcriptProjectCount, 'project')} with sessions
         saved
         {onRecordOnly > 0 &&
@@ -667,38 +711,50 @@ function SessionCounts({ sessions }: { sessions: StoresOverview['sessions'] }) {
 }
 
 /**
- * One section of a project page. A section with nothing in it says what that
- * means for *this* kind rather than printing "None." — a bare word above a
- * bare header is the thing a first-time user cannot read.
+ * One section of a project page: a ruled block with its heading on the heavy
+ * rule and the count in the margin. A section with nothing in it says what
+ * that means for *this* kind rather than printing "None." — a bare word above
+ * a bare header is the thing a first-time user cannot read.
  */
+/** The palette colour of a section's dot — one hue per kind (DESIGN.md). */
+type Tone = 'blush' | 'orchid' | 'lime' | 'teal' | 'coral' | 'mustard'
+
 function Section({
   title,
+  tone = 'blush',
   count,
   empty,
   children
 }: {
   title: string
-  count: number
+  tone?: Tone
+  /** How many rows the card holds; left off a card that is not a list. */
+  count?: number
   empty?: string
   children: ReactNode
 }) {
   return (
-    <div className="card">
-      <h2 className="mb-2 font-semibold">
-        {title} <span className="text-mut">{count}</span>
-      </h2>
-      {count === 0 ? <div className="text-mut">{empty ?? 'Nothing here yet.'}</div> : children}
-    </div>
+    <section className="sheet" data-tone={tone}>
+      <div className="sheet-head">
+        <h2>{title}</h2>
+        {count !== undefined && <span className="count">{count}</span>}
+      </div>
+      {count === 0 ? (
+        <div className="text-ink-2">{empty ?? 'Nothing here yet.'}</div>
+      ) : (
+        children
+      )}
+    </section>
   )
 }
 
-/** How each script status reads, and the colour that carries the finding. */
+/** How each script status reads, and the pencil that carries the finding. */
 const SCRIPT_TONE: Record<HookScriptStatus, { label: string; tone: string }> = {
-  present: { label: 'on disk', tone: 'text-mut' },
+  present: { label: 'on disk', tone: 'stamp-ok' },
   // The one row worth looking at: a settings layer arms this and Claude
   // fails it every time it fires.
-  missing: { label: 'not found', tone: 'text-bad' },
-  unverifiable: { label: 'cannot check', tone: 'text-warn' }
+  missing: { label: 'not found', tone: 'stamp-bad' },
+  unverifiable: { label: 'cannot check', tone: 'stamp-unknown' }
 }
 
 /**
@@ -708,13 +764,13 @@ const SCRIPT_TONE: Record<HookScriptStatus, { label: string; tone: string }> = {
  * reaching for it.
  */
 function HookScriptCell({ script }: { script: HookScript | null }) {
-  if (script === null) return <span className="text-mut">—</span>
+  if (script === null) return <span className="text-ink-2">—</span>
   const { label, tone } = SCRIPT_TONE[script.status]
   return (
     <span className="flex items-baseline gap-2">
       {/* The verdict first: it is the finding, and the path behind it is what
           you go and look at once the verdict says there is something to see. */}
-      <span className={`pill shrink-0 ${tone}`}>{label}</span>
+      <span className={`${tone} shrink-0`}>{label}</span>
       <span className="max-w-40 truncate font-mono text-xs" title={script.path}>
         {script.path}
       </span>
@@ -748,7 +804,7 @@ function PlacedList({
   const benched = entries[0]?.capabilities.disable.reason ?? null
   return (
     <div className="space-y-2">
-      <table className="tbl">
+      <table className="ledger">
         <thead>
           <tr>
             <th>Name</th>
@@ -759,34 +815,35 @@ function PlacedList({
         <tbody>
           {entries.map((entry) => (
             <tr key={entry.id}>
-              <td className="font-mono" title={entry.origin}>
+              <td className="font-medium whitespace-nowrap" title={entry.origin}>
                 {entry.name}
               </td>
-              <td className="max-w-md text-mut" title={entry.description ?? undefined}>
+              <td className="max-w-md text-ink-2" title={entry.description ?? undefined}>
                 {entry.description ?? '—'}
               </td>
               <td>
                 {nowhere !== undefined ? (
                   <Refusal reason={nowhere} />
                 ) : (
-                  <select
-                    value=""
-                    disabled={!entry.capabilities.move.allowed || busy}
-                    className="max-w-xs cursor-pointer rounded-md border border-edge bg-transparent px-2 py-0.5 text-xs text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
-                    onChange={(event) => {
-                      const targetId = event.target.value
-                      if (targetId !== '') {
-                        void run((api) => api.entityMutate(entry.id, { op: 'move', targetId }))
-                      }
-                    }}
-                  >
-                    <option value="">Move to…</option>
-                    {destinations.map((destination) => (
-                      <option key={destination.id} value={destination.id}>
-                        {destination.label}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="pick">
+                    <select
+                      value=""
+                      disabled={!entry.capabilities.move.allowed || busy}
+                      onChange={(event) => {
+                        const targetId = event.target.value
+                        if (targetId !== '') {
+                          void run((api) => api.entityMutate(entry.id, { op: 'move', targetId }))
+                        }
+                      }}
+                    >
+                      <option value="">Move to…</option>
+                      {destinations.map((destination) => (
+                        <option key={destination.id} value={destination.id}>
+                          {destination.label}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
                 )}
                 <Refusal reason={entry.capabilities.move.reason} />
               </td>
@@ -841,7 +898,7 @@ function InheritedSkillTable({
     )
   }
   return (
-    <table className="tbl">
+    <table className="ledger">
       <thead>
         <tr>
           <th>Skill</th>
@@ -858,26 +915,26 @@ function InheritedSkillTable({
             ? null
             : entry.capabilities[operation].reason
           return (
-            <tr key={entry.skill.id} className={entry.enabledHere ? '' : 'opacity-60'}>
-              <td className="font-mono" title={entry.skill.origin}>
+            <tr key={entry.skill.id} data-force={entry.enabledHere ? undefined : 'off'}>
+              <td className="font-medium whitespace-nowrap" title={entry.skill.origin}>
                 {entry.skill.name}
               </td>
-              <td className="max-w-md text-mut">{entry.skill.description ?? '—'}</td>
+              <td className="max-w-md text-ink-2">{entry.skill.description ?? '—'}</td>
               <td>
                 {/* Why it is off matters: this project's own switch, or Global's. */}
                 {entry.choice === 'off' ? (
-                  <span className="pill text-warn">off here</span>
+                  <span className="stamp-off">off here</span>
                 ) : entry.skill.enabled ? (
-                  <span className="pill text-ok">on</span>
+                  <span className="stamp-ok">on</span>
                 ) : (
-                  <span className="pill text-mut">off in Global</span>
+                  <span className="stamp-off">off in Global</span>
                 )}
               </td>
               <td className="text-right">
                 <button
                   type="button"
                   disabled={reason !== null || busy}
-                  className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                  className="btn btn-quiet btn-sm"
                   onClick={() => toggle(entry, operation)}
                 >
                   {operation === 'disable' ? 'Off here' : 'Follows global'}
@@ -918,7 +975,7 @@ function SkillTable({
     )
   }
   return (
-    <table className="tbl">
+    <table className="ledger">
       <thead>
         <tr>
           <th>Skill</th>
@@ -931,49 +988,50 @@ function SkillTable({
         {skills.map((skill) => {
           const { operation, reason } = toggleFor(skill)
           return (
-            <tr key={skill.id} className={skill.enabled ? '' : 'opacity-60'}>
-              <td className="font-mono" title={skill.origin}>
+            <tr key={skill.id} data-force={skill.enabled ? undefined : 'off'}>
+              <td className="font-medium whitespace-nowrap" title={skill.origin}>
                 {skill.name}
-                {!skill.enabled && <span className="pill ml-2 text-warn">disabled</span>}
+                {!skill.enabled && <span className="stamp-off ml-2">disabled</span>}
                 {/* Claude's own skillUsage record, not a count kondo keeps.
                     A hint about a skill worth a second look — never a claim
                     that it should go. */}
                 {skill.neverUsed === true && (
                   <span
-                    className="pill ml-2 text-mut"
+                    className="stamp-unknown ml-2"
                     title="Claude has never recorded a use of this skill."
                   >
                     never used
                   </span>
                 )}
               </td>
-              <td className="max-w-md text-mut">{skill.description ?? '—'}</td>
+              <td className="max-w-md text-ink-2">{skill.description ?? '—'}</td>
               <td>
-                <select
-                  value=""
-                  disabled={!skill.capabilities.move.allowed || busy}
-                  className="max-w-xs cursor-pointer rounded-md border border-edge bg-transparent px-2 py-0.5 text-xs text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
-                  onChange={(event) => {
-                    const destinationId = event.target.value
-                    if (destinationId !== '') {
-                      void run((api) => api.skillMove(skill.id, destinationId))
-                    }
-                  }}
-                >
-                  <option value="">Move to…</option>
-                  {destinations.map((destination) => (
-                    <option key={destination.id} value={destination.id}>
-                      {destination.label}
-                    </option>
-                  ))}
-                </select>
+                <span className="pick">
+                  <select
+                    value=""
+                    disabled={!skill.capabilities.move.allowed || busy}
+                    onChange={(event) => {
+                      const destinationId = event.target.value
+                      if (destinationId !== '') {
+                        void run((api) => api.skillMove(skill.id, destinationId))
+                      }
+                    }}
+                  >
+                    <option value="">Move to…</option>
+                    {destinations.map((destination) => (
+                      <option key={destination.id} value={destination.id}>
+                        {destination.label}
+                      </option>
+                    ))}
+                  </select>
+                </span>
                 <Refusal reason={skill.capabilities.move.reason} />
               </td>
               <td className="text-right">
                 <button
                   type="button"
                   disabled={reason !== null || busy}
-                  className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                  className="btn btn-quiet btn-sm"
                   onClick={() => toggle(skill, operation)}
                 >
                   {operation === 'disable' ? 'Disable' : 'Enable'}
@@ -992,7 +1050,7 @@ function SkillTable({
 
 /**
  * One project's sessions, and the two ways two of them turn out to be the
- * same work (entry 034). The mirror pill is free — main joined the desktop
+ * same work (entry 034). The mirror stamp is free — main joined the desktop
  * store's listing to this one while building the rows. The near-duplicate
  * pass is not free: it opens the head of every transcript in this project,
  * so it is a button and never a default (ADR-0007).
@@ -1067,32 +1125,32 @@ function SessionTable({
   const chosen = picked.filter((id) => sessions.some((session) => session.id === id))
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           disabled={looking || busy}
-          className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-xs text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn btn-quiet btn-sm"
           onClick={() => void find()}
         >
           {looking ? 'Reading openings…' : 'Find near-duplicate openings'}
         </button>
         {groups !== null && (
-          <span className="text-xs text-mut">
+          <span className="text-xs text-ink-2">
             {groups.length === 0
               ? 'No two sessions here open the same way.'
               : `${formatCount(groups.length, 'set')} of sessions open the same way.`}
           </span>
         )}
-        {problem !== null && <span className="text-xs text-bad">{problem}</span>}
+        {problem !== null && <span className="text-xs text-pencil">{problem}</span>}
       </div>
 
-      <table className="tbl">
+      <table className="ledger">
         <thead>
           <tr>
             <th />
             <th>Session</th>
-            <th className="text-right">Size</th>
+            <th className="num">Size</th>
             <th>Last activity</th>
             <th>Flags</th>
           </tr>
@@ -1109,38 +1167,40 @@ function SessionTable({
                   <td onClick={(event) => event.stopPropagation()}>
                     <input
                       type="checkbox"
-                      className="cursor-pointer disabled:cursor-not-allowed"
                       disabled={busy}
                       checked={picked.includes(session.id)}
                       onChange={() => pick(session.id)}
                     />
                   </td>
-                  <td className="font-mono">{session.uuid}</td>
-                  <td className="text-right">{formatBytes(session.bytes)}</td>
-                  <td className="text-mut">{formatAgo(session.mtimeMs)}</td>
-                  <td>
+                  <td className="font-mono text-xs">{session.uuid}</td>
+                  <td className="num">{formatBytes(session.bytes)}</td>
+                  <td className="text-ink-2">{formatAgo(session.mtimeMs)}</td>
+                  <td className="space-x-1">
                     {session.stale && (
-                      <span className="pill mr-1 text-warn">untouched {staleAfterDays}+ days</span>
+                      <span className="stamp-off" data-sigil="undone">
+                        untouched {staleAfterDays}+ days
+                      </span>
                     )}
                     {session.releasedByDesktop && (
                       <span
-                        className="pill mr-1 text-warn"
+                        className="stamp-off"
+                        data-sigil="undone"
                         title="The desktop app left a released marker beside this transcript."
                       >
                         deleted in desktop app
                       </span>
                     )}
-                    {session.hasSidecar && <span className="pill mr-1">session folder</span>}
+                    {session.hasSidecar && <span className="stamp">session folder</span>}
                     {session.mirroredIn !== null && (
                       <span
-                        className="pill mr-1"
+                        className="stamp"
                         title={`The ${session.mirroredIn} store holds a session with this id — the same work recorded twice.`}
                       >
                         also in {session.mirroredIn}
                       </span>
                     )}
                     {group && (
-                      <span className="pill" title={`Opens with: ${group.prompt}`}>
+                      <span className="stamp" title={`Opens with: ${group.prompt}`}>
                         same opening #{group.at}
                       </span>
                     )}
@@ -1160,21 +1220,17 @@ function SessionTable({
       </table>
 
       {confirming ? (
-        <div className="flex flex-wrap items-center gap-3 rounded-md border border-warn/50 p-2">
+        <div className="band band-pencil">
           <span>
             Move {formatCount(chosen.length, 'session')} — transcripts and their side files —
             into kondo&rsquo;s trash?
           </span>
-          <button
-            type="button"
-            className="cursor-pointer rounded-md border border-warn/60 px-3 py-1 text-warn hover:bg-inset"
-            onClick={trash}
-          >
+          <button type="button" className="btn btn-pencil btn-sm" onClick={trash}>
             Move to trash
           </button>
           <button
             type="button"
-            className="cursor-pointer rounded-md border border-edge px-3 py-1 text-mut hover:text-ink"
+            className="btn btn-quiet btn-sm"
             onClick={() => setConfirming(false)}
           >
             Cancel
@@ -1184,7 +1240,7 @@ function SessionTable({
         <button
           type="button"
           disabled={chosen.length === 0 || busy}
-          className="cursor-pointer rounded-md border border-edge px-2 py-0.5 text-xs text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn btn-quiet btn-sm"
           onClick={() => setConfirming(true)}
         >
           {chosen.length === 0
@@ -1203,20 +1259,20 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
     <AsyncView state={state}>
       {(scan) =>
         scan.data === null ? (
-          <span className="text-mut">No detail available.</span>
+          <span className="text-ink-2">No detail available.</span>
         ) : (
           <div className="space-y-1 py-1 text-xs">
-            <div className="text-mut">
+            <div className="text-ink-2">
               {scan.data.messageCount.toLocaleString()} messages ·{' '}
               {scan.data.lineCount.toLocaleString()} events
               {scan.data.badLines > 0 && (
-                <span className="text-warn"> · {scan.data.badLines} bad lines</span>
+                <span className="text-note"> · {scan.data.badLines} bad lines</span>
               )}
               {' · '}
               {scan.data.firstTimestamp ?? '?'} → {scan.data.lastTimestamp ?? '?'}
             </div>
             {scan.data.firstUserPrompt && (
-              <div className="font-mono text-ink/90">“{scan.data.firstUserPrompt}”</div>
+              <div className="font-mono text-ink">“{scan.data.firstUserPrompt}”</div>
             )}
           </div>
         )
@@ -1225,42 +1281,42 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
   )
 }
 
-/** What the old size dashboard was, now a section of the global row. */
+/** What the old size dashboard was, now a ruled block of the global row. */
 function StoreCard({ title, report }: { title: string; report: StoreReport }) {
   return (
-    <div className="rounded-md border border-edge p-3">
-      <div className="mb-1 flex items-baseline justify-between">
-        <h3 className="font-semibold">{title}</h3>
-        <span className="text-sm text-mut">{formatBytes(report.totalBytes)}</span>
+    <div>
+      <div className="mb-0.5 flex items-baseline justify-between">
+        <h3>{title}</h3>
+        <span className="text-sm text-ink-2">{formatBytes(report.totalBytes)}</span>
       </div>
-      <div className="mb-2 font-mono text-xs text-mut">{report.root}</div>
+      <div className="mb-2 font-mono text-xs text-ink-2">{report.root}</div>
       {!report.exists ? (
-        <div className="text-mut">Not found on this machine.</div>
+        <div className="text-ink-2">Not found on this machine.</div>
       ) : (
-        <table className="tbl">
+        <table className="ledger">
           <thead>
             <tr>
               <th>Entry</th>
-              <th className="text-right">Size</th>
+              <th className="num">Size</th>
               <th>Touched</th>
             </tr>
           </thead>
           <tbody>
             {report.entries.length === 0 && (
               <tr>
-                <td colSpan={3} className="text-mut">
+                <td colSpan={3} className="text-ink-2">
                   The folder is there and holds nothing.
                 </td>
               </tr>
             )}
             {report.entries.slice(0, 10).map((entry) => (
               <tr key={entry.name}>
-                <td className="font-mono">
+                <td className="font-mono text-xs">
                   {entry.name}
                   {entry.type === 'dir' ? '/' : ''}
                 </td>
-                <td className="text-right">{formatBytes(entry.bytes)}</td>
-                <td className="text-mut">{formatAgo(entry.mtimeMs)}</td>
+                <td className="num">{formatBytes(entry.bytes)}</td>
+                <td className="text-ink-2">{formatAgo(entry.mtimeMs)}</td>
               </tr>
             ))}
           </tbody>

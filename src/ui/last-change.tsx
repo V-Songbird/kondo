@@ -46,25 +46,30 @@ export function LastChange({
 
   if (entry === null) return null
 
+  // A green-ruled band is the ledger's "posted" stamp: the change is on the
+  // books, and the way back sits at the end of the same line.
   return (
-    <div className="card flex flex-wrap items-center gap-3 border-ok/40 py-2">
-      <span className={undone ? 'text-mut' : 'text-ok'}>
+    <div className="band band-stamp">
+      {/* A change is an addition to the journal, so the band's gutter mark is
+          `+`; undone is aged-out rather than broken, so it becomes the amber
+          `~`. The sigil is what separates the two, not the hue. */}
+      <span className={undone ? 'stamp-off' : 'stamp-ok'} data-sigil={undone ? 'undone' : undefined}>
         {undone ? `Undone — ${entry.summary}` : entry.summary}
       </span>
       {entry.failed && (
         <span
-          className="pill text-warn"
+          className="stamp-bad"
           title="A step of this change failed; the store never got all of it. Undo puts back whatever did happen."
         >
           partly applied
         </span>
       )}
-      {problem !== null && <span className="text-bad">{problem}</span>}
+      {problem !== null && <span className="text-pencil">{problem}</span>}
       {!undone && (
         <button
           type="button"
           disabled={busy}
-          className="ml-auto cursor-pointer rounded-md border border-edge px-2 py-0.5 text-mut hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn btn-quiet btn-sm ml-auto"
           onClick={() => void undo()}
         >
           {busy ? 'Undoing…' : 'Undo'}

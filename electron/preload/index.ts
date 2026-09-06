@@ -5,7 +5,8 @@ import {
   type KondoApi,
   type MutateRequest,
   type TidyCategory,
-  type ToggleOperation
+  type ToggleOperation,
+  rendererReadyChannel
 } from '../../shared/contract'
 
 /** The bridge stays dumb: one invoke per method, no logic, no state. */
@@ -71,3 +72,8 @@ const api: KondoApi = {
 }
 
 contextBridge.exposeInMainWorld('kondo', api)
+
+// Separate from the data bridge on purpose: this says the page is done reading,
+// so the main process can retire the splash (electron/main/index.ts). Send, not
+// invoke — there is no answer to wait for.
+contextBridge.exposeInMainWorld('kondoReady', () => ipcRenderer.send(rendererReadyChannel))

@@ -75,9 +75,35 @@ after(async () => {
 
 const call = (expression) => client.evaluate(`(async () => ${expression})()`)
 
-test('the nav has its four destinations and opens on Projects', async () => {
+test('the nav has its five destinations and opens on Projects', async () => {
   const labels = await client.evaluate(`[...document.querySelectorAll('nav button')].map((b) => b.textContent.trim())`)
-  assert.deepEqual(labels, ['Projects', 'Clean up', 'Leftovers', 'History'])
+  assert.deepEqual(labels, ['Library', 'Projects', 'Clean up', 'Leftovers', 'History'])
+  await client.waitFor(`document.querySelectorAll('li button').length > 0`)
+})
+
+test('Library lists the machine by object, and finds what needs a look', async () => {
+  await client.evaluate(`[...document.querySelectorAll('nav button')].find((b) => b.textContent.trim() === 'Library').click()`)
+  // The verdict chip comes from a second scan than the list, so waiting on a
+  // row would race it. Wait on the answer instead.
+  await client.waitFor(`document.body.textContent.includes('identical copies')`)
+  const rows = await client.evaluate(
+    `JSON.stringify([...document.querySelectorAll('.row-item')].map((b) => b.textContent.trim()))`
+  )
+  const objects = JSON.parse(rows)
+  // The fixture's two designed verdicts, and the two leftovers behind them.
+  assert.ok(objects.some((row) => row.startsWith('api-notes') && row.includes('identical copies')))
+  assert.ok(objects.some((row) => row.startsWith('db-migrate') && row.includes('same name, different contents')))
+  assert.ok(objects.some((row) => row.startsWith('ghost') && row.includes('leftover')))
+  assert.ok(objects.some((row) => row.startsWith('apiserver') && row.includes('project is gone')))
+  // A skill's every scope, which no other screen in the app can show.
+  await client.evaluate(
+    `[...document.querySelectorAll('.row-item')].find((b) => b.textContent.includes('api-notes')).click()`
+  )
+  await client.waitFor(`document.body.textContent.includes('Where it lives')`)
+  const scopes = await client.evaluate(`document.querySelectorAll('.ledger tbody tr').length`)
+  assert.equal(scopes, 2)
+  // Back to Projects, so the destinations that follow start where they used to.
+  await client.evaluate(`[...document.querySelectorAll('nav button')].find((b) => b.textContent.trim() === 'Projects').click()`)
   await client.waitFor(`document.querySelectorAll('li button').length > 0`)
 })
 

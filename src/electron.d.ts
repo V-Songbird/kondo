@@ -10,6 +10,12 @@ declare global {
   interface Window {
     /** Absent when the renderer runs outside Electron (plain vite). */
     kondo?: KondoApi
+    /**
+     * Tells the main process the first read has settled so it can retire the
+     * splash. Absent outside Electron, and safe to call more than once — the
+     * main process listens for it exactly once.
+     */
+    kondoReady?: () => void
   }
   /** package.json's version, stamped in by electron.vite.config.ts `define`. */
   const __KONDO_VERSION__: string

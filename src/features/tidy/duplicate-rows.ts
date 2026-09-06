@@ -10,7 +10,7 @@ export interface GroupVerdict {
   /** The pill text. */
   label: string
   /** Tailwind colour class carrying the finding. */
-  tone: 'text-ok' | 'text-warn' | 'text-mut'
+  tone: 'stamp-ok' | 'stamp-unknown'
   /** Whether any member of this group may be trashed from here. */
   trashable: boolean
 }
@@ -23,12 +23,12 @@ export interface GroupVerdict {
  */
 export function verdictFor(group: SkillDuplicateGroup): GroupVerdict {
   if (group.identical) {
-    return { label: 'identical copies', tone: 'text-ok', trashable: true }
+    return { label: 'identical copies', tone: 'stamp-ok', trashable: true }
   }
   if (group.members.some((member) => member.digest === null)) {
-    return { label: 'one copy could not be read', tone: 'text-warn', trashable: false }
+    return { label: 'one copy could not be read', tone: 'stamp-unknown', trashable: false }
   }
-  return { label: 'same name, different contents', tone: 'text-mut', trashable: false }
+  return { label: 'same name, different contents', tone: 'stamp-unknown', trashable: false }
 }
 
 /**
