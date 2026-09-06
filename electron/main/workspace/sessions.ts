@@ -11,6 +11,7 @@ import type { StoreLocator } from './locator'
 import {
   collector,
   finish,
+  isEnoent,
   mapPool,
   safeReaddir,
   safeReadJson,
@@ -21,7 +22,8 @@ import {
   guessOriginalPath,
   projectIndex,
   registeredProjectPaths,
-  type ExistsFn
+  type ExistsFn,
+  type Presence
 } from './projects'
 import { capabilitiesFor } from './capabilities'
 import { isStale } from './analysis'
@@ -104,13 +106,27 @@ export interface SessionInventory {
   byDirName: Map<string, ProjectRecord>
 }
 
+/**
+ * Only ENOENT says a path is not there. Every other errno — a permission
+ * kondo does not have, a volume no longer mounted, an I/O error — says
+ * kondo could not look, which is a different answer and must not be read as
+ * deletion (ADR-0005). `safeStat` in scan.ts splits them the same way.
+ */
 const defaultExists: ExistsFn = async (target) => {
   try {
     await fs.stat(target)
-    return true
-  } catch {
-    return false
+    return 'present'
+  } catch (cause) {
+    return isEnoent(cause) ? 'absent' : 'unreadable'
   }
+}
+
+/** The location a probed registry path implies, and the error it owes. */
+function locationOf(presence: Presence, display: string, c: Collector): ProjectLocation {
+  if (presence === 'present') return 'here'
+  if (presence === 'absent') return 'gone'
+  c.fail('stat-failed', display, new Error('the path could not be read'))
+  return 'unreadable'
 }
 
 export async function scanSessionInventory(
@@ -249,7 +265,11 @@ async function registryProject(
   exists: ExistsFn,
   c: Collector
 ): Promise<ProjectRecord> {
-  const pathExists = await exists(absPath)
+  const presence = await exists(absPath)
+  // The registry named it, so an ENOENT is evidence. Any other errno is not:
+  // kondo could not look, and saying `gone` would offer a mounted-elsewhere
+  // project up for trashing.
+  const location = locationOf(presence, tildify(absPath, home), c)
   return {
     dirName,
     absPath: path.join(root, dirName),
@@ -259,9 +279,8 @@ async function registryProject(
     orphanMarkers: [],
     hasMemory: false,
     sources: ['registry'],
-    // The registry named it, so a failed stat is evidence and not ignorance.
-    location: pathExists ? 'here' : 'gone',
-    hasStore: pathExists && (await hasClaudeDir(absPath, home, c))
+    location,
+    hasStore: location === 'here' && (await hasClaudeDir(absPath, home, c))
   }
 }
 
@@ -280,13 +299,12 @@ async function locate(
   // survives solely when it verified.
   const known = registered.get(dirName) ?? null
   const guessedPath = known ?? (await guessOriginalPath(dirName, platform, exists))
-  // A registry key that fails its stat is `gone`; a guess that never verified
-  // is `unlocated`, which says nothing about whether the project still exists.
+  // A registry key that stats ENOENT is `gone`, and one that fails any other
+  // way is `unreadable`; a guess that never verified is `unlocated`, which
+  // says nothing about whether the project still exists.
   const location: ProjectLocation =
     known !== null
-      ? (await exists(known))
-        ? 'here'
-        : 'gone'
+      ? locationOf(await exists(known), tildify(known, home), c)
       : guessedPath !== null
         ? 'here'
         : 'unlocated'

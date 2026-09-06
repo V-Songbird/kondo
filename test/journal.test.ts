@@ -79,7 +79,7 @@ describe('the journal and trash surface (ADR-0001)', () => {
       locator: world.locator,
       platform: process.platform,
       now: () => (clock += 1000),
-      guessExists: async () => false
+      guessExists: async () => 'absent'
     })
   })
   afterEach(async () => {

@@ -101,7 +101,7 @@ describe('the tidy sweep (ADR-0001)', () => {
       locator: world.locator,
       platform: process.platform,
       now: () => NOW,
-      guessExists: async () => false
+      guessExists: async () => 'absent'
     })
   })
   afterEach(async () => {
@@ -328,7 +328,7 @@ describe('the tidy sweep (ADR-0001)', () => {
         locator: tidy.locator,
         platform: process.platform,
         now: () => NOW,
-        guessExists: async () => false
+        guessExists: async () => 'absent'
       })
 
       const preview = await clean.tidyPreview()
@@ -421,7 +421,7 @@ describe('dead and scratch project directories', () => {
       now: () => NOW,
       // Every registered path but the live memory-only one fails its stat, so
       // the other keys read as gone.
-      guessExists: async (target) => target === MEMORY_LIVE_PATH
+      guessExists: async (target) => (target === MEMORY_LIVE_PATH ? 'present' : 'absent')
     })
   })
   afterEach(async () => {
@@ -444,6 +444,34 @@ describe('dead and scratch project directories', () => {
     const found = byCategory((await api.tidyPreview()).data)
     expect(found['dead-projects'].examples).toContain(`~/.claude/projects/${MEMORY_GONE}`)
     expect(found['scratch-projects'].examples).not.toContain(`~/.claude/projects/${MEMORY_GONE}`)
+  })
+
+  // Entry 075. The same directory the sweep would otherwise take whole, with
+  // the one difference that its stat failed for a reason other than ENOENT.
+  it('offers nothing for a project whose path it could not read', async () => {
+    const blocked = createWorkspace({
+      locator: world.locator,
+      platform: process.platform,
+      now: () => NOW,
+      // An unmounted volume, or a directory the user cannot read.
+      guessExists: async (target) =>
+        target === MEMORY_LIVE_PATH
+          ? 'present'
+          : target === path.normalize(DEAD_PATH)
+            ? 'unreadable'
+            : 'absent'
+    })
+    const preview = await blocked.tidyPreview()
+    const named = preview.data.categories.flatMap((entry) => entry.examples)
+    expect(named).not.toContain(`~/.claude/projects/${DEAD}`)
+    // Reported rather than passed over in silence (ADR-0005).
+    expect(preview.errors.map((error) => error.code)).toContain('stat-failed')
+
+    // And the whole-tree sweep leaves the directory alone. Its transcripts
+    // are still judged one by one on their own age, the way every other
+    // project's are — what must not happen is the folder going as a unit.
+    expect((await blocked.tidySweep(['scratch-projects', 'dead-projects'])).errors).toEqual([])
+    expect(await exists(inStore(`projects/${DEAD}/${UUID_A}.jsonl`))).toBe(true)
   })
 
   it('offers every throwaway project folder whole, and only those', async () => {
@@ -563,7 +591,7 @@ describe('desktop-released sessions (entry 059)', () => {
       locator: world.locator,
       platform: process.platform,
       now: () => NOW,
-      guessExists: async () => false
+      guessExists: async () => 'absent'
     })
   })
   afterEach(async () => {
@@ -662,7 +690,7 @@ describe('session-env snapshots and plugin residue', () => {
       locator: fixture.locator,
       platform: process.platform,
       now: () => NOW,
-      guessExists: async () => false
+      guessExists: async () => 'absent'
     })
 
   beforeEach(async () => {
@@ -889,7 +917,7 @@ describe('desktop app caches (entry 063)', () => {
       locator: world.locator,
       platform: process.platform,
       now: () => NOW,
-      guessExists: async () => false
+      guessExists: async () => 'absent'
     })
   })
   afterEach(async () => {

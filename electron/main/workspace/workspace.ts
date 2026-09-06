@@ -62,6 +62,7 @@ import { desktopStoreReport } from './desktop-store'
 import { slashed, tildify } from './display'
 import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
 import { createMutations } from './mutations'
+import type { ExistsFn } from './projects'
 import {
   readCategories,
   scanTidyCandidates,
@@ -87,7 +88,7 @@ export interface WorkspaceOptions {
   platform: NodeJS.Platform
   now?: () => number
   /** Existence probe used for original-path guessing; injectable for tests. */
-  guessExists?: (target: string) => Promise<boolean>
+  guessExists?: ExistsFn
 }
 
 /** The store-name prefix a project's `.claude` root answers to (ADR-0008). */

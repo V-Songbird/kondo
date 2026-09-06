@@ -93,8 +93,9 @@ is seen without a restart:
   directories below, joined on the flattened path, so a directory Claude has
   registered but never kept a transcript for is still a project. Each member
   carries `sources` (`registry`, `transcripts`, or both), `location`
-  (`here`, `gone` or `unlocated` — `pathExists` was replaced by it in entry
-  030) and `hasStore`, the last being whether it holds a `.claude` at all.
+  (`here`, `gone`, `unlocated` or `unreadable` — `pathExists` was replaced by
+  it in entry 030) and `hasStore`, the last being whether it holds a `.claude`
+  at all.
 - `mcpServers` ✅ — user-scope MCP servers: `{ name → { type, command, args,
   env } | { type, url, headers } }`. `env` and `headers` can hold secrets.
 - `skillUsage` and `pluginUsage` ✅ — usage counters, `{ name → {
@@ -236,11 +237,15 @@ scan and a mutation can never disagree about where an entry lives.
   rule (ADR-0009). On the owner's machine that named 1,443 of 9,171
   directories, against 7 for the old un-flattening guess; the rest are
   scratch directories Claude has already forgotten. Kondo still stats the
-  path before claiming it, and records the outcome as three states, never one
-  flag: `here`, `gone` (the registry named the path and the stat says it is
-  no longer there — a *dead project*) and `unlocated` (no key, and the guess
-  never verified — which is not evidence of anything). Only `gone` makes a
-  cleanup candidate.
+  path before claiming it, and records the outcome as four states, never one
+  flag: `here`, `gone` (the registry named the path and the stat came back
+  ENOENT — a *dead project*), `unlocated` (no key, and the guess never
+  verified — which is not evidence of anything) and `unreadable` (the registry
+  named it and the stat failed some other way: a permission kondo does not
+  have, a volume no longer mounted, an I/O error). Only ENOENT is evidence of
+  deletion, so only `gone` makes a cleanup candidate; an `unreadable` project
+  carries a `stat-failed` scan error and is offered in no category, because an
+  unmounted volume still holds every byte it ever did (entry 075, ADR-0005).
 - Scale is real: **9,171 project directories** observed on one machine ✅
   (9,031 of them under a temp directory — benchmark and scratchpad runs);
   11,517 registry-plus-directory members on 2026-09-05, 8,498 of them

@@ -26,3 +26,9 @@ system for domain.md updates.
   (a "problems" affordance), so failures are visible without being fatal.
 - Tests feed adapters deliberately broken fixtures and assert both halves.
 - Schema drift surfaces as an unknown-entry report instead of a crash.
+- A failure to read is never folded into an ordinary answer. Where a seam
+  type could say either "not there" or "could not look", it says both:
+  `ProjectLocation` carries `unreadable` beside `gone` for exactly this
+  reason, because only ENOENT is evidence a project was deleted and a
+  permission error or an unmounted volume is not (entry 075). Collapsing
+  the two would have offered a whole volume's transcripts for trashing.

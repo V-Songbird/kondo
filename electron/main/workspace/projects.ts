@@ -75,7 +75,16 @@ export function candidateOriginalPaths(dirName: string, platform: NodeJS.Platfor
   return candidates
 }
 
-export type ExistsFn = (target: string) => Promise<boolean>
+/**
+ * What a stat on a candidate path found. Three answers and not two,
+ * because 'kondo looked and there is nothing there' and 'kondo could not
+ * look' mean opposite things to the caller: only the first is evidence a
+ * project was deleted, and an unmounted volume or a directory the user
+ * cannot read answers the second (ADR-0005).
+ */
+export type Presence = 'present' | 'absent' | 'unreadable'
+
+export type ExistsFn = (target: string) => Promise<Presence>
 
 export async function guessOriginalPath(
   dirName: string,
@@ -88,7 +97,10 @@ export async function guessOriginalPath(
     ? [known, ...candidateOriginalPaths(dirName, platform).filter((c) => c !== known)]
     : candidateOriginalPaths(dirName, platform)
   for (const candidate of candidates) {
-    if (await exists(candidate)) return candidate
+    // A guess is a proposal, so only a path that answered for itself wins.
+    // One kondo could not read is not this project any more than a missing
+    // one is, and a guess reports nothing either way.
+    if ((await exists(candidate)) === 'present') return candidate
   }
   return null
 }

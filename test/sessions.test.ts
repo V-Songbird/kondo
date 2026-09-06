@@ -45,7 +45,7 @@ describe('scanSessionInventory', () => {
   })
 
   it('inventories transcripts, sidecars, orphans, and unknown entries', async () => {
-    const scan = await scanSessionInventory(world.locator, process.platform, async () => false)
+    const scan = await scanSessionInventory(world.locator, process.platform, async () => 'absent')
     expect(scan.errors).toEqual([])
     expect(scan.data.projects).toHaveLength(1)
 
@@ -70,7 +70,7 @@ describe('scanSessionInventory', () => {
   })
 
   it('attaches the desktop app’s released marker to its session, and orphans one without (entry 059)', async () => {
-    const scan = await scanSessionInventory(world.locator, process.platform, async () => false)
+    const scan = await scanSessionInventory(world.locator, process.platform, async () => 'absent')
     const project = scan.data.projects[0]!
     const byUuid = new Map(project.sessions.map((session) => [session.uuid, session]))
     expect(byUuid.get(UUID_A)?.released).toBe(`${UUID_A}.desktop-released.json`)
@@ -83,7 +83,7 @@ describe('scanSessionInventory', () => {
   })
 
   it('projects the inventory into contract shapes with staleness', async () => {
-    const scan = await scanSessionInventory(world.locator, process.platform, async () => false)
+    const scan = await scanSessionInventory(world.locator, process.platform, async () => 'absent')
     const projects = toSessionProjects(scan.data, NOW)
     expect(projects[0]!.id).toBe('project:code:D--Projects-app')
     expect(projects[0]!.sessionCount).toBe(2)
@@ -108,7 +108,7 @@ describe('scanSessionInventory', () => {
     const probed: string[] = []
     const scan = await scanSessionInventory(world.locator, process.platform, async (target) => {
       probed.push(target)
-      return target === workdir
+      return target === workdir ? 'present' : 'absent'
     })
     const project = scan.data.projects.find((p) => p.dirName === flattenProjectPath(workdir))
     expect(project?.guessedPath).toBe(workdir)
@@ -116,7 +116,7 @@ describe('scanSessionInventory', () => {
   })
 
   it('marks a transcripts-only project, with no path and no store behind it', async () => {
-    const scan = await scanSessionInventory(world.locator, process.platform, async () => false)
+    const scan = await scanSessionInventory(world.locator, process.platform, async () => 'absent')
     const project = scan.data.projects[0]!
     expect(project.sources).toEqual(['transcripts'])
     // Unlocated and not gone: no registry key named it and the guess never
@@ -128,7 +128,7 @@ describe('scanSessionInventory', () => {
   it('returns an empty inventory for a store with no projects directory', async () => {
     const empty = await makeWorld()
     try {
-      const scan = await scanSessionInventory(empty.locator, process.platform, async () => false)
+      const scan = await scanSessionInventory(empty.locator, process.platform, async () => 'absent')
       expect(scan.data.projects).toEqual([])
       expect(scan.errors).toEqual([])
     } finally {
@@ -191,6 +191,18 @@ describe('the project set is the union of the registry and projects/', () => {
     expect(dead.sources).toEqual(['registry'])
   })
 
+  // Entry 075. An unmounted volume and a directory kondo may not read both
+  // fail the stat, and neither is a deletion — every byte is still there.
+  it('calls a path it could not read unreadable, not gone, and says so', async () => {
+    const scan = await scanSessionInventory(world.locator, process.platform, async (target) =>
+      target === path.normalize(deleted) ? 'unreadable' : 'present'
+    )
+    const blocked = scan.data.byDirName.get(flattenProjectPath(deleted))!
+    expect(blocked.location).toBe('unreadable')
+    expect(blocked.hasStore).toBe(false)
+    // Degrade and report, never invent an answer (ADR-0005).
+    expect(scan.errors.map((error) => error.code)).toContain('stat-failed')
+  })
   it('names both sources when a project is in the registry and on disk', async () => {
     await writeFileTree(
       path.join(world.userRoot, 'projects', flattenProjectPath(withStore)),

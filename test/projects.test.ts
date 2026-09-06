@@ -5,7 +5,8 @@ import {
   flattenProjectPath,
   guessOriginalPath,
   projectIndex,
-  registeredProjectPaths
+  registeredProjectPaths,
+  type ExistsFn
 } from '../electron/main/workspace/projects'
 
 describe('flattenProjectPath', () => {
@@ -61,14 +62,15 @@ describe('candidateOriginalPaths (fallback guess)', () => {
 describe('guessOriginalPath', () => {
   it('verifies candidates with the injected existence check and returns the hit', async () => {
     const guess = await guessOriginalPath('D--Programs-cmder', 'win32', async (target) => {
-      return target === 'D:\\Programs\\cmder'
+      return target === 'D:\\Programs\\cmder' ? 'present' : 'absent'
     })
     expect(guess).toBe('D:\\Programs\\cmder')
   })
 
   it('resolves a hyphenated name through the registry, which the guess never could', async () => {
     const registered = projectIndex(['D:\\Projects\\my-app'])
-    const exists = async (target: string): Promise<boolean> => target === 'D:\\Projects\\my-app'
+    const exists: ExistsFn = async (target) =>
+      target === 'D:\\Projects\\my-app' ? 'present' : 'absent'
     expect(await guessOriginalPath('D--Projects-my-app', 'win32', exists, registered)).toBe(
       'D:\\Projects\\my-app'
     )
@@ -77,7 +79,7 @@ describe('guessOriginalPath', () => {
 
   it('returns null when nothing verifies — the UI shows the raw name instead', async () => {
     const registered = projectIndex(['D:\\Projects\\my-app'])
-    const guess = await guessOriginalPath('D--Projects-my-app', 'win32', async () => false, registered)
+    const guess = await guessOriginalPath('D--Projects-my-app', 'win32', async () => 'absent', registered)
     expect(guess).toBeNull()
   })
 })

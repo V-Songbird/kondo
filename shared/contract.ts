@@ -241,8 +241,15 @@ export type ProjectSource = 'registry' | 'transcripts'
  * absence of evidence — no registry key, and the lossy un-flattening guess
  * did not verify, so kondo simply does not know where the project is and
  * must not treat it as deleted.
+ *
+ * `unreadable` is the third: the registry named the path and the stat did
+ * fail, but with something other than ENOENT — a permission kondo does not
+ * have, a volume no longer mounted, an I/O error. That is ignorance too,
+ * and a louder kind: the scan carries a `stat-failed` error alongside it
+ * (ADR-0005). It must never be read as deletion, because the whole point
+ * of an unmounted volume is that everything on it is still there.
  */
-export type ProjectLocation = 'here' | 'gone' | 'unlocated'
+export type ProjectLocation = 'here' | 'gone' | 'unlocated' | 'unreadable'
 
 export interface SessionProject extends EntityIdentity {
   /** `project:code:<dirName>` */

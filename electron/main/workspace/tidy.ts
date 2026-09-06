@@ -241,9 +241,11 @@ export async function scanTidyCandidates(
       // and wherever its path is now.
       trees.set(project.dirName, 'scratch-projects')
     } else if (project.location === 'gone') {
-      // `gone` and never `unlocated` — a name kondo could not reverse is not
-      // evidence of anything (ADR-0009). Holds for a transcript-less
-      // directory too: its project is dead, which is the truer label.
+      // `gone` and never `unlocated` or `unreadable` — a name kondo could not
+      // reverse, and a path it could not stat, are not evidence of anything
+      // (ADR-0009, entry 075: an unmounted volume still holds every byte).
+      // Holds for a transcript-less directory too: its project is dead, which
+      // is the truer label.
       trees.set(project.dirName, 'dead-projects')
     } else if (
       project.sessions.length === 0 &&
