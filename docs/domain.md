@@ -37,6 +37,12 @@ ADR-0002 amendment grants and `test/boundary.test.ts` pins. Outside a
 `.claude` directory kondo opens exactly two files — that one and
 `~/.claude.json` — and stats exactly one path, the project root.
 
+These limits describe access to Claude's data. Kondo's separate
+[application footprint](foundations.md#kondos-own-footprint) also holds its
+journal, trash, caches and appearance preference. The Themes screen stores
+that preference in Kondo's `appearance.json`; it does not read or write
+Claude's own `theme` setting to select Kondo's appearance.
+
 ## User store: `~/.claude`
 
 Observed top-level entries ✅ (one machine; expect variation by version and

@@ -60,11 +60,14 @@ machine; nothing is ever sent anywhere.
   supported changes are spliced out byte-exactly and undoable.
 - **History** — every change kondo made, with Undo beside each, and the
   trash's size. Kondo never hard-deletes until you empty the trash.
+- **Themes** — six Signal appearances: Chalk (the default), Parchment, Sage,
+  Slate, Carbon and Signal Original. Choose a visual preview; Kondo remembers
+  your preference on this computer.
 
 ## Principles
 
 1. **Local-first, zero network.** No telemetry, no sync, no phoning home.
-2. **Read-only by default.** Every mutation is explicit, journaled, and
+2. **Read-only by default.** Every Claude-store mutation is explicit, journaled, and
    reversible ([ADR-0001](docs/adr/0001-mutations-are-reversible.md)).
 3. **Native conventions over invented state.** Disabling a skill writes
    Claude's own `skillOverrides` key; toggling a plugin edits `enabledPlugins`

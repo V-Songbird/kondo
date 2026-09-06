@@ -8,6 +8,10 @@ All notable changes to kondo are documented here. The format follows
 
 ### Added
 
+- Themes lets you choose Chalk (the default), Parchment, Sage, Slate, Carbon,
+  or the original vivid Signal design. Kondo remembers the choice locally and
+  applies it to the app and native window controls.
+
 - Library explains the item types and links skills, plugins and other supported
   entries to their existing project management controls.
 - Named search, selection and move controls; keyboard session details; a skip
@@ -74,41 +78,18 @@ All notable changes to kondo are documented here. The format follows
   Projects list and drop you at the top of an unfiltered list — on a real store
   that is 11,517 rows and up to twelve presses of "Show 200 more" to get back.
 
-- A new look, "Flat File" ([DESIGN.md](DESIGN.md)). Everything kondo shows you
-  is plaintext somebody else wrote, so kondo stops putting it in cards and
-  sets itself in the material it reads: IBM Plex Mono on a warm near-black,
-  no containers at all, and colour applied the way a syntax highlighter
-  applies it. **Dark only** — the previous rule forbidding a dark theme is
-  void, and there is no toggle.
-  - **Two faces, one rule.** Mono is the store's text — every cell, chip,
-    path, id, digest and button label. IBM Plex Sans is kondo's own voice —
-    refusals, empty states, explanations, section headers. Both are bundled
-    under the SIL OFL; Inter Tight is gone.
-  - **Sigils before hue.** Every non-affirmative state leads with a character:
-    `-` stated off, `~` aged out or already happened, `!` broken, `?` kondo
-    cannot tell. The affirmative has no mark, because the resting state needs
-    none. Green, amber and red collapse under deuteranopia, and "off" beside
-    "not found" is exactly the pair that must never be confused.
-  - **A control is a word in brackets.** `[ Undo ]`. Disabled loses its
-    brackets and drops one ink tier rather than fading, so it stays at 5.03:1
-    and still reads as unpressable. `[ Empty it permanently ]` is the only
-    control in the app whose brackets are coloured.
-  - **Opacity is never a signal.** The five `opacity-60`/`opacity-50` row
-    dimmings become `data-force="off"` and one measured ink step; 0.35 alpha
-    on this ground would have put a 12.15:1 label at roughly 2.3:1.
-  - **No cards, no shadows, no gradients, no pills.** Regions are a header, a
-    rule and 28px of nothing; the sidebar loses its panel, which hands about
-    30px back to the project pane at the 900×600 minimum. The store cards stop
-    being a `grid-cols-2` that never collapsed.
-  - **Kind stops being a hue.** A kind is a grey word on a fill; a state is a
-    coloured word with a character and no fill. That resolves the collision
-    where lime meant both "Storage" and "on".
-  - The flattened project key shows its own damage: where kondo could not
-    locate a project, its name is the flattened directory key, drawn with the
-    surviving runs in the primary ink and the hyphen runs faint — lossy and
-    irreversible by construction, drawn rather than explained.
-  - The window's `backgroundColor` moves with `--base`, so the first painted
-    frame is already the page.
+- The Signal visual system replaces Flat File's dark-only appearance:
+  bold sans headings, square controls and horizontal navigation, with six
+  selectable palettes ([DESIGN.md](DESIGN.md)). The original logo is retained.
+  - Paths and identifiers retain bundled IBM Plex Mono; explanations use
+    a native sans family with bundled IBM Plex Sans as fallback. Semantic
+    colors are shared by the page, previews and native window controls.
+  - Status labels retain their `-`, `~`, `!` and `?` markers, so color alone
+    never distinguishes disabled, old, broken and unknown entries.
+  - Reversible removal and permanent deletion remain separate controls with
+    explicit labels and confirmation flows.
+  - Flattened project keys retain their split treatment; legitimate paths
+    and filenames are not altered.
 
 ### Fixed
 

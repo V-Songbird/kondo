@@ -100,6 +100,15 @@ describe('workspace (KondoApi)', () => {
     expect(trash.data.root.endsWith('trash')).toBe(true)
   })
 
+  it('keeps appearance preferences separate from Claude settings and the journal', async () => {
+    expect((await api.appearanceGet()).data.theme).toBe('chalk')
+    expect(await api.appearanceSet('carbon')).toEqual({ data: { theme: 'carbon' }, errors: [], unknown: [] })
+    expect((await api.appearanceGet()).data.theme).toBe('carbon')
+    expect((await api.journalList()).data).toEqual([])
+    const layers = await api.settingsLayers()
+    expect(layers.data.every((layer) => !layer.keys.includes('theme'))).toBe(true)
+  })
+
   it('refuses an undo id that is not a journal id', async () => {
     const bad = await api.journalUndo('skill:user:alpha-skill')
     expect(bad.data).toBeNull()

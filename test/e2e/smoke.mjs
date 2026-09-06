@@ -33,21 +33,16 @@ const PORT = Number(process.env.KONDO_E2E_PORT ?? 9333)
 let base
 let child
 let client
+let fixtureEnv
 
-before(async () => {
-  base = await fs.mkdtemp(path.join(os.tmpdir(), 'kondo-e2e-'))
-  const printed = execFileSync(process.execPath, ['.claude/skills/run-kondo/fixture.mjs', base], {
-    cwd: repo,
-    encoding: 'utf8'
-  })
-  const env = JSON.parse(printed)
-
+/** Reuse the same injected roots when testing a real application restart. */
+const launch = async () => {
   const binary = process.env.KONDO_E2E_BINARY ?? electron
   const args = [...(binary === electron ? ['.'] : []), `--remote-debugging-port=${PORT}`]
   if (process.platform === 'linux' && process.env.CI) args.push('--no-sandbox')
   child = spawn(binary, args, {
     cwd: repo,
-    env: { ...process.env, ...env },
+    env: { ...process.env, ...fixtureEnv },
     stdio: ['ignore', 'pipe', 'pipe']
   })
   const log = []
@@ -62,14 +57,31 @@ before(async () => {
   }
   // The bridge and the first render, both: a blank frame is a failed launch.
   await client.waitFor(`typeof window.kondo === 'object' && document.querySelectorAll('nav[aria-label="Main navigation"] button').length > 0`)
+}
+
+const stop = async () => {
+  client?.close()
+  client = null
+  if (child && child.exitCode === null && child.signalCode === null) {
+    const exited = new Promise((resolve) => child.once('exit', resolve))
+    child.kill()
+    await exited
+  }
+  child = null
+}
+
+before(async () => {
+  base = await fs.mkdtemp(path.join(os.tmpdir(), 'kondo-e2e-'))
+  const printed = execFileSync(process.execPath, ['.claude/skills/run-kondo/fixture.mjs', base], {
+    cwd: repo,
+    encoding: 'utf8'
+  })
+  fixtureEnv = JSON.parse(printed)
+  await launch()
 })
 
 after(async () => {
-  client?.close()
-  if (child && child.exitCode === null) {
-    child.kill()
-    await new Promise((resolve) => child.once('exit', resolve))
-  }
+  await stop()
   if (base) await fs.rm(base, { recursive: true, force: true })
 })
 
@@ -91,7 +103,8 @@ const section = async (navigation, label) => {
 }
 
 const press = async (key, modifiers = 0) => {
-  const codes = { Enter: 13, Escape: 27, Tab: 9, ' ': 32, Backspace: 8 }
+  const codes = { Enter: 13, Escape: 27, Tab: 9, ' ': 32, Backspace: 8,
+    ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40 }
   const params = { key, code: key === ' ' ? 'Space' : key, windowsVirtualKeyCode: codes[key], modifiers }
   await client.send('Input.dispatchKeyEvent', {
     ...params, type: 'keyDown',
@@ -182,9 +195,61 @@ const capture = async (name) => {
   await fs.writeFile(path.join(process.env.KONDO_E2E_SHOTS, `${name}.png`), await client.screenshot())
 }
 
-test('the four destinations open on Library and retain native keyboard navigation', async () => {
+/** Record only the synthetic Claude roots; Kondo's own preference is separate. */
+const fixtureSnapshot = async () => {
+  const files = []
+  const visit = async (directory, relative) => {
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const name = path.join(relative, entry.name)
+      const target = path.join(directory, entry.name)
+      if (entry.isDirectory()) {
+        files.push([`${name}/`, null])
+        await visit(target, name)
+      } else files.push([name, (await fs.readFile(target)).toString('base64')])
+    }
+  }
+  for (const root of ['home', 'desktop', 'work']) await visit(path.join(base, root), root)
+  return files.sort(([left], [right]) => left.localeCompare(right))
+}
+
+const journalBytes = async () => {
+  try {
+    return await fs.readFile(path.join(base, 'kondo-data', 'journal.jsonl'), 'utf8')
+  } catch (cause) {
+    if (cause.code === 'ENOENT') return null
+    throw cause
+  }
+}
+
+const themeRadio = (theme) => `document.querySelector('input[name="kondo-theme"][value="${theme}"]')`
+
+const openThemes = async () => {
+  await keyboardActivate(button('Themes'))
+  await client.waitFor(`document.querySelector('h1')?.textContent === 'Themes' && document.querySelectorAll('input[name="kondo-theme"]').length === 6`)
+}
+
+const waitForTheme = async (theme) => {
+  await client.waitFor(`document.documentElement.dataset.theme === ${JSON.stringify(theme)} && ${themeRadio(theme)}?.checked && !${themeRadio(theme)}.disabled`)
+  await client.waitFor(`(async () => {
+    const result = await window.kondo.appearanceGet();
+    return result.errors.length === 0 && result.data.theme === ${JSON.stringify(theme)};
+  })()`)
+}
+
+const chooseTheme = async (theme) => {
+  await client.waitFor(`${themeRadio(theme)} !== null && !${themeRadio(theme)}.disabled`)
+  await client.evaluate(`${themeRadio(theme)}.focus()`)
+  await press(' ')
+  await waitForTheme(theme)
+}
+
+test('the four work destinations and separate Themes entry retain native keyboard navigation', async () => {
   const labels = await client.evaluate(`[...document.querySelectorAll('nav[aria-label="Main navigation"] button')].map((b) => b.getAttribute('aria-label'))`)
   assert.deepEqual(labels, ['Library', 'Projects', 'Clean up', 'History'])
+  assert.equal(await client.evaluate(`document.querySelectorAll('button[aria-label="Themes"]').length`), 1)
+  assert.equal(await client.evaluate(`document.querySelector('nav[aria-label="Main navigation"] button[aria-label="Themes"]') === null`), true)
+  await client.waitFor(`document.documentElement.dataset.theme === 'chalk'`)
+  assert.equal((await call(`await window.kondo.appearanceGet()`)).data.theme, 'chalk')
   assert.equal(await client.evaluate(`document.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]').getAttribute('aria-label')`), 'Library')
   await client.waitFor(`document.querySelector('input[aria-label="Search the Library"]') !== null`)
   await client.evaluate(`document.querySelector('.skip-link').focus()`)
@@ -199,6 +264,60 @@ test('the four destinations open on Library and retain native keyboard navigatio
   await press('Tab')
   await press(' ')
   await client.waitFor(`document.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.getAttribute('aria-label') === 'Projects'`)
+  await navigate('Library')
+})
+
+test('six named native theme choices respond to arrow keys without changing Claude data', async (t) => {
+  const beforeFiles = await fixtureSnapshot()
+  const beforeJournal = await journalBytes()
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 1360, height: 900, deviceScaleFactor: 1, mobile: false })
+  t.after(() => client.send('Emulation.clearDeviceMetricsOverride'))
+  await client.evaluate(`document.querySelector('nav[aria-label="Main navigation"] button[aria-label="Library"]').focus()`)
+  await tabTo(button('Themes'), 10)
+  await press('Enter')
+  await client.waitFor(`document.querySelector('h1')?.textContent === 'Themes' && document.querySelectorAll('input[name="kondo-theme"]').length === 6`)
+  const choices = [
+    ['chalk', 'Chalk'], ['parchment', 'Parchment'], ['sage', 'Sage'],
+    ['slate', 'Slate'], ['carbon', 'Carbon'], ['signal', 'Signal Original']
+  ]
+  assert.deepEqual(await client.evaluate(`[...document.querySelectorAll('input[name="kondo-theme"]')].map((input) => input.value)`), choices.map(([id]) => id))
+  const { root } = await client.send('DOM.getDocument')
+  for (const [id, name] of choices) {
+    const { nodeId } = await client.send('DOM.querySelector', {
+      nodeId: root.nodeId, selector: `input[name="kondo-theme"][value="${id}"]`
+    })
+    const { nodes } = await client.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false })
+    const radio = nodes.find((node) => !node.ignored && node.role?.value === 'radio')
+    assert.ok(radio?.name?.value.includes(name), `No accessible radio named ${name}: ${JSON.stringify(nodes)}`)
+    assert.equal(await client.evaluate(`${themeRadio(id)}.type`), 'radio')
+  }
+  assert.equal(await client.evaluate(`${themeRadio('chalk')}.checked`), true)
+  assert.ok((await client.evaluate(`${themeRadio('chalk')}.closest('.theme-option').textContent`)).includes('Default'))
+  await capture('themes-chalk-desktop')
+
+  await tabTo(themeRadio('chalk'), 12)
+  const chalkBackground = await client.evaluate(`getComputedStyle(document.body).backgroundColor`)
+  const headerHeight = await client.evaluate(`document.querySelector('.side').getBoundingClientRect().height`)
+  assert.ok(headerHeight > 0)
+  for (const [id] of choices.slice(1)) {
+    await press('ArrowDown')
+    await waitForTheme(id)
+    assert.equal(await client.evaluate(`document.activeElement === ${themeRadio(id)}`), true,
+      `Selecting ${id} lost keyboard focus`)
+    assert.ok((await client.evaluate(`${themeRadio(id)}.closest('.theme-option').textContent`)).includes('Current theme'))
+    assert.equal(await client.evaluate(`document.querySelector('.side').getBoundingClientRect().height`), headerHeight,
+      `Selecting ${id} changed the shell header height at 1360px`)
+    if (id === 'carbon') {
+      assert.notEqual(await client.evaluate(`getComputedStyle(document.body).backgroundColor`), chalkBackground)
+    }
+  }
+  // Native radio navigation wraps back to the first choice, without six Tab stops.
+  await press('ArrowDown')
+  await waitForTheme('chalk')
+  assert.equal(await client.evaluate(`document.activeElement === ${themeRadio('chalk')}`), true)
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(base, 'kondo-data', 'appearance.json'), 'utf8')), { theme: 'chalk' })
+  assert.deepEqual(await fixtureSnapshot(), beforeFiles)
+  assert.equal(await journalBytes(), beforeJournal)
   await navigate('Library')
 })
 
@@ -397,7 +516,7 @@ test('the Library-to-project keyboard workflow preserves the item and search at 
     await assertNoHorizontalOverflow()
     await capture('library-minimum-return')
     await keyboardActivate(button('Clear filters'))
-    await client.waitFor(`document.querySelectorAll('.row-item').length > 1`)
+    await client.waitFor(`document.querySelectorAll('.row-item').length > 1 && document.activeElement === ${search}`)
     assert.equal(await client.evaluate(`${search}.value`), '')
     assert.equal(await client.evaluate(`${kind}.value`), '')
     assert.equal(await client.evaluate(`document.activeElement === ${search}`), true)
@@ -597,4 +716,160 @@ test('inline undo reports success even when a different history line is malforme
   assert.equal(await client.evaluate(`document.querySelector('.band-stamp button[aria-label^="Undo "]') === null`), true)
   assert.equal(await fs.readFile(settings, 'utf8'), before)
   assert.ok((await client.evaluate(`document.querySelector('.band-stamp [role="alert"]').textContent`)).includes('history entry is incomplete'))
+})
+
+test('Themes preserves Library and Projects context and remains usable in light and dark at 900px', async () => {
+  const beforeFiles = await fixtureSnapshot()
+  const beforeJournal = await journalBytes()
+  await browseLibrary()
+  const search = `document.querySelector('input[aria-label="Search the Library"]')`
+  await client.waitFor(`!document.body.textContent.includes('Reading your Claude Code setup…')`)
+  await client.evaluate(`${search}.focus(); ${search}.select()`)
+  await client.send('Input.insertText', { text: 'api-notes' })
+  await client.waitFor(`document.querySelectorAll('.library-item').length === 1`)
+  const row = `document.querySelector('.library-item')`
+  const selectedKey = await client.evaluate(`${row}.getAttribute('data-library-key')`)
+  await keyboardActivate(row)
+  const heading = `document.querySelector('.library-workspace .workspace-detail h1')`
+  await client.waitFor(`${heading}?.textContent === 'api-notes'`)
+
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 600, deviceScaleFactor: 1, mobile: false })
+  try {
+    await openThemes()
+    for (const id of ['chalk', 'carbon']) {
+      await chooseTheme(id)
+      const card = `${themeRadio(id)}.closest('.theme-option')`
+      await client.evaluate(`${card}.scrollIntoView({ block: 'center' })`)
+      await assertNoHorizontalOverflow()
+      await assertInViewport(card, 180)
+      await capture(`themes-${id}-minimum`)
+      await navigate('Library')
+      await client.waitFor(`${heading}?.textContent === 'api-notes'`)
+      assert.equal(await client.evaluate(`${search}.value`), 'api-notes')
+      assert.equal(await client.evaluate(`document.querySelector('.library-item[aria-current="true"]')?.getAttribute('data-library-key')`), selectedKey)
+      await assertNoHorizontalOverflow()
+      await assertInViewport(heading, 300)
+      await capture(`theme-${id}-library-minimum`)
+      await openThemes()
+    }
+
+    await openProject('apiserver')
+    await section('Project sections', 'Skills')
+    await client.waitFor(`document.querySelector('select[aria-label="Move to: api-notes"]') !== null`)
+    await openThemes()
+    await chooseTheme('chalk')
+    await navigate('Projects')
+    await client.waitFor(`document.querySelector('.workspace-detail h1')?.textContent.startsWith('apiserver')`)
+    assert.equal(await client.evaluate(`${button('Skills', 'document.querySelector(\'nav[aria-label="Project sections"]\')')}.getAttribute('aria-current')`), 'page')
+    assert.equal(await client.evaluate(`getComputedStyle(document.querySelector('.workspace-browser')).display`), 'none')
+    await client.waitFor(`document.querySelector('select[aria-label="Move to: api-notes"]') !== null`)
+    await assertNoHorizontalOverflow()
+    assert.deepEqual(await fixtureSnapshot(), beforeFiles)
+    assert.equal(await journalBytes(), beforeJournal)
+  } finally {
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
+})
+
+test('a chosen theme survives renderer reload and application relaunch without Claude or journal writes', async () => {
+  const beforeFiles = await fixtureSnapshot()
+  const beforeJournal = await journalBytes()
+  await openThemes()
+  await chooseTheme('carbon')
+  const firstOrigin = await client.evaluate('performance.timeOrigin')
+  await client.send('Page.reload')
+  // A navigation briefly destroys the execution context. Retry across that
+  // boundary, and require a new origin so the old page cannot satisfy it.
+  const deadline = Date.now() + 30_000
+  let reloaded = false
+  let reloadFailure
+  while (!reloaded && Date.now() < deadline) {
+    try {
+      await client.waitFor(`performance.timeOrigin !== ${firstOrigin} && document.documentElement.dataset.theme === 'carbon' && typeof window.kondo === 'object' && document.querySelector('button[aria-label="Themes"]') !== null`, 1000)
+      reloaded = true
+    } catch (cause) {
+      reloadFailure = cause
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+  assert.ok(reloaded, `Saved theme was not restored after reload: ${reloadFailure?.message}`)
+  await openThemes()
+  await waitForTheme('carbon')
+  assert.equal(await client.evaluate(`${themeRadio('chalk')}.checked`), false)
+  assert.deepEqual(await fixtureSnapshot(), beforeFiles)
+  assert.equal(await journalBytes(), beforeJournal)
+
+  await stop()
+  await launch()
+  await client.waitFor(`document.documentElement.dataset.theme === 'carbon'`)
+  const restored = await call(`await window.kondo.appearanceGet()`)
+  assert.deepEqual(restored.errors, [])
+  assert.deepEqual(restored.data, { theme: 'carbon' })
+  await openThemes()
+  await waitForTheme('carbon')
+  await capture('themes-carbon-relaunched')
+  assert.deepEqual(await fixtureSnapshot(), beforeFiles)
+  assert.equal(await journalBytes(), beforeJournal)
+  await chooseTheme('chalk')
+})
+
+test('retrying an appearance save keeps keyboard focus on the checked choice through failure and recovery', async () => {
+  const beforeFiles = await fixtureSnapshot()
+  const beforeJournal = await journalBytes()
+  await openThemes()
+  await chooseTheme('signal')
+  await client.evaluate(`document.querySelector('main').scrollTop = 0`)
+  await capture('themes-signal-original-desktop')
+  await client.evaluate(`${themeRadio('signal')}.closest('.theme-option').scrollIntoView({ block: 'center' })`)
+  await capture('themes-signal-original-selected')
+  await chooseTheme('chalk')
+
+  const preference = path.join(base, 'kondo-data', 'appearance.json')
+  const original = await fs.readFile(preference, 'utf8')
+  // A directory cannot be replaced by the adapter's atomic file rename.
+  // Unlike chmod, this fixture collision is reproducible on Windows too.
+  await fs.unlink(preference)
+  await fs.mkdir(preference)
+  try {
+    await client.evaluate(`${themeRadio('carbon')}.focus()`)
+    await press(' ')
+    const error = `document.querySelector('.theme-save-error[role="alert"]')`
+    const retry = button('Save current theme again')
+    const checked = `document.querySelector('input[name="kondo-theme"]:checked')`
+    await client.waitFor(`${error} !== null && ${retry} !== undefined && document.documentElement.dataset.theme === 'chalk'`)
+    assert.equal(await client.evaluate(`${checked}.value`), 'chalk')
+    assert.equal((await fs.lstat(preference)).isDirectory(), true)
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await keyboardActivate(retry)
+      // Retry's button disappears while saving. Its replacement must not
+      // steal focus back from the stable, checked native radio.
+      await client.waitFor(`document.activeElement === ${checked}`)
+      await client.waitFor(`${error} !== null && ${retry} !== undefined`)
+      assert.equal(await client.evaluate(`document.activeElement === ${checked}`), true)
+      assert.equal((await fs.lstat(preference)).isDirectory(), true)
+    }
+    await client.evaluate(`${error}.scrollIntoView({ block: 'center' })`)
+    await capture('themes-save-retry-failure')
+
+    // Remove only the empty directory this test created; the next keyboard
+    // retry now reaches the real preference writer successfully.
+    await fs.rmdir(preference)
+    await keyboardActivate(retry)
+    await client.waitFor(`document.activeElement === ${checked}`)
+    await waitForTheme('chalk')
+    await client.waitFor(`${error} === null && document.querySelector('.theme-save-status')?.textContent.includes('Chalk saved')`)
+    assert.equal(await client.evaluate(`document.activeElement === ${checked}`), true)
+    assert.equal(await fs.readFile(preference, 'utf8'), original)
+    await capture('themes-save-retry-restored')
+    assert.deepEqual(await fixtureSnapshot(), beforeFiles)
+    assert.equal(await journalBytes(), beforeJournal)
+  } finally {
+    const entry = await fs.lstat(preference).catch((cause) => {
+      if (cause.code === 'ENOENT') return null
+      throw cause
+    })
+    if (entry?.isDirectory()) await fs.rmdir(preference)
+    await fs.writeFile(preference, original)
+  }
 })

@@ -5,12 +5,15 @@ import {
   type KondoApi,
   type MutateRequest,
   type TidyCategory,
+  type ThemeId,
   type ToggleOperation,
   rendererReadyChannel
 } from '../../shared/contract'
 
 /** The bridge stays dumb: one invoke per method, no logic, no state. */
 const api: KondoApi = {
+  appearanceGet: () => ipcRenderer.invoke(channels.appearanceGet),
+  appearanceSet: (theme: ThemeId) => ipcRenderer.invoke(channels.appearanceSet, theme),
   entityList: (kind: EntityKind, parentId?: string) =>
     ipcRenderer.invoke(channels.entityList, kind, parentId),
   entityMutate: (entityId: string, request: MutateRequest) =>

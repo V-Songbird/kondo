@@ -95,6 +95,25 @@ crosses back, nothing is validated, and the renderer cannot reach any file
 through it. The security model is unchanged, because permission was never a
 property of the channel.
 
+## Amendment: persist app appearance through the same typed bridge
+
+Themes adds `appearanceGet()` and `appearanceSet(theme)` to `KondoApi`. This
+extends the earlier Claude-store-only scope to include Kondo's own persisted
+preferences: appearance has disk I/O and a typed result, unlike the one-way
+renderer-ready lifecycle signal above. The workspace composes a separate
+appearance helper; it does not route this through the entity registry or
+Claude's mutation journal.
+
+Only an identifier from the shared six-theme catalog is accepted, validated
+again in main. No file path, arbitrary CSS or serialized renderer state may
+cross. Preferences live at a fixed path under Kondo's app data root. Reads
+and writes return `Scan<AppearancePreferences>`; a save failure returns the
+previous usable choice and a `write-failed` error. Main updates native window
+colors only after a successful save, and renderer startup restores the same
+choice before mounting. This keeps persistence, native colors and the page on
+one catalog without introducing renderer filesystem access or a second local
+storage mechanism.
+
 ## Consequences
 
 - Electron's disk/memory footprint; accepted for a tool whose job is

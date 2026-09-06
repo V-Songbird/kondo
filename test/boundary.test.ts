@@ -8,6 +8,7 @@ import { scanSessionInventory } from '../electron/main/workspace/sessions'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   healthyTranscript,
+  hashTree,
   flattenPath,
   makeWorld,
   mcpServer,
@@ -79,7 +80,8 @@ describe('privacy boundary (ADR-0002)', () => {
   })
 
   it('no read API touches a path outside the stores, ~/.claude.json and .claude', async () => {
-    const spies = (['readdir', 'stat', 'readFile'] as const).map((method) =>
+    await writeFileTree(world.kondoDataRoot, { 'appearance.json': writeJson({ theme: 'slate' }) })
+    const spies = (['readdir', 'stat', 'lstat', 'readFile'] as const).map((method) =>
       vi.spyOn(fsp, method)
     )
 
@@ -96,6 +98,7 @@ describe('privacy boundary (ADR-0002)', () => {
     await api.settingsLayers()
     await api.journalList()
     await api.trashSize()
+    expect((await api.appearanceGet()).data.theme).toBe('slate')
 
     // The kinds with no API method yet run inside the same recorded window,
     // called straight off the registry: `mcp` because it is the one listing
@@ -161,5 +164,33 @@ describe('privacy boundary (ADR-0002)', () => {
     expect(outside).toEqual(
       [workdir, path.join(workdir, '.mcp.json'), world.locator.userConfigFile].sort()
     )
+  })
+
+  it('appearance selections read and write only Kondo data and preserve every Claude and project byte', async () => {
+    const roots = [world.userRoot, world.desktopRoot, workdir]
+    const before = await Promise.all(roots.map(hashTree))
+    const registry = await fsp.readFile(world.locator.userConfigFile, 'utf8')
+    const calls: string[] = []
+    const spies = (['readFile', 'lstat', 'mkdir', 'open', 'rename', 'rm'] as const).map((method) =>
+      ({ method, spy: vi.spyOn(fsp, method) })
+    )
+    await api.appearanceGet()
+    expect((await api.appearanceSet('carbon')).errors).toEqual([])
+    expect((await api.appearanceGet()).data.theme).toBe('carbon')
+    for (const { method, spy } of spies) {
+      for (const arguments_ of spy.mock.calls) {
+        if (typeof arguments_[0] === 'string') calls.push(arguments_[0])
+        if (method === 'rename' && typeof arguments_[1] === 'string') calls.push(arguments_[1])
+      }
+      spy.mockRestore()
+    }
+    expect(calls.length).toBeGreaterThan(0)
+    for (const target of calls) {
+      const relative = path.relative(world.kondoDataRoot, target)
+      expect(relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative)), target).toBe(true)
+    }
+    expect(await Promise.all(roots.map(hashTree))).toEqual(before)
+    expect(await fsp.readFile(world.locator.userConfigFile, 'utf8')).toBe(registry)
+    expect(await fsp.readdir(world.kondoDataRoot)).toEqual(['appearance.json'])
   })
 })

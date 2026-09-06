@@ -1,7 +1,8 @@
-import { app, BrowserWindow, Menu, session } from 'electron'
+import { app, BrowserWindow, Menu, nativeTheme, session } from 'electron'
 import os from 'node:os'
 import path from 'node:path'
-import { rendererReadyChannel } from '../../shared/contract'
+import { rendererReadyChannel, type ThemeId } from '../../shared/contract'
+import { THEMES } from '../../shared/themes'
 import { createLocator } from './workspace/locator'
 import { createWorkspace } from './workspace/workspace'
 import { registerIpc } from './ipc'
@@ -74,7 +75,19 @@ function loadRendererPage(window: BrowserWindow, page: string): void {
   else void window.loadFile(path.join(import.meta.dirname, '../renderer', page))
 }
 
-function createMainWindow(): void {
+const mainWindows = new Set<BrowserWindow>()
+
+function applyWindowTheme(window: BrowserWindow, theme: ThemeId): void {
+  if (window.isDestroyed()) return
+  const colors = THEMES[theme].colors
+  window.setBackgroundColor(colors.base)
+  if (process.platform !== 'darwin') {
+    window.setTitleBarOverlay({ color: colors.chrome, symbolColor: colors['chrome-ink'], height: 36 })
+  }
+}
+
+function createMainWindow(theme: ThemeId): void {
+  const colors = THEMES[theme].colors
   const window = new BrowserWindow({
     width: 1360,
     height: 860,
@@ -84,11 +97,11 @@ function createMainWindow(): void {
     // minimise/maximise/close buttons come back as a native overlay drawn in
     // kondo's colours. Its height has to match `.titlebar` in src/index.css.
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#1a1714', symbolColor: '#918879', height: 36 },
+    titleBarOverlay: { color: colors.chrome, symbolColor: colors['chrome-ink'], height: 36 },
     // The ground colour (DESIGN.md), so the first frame is already the page.
     // It has to move with `--base` in src/index.css or the window flashes the
     // old colour on every launch.
-    backgroundColor: '#1a1714',
+    backgroundColor: colors.base,
     // The window is held back until the first read has settled, so the splash
     // hands over to a page with rows in it rather than to a skeleton.
     show: false,
@@ -102,6 +115,8 @@ function createMainWindow(): void {
       sandbox: true
     }
   })
+  mainWindows.add(window)
+  window.once('closed', () => mainWindows.delete(window))
   const splash = createSplashWindow()
   const openedAt = Date.now()
   let handedOver = false
@@ -126,7 +141,7 @@ function createMainWindow(): void {
   loadRendererPage(window, 'index.html')
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   applyContentSecurityPolicy()
   // Windows and Linux draw the app menu inside the window, and kondo has no
   // menu items of its own. macOS keeps it: there the system menu bar owns the
@@ -142,11 +157,20 @@ void app.whenReady().then(() => {
     platform: process.platform,
     env: process.env
   })
-  registerIpc(createWorkspace({ locator, platform: process.platform }))
+  const workspace = createWorkspace({ locator, platform: process.platform })
+  // Read only app preferences before constructing a visible main window.
+  // The renderer reads the same Scan and presents any fallback warning.
+  let theme = (await workspace.appearanceGet()).data.theme
+  nativeTheme.themeSource = THEMES[theme].appearance
+  registerIpc(workspace, (preferences) => {
+    theme = preferences.theme
+    nativeTheme.themeSource = THEMES[theme].appearance
+    for (const window of mainWindows) applyWindowTheme(window, theme)
+  })
 
-  createMainWindow()
+  createMainWindow(theme)
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow(theme)
   })
 })
 

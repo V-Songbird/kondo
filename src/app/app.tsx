@@ -7,9 +7,15 @@ import type { LibraryKind } from '../features/library/catalog'
 import { Tidy } from '../features/tidy/tidy'
 import type { CleanupSection } from '../features/tidy/tidy'
 import { Journal } from '../features/journal/journal'
+import { Themes } from '../features/themes/themes'
+import type { AppearanceState } from '../features/themes/themes'
+import { applyTheme } from '../features/themes/appearance'
+import { THEMES } from '../../shared/themes'
+import type { ThemeId } from '../../shared/themes'
 
 /**
- * Four destinations. Kondo used to offer a tab per entity kind, which asked
+ * Four management destinations, plus appearance. Kondo used to offer a tab
+ * per entity kind, which asked
  * the user to know what a hook or a settings layer was before they could find
  * anything; then it offered them only through the project they belong to,
  * which answered "what is in this project" and could not answer "where does
@@ -31,7 +37,7 @@ const DESTINATIONS = [
   { key: 'history', label: 'History', help: 'Review and undo changes' }
 ] as const
 
-type ViewKey = (typeof DESTINATIONS)[number]['key']
+type ViewKey = (typeof DESTINATIONS)[number]['key'] | 'themes'
 
 interface LibraryPlace {
   query: string
@@ -44,7 +50,10 @@ const PROJECT_SECTION: Record<LibraryKind, ProjectSection> = {
   agent: 'tools', command: 'tools', rule: 'tools', 'output-style': 'tools', settings: 'technical'
 }
 
-export function App() {
+export function App({ initialAppearance }: { initialAppearance: AppearanceState }) {
+  const [appearance, setAppearance] = useState(initialAppearance)
+  const appearanceRequest = useRef(0)
+  const confirmedAppearance = useRef({ request: 0, theme: initialAppearance.theme })
   const [active, setActive] = useState<ViewKey>('library')
   const [projectsPlace, setProjectsPlace] = useState<ProjectsPlace>(FIRST_PLACE)
   const [cleanupSection, setCleanupSection] = useState<CleanupSection>('files')
@@ -100,6 +109,30 @@ export function App() {
     setActive(view)
   }
 
+  const chooseTheme = async (theme: ThemeId): Promise<void> => {
+    const request = ++appearanceRequest.current
+    applyTheme(theme)
+    setAppearance({ theme, saving: true, saved: false, error: null })
+    try {
+      const api = window.kondo
+      if (!api) throw new Error('The Kondo bridge is unavailable.')
+      const result = await api.appearanceSet(theme)
+      const persisted = result.data.theme
+      if (request >= confirmedAppearance.current.request) confirmedAppearance.current = { request, theme: persisted }
+      if (request !== appearanceRequest.current) return
+      applyTheme(persisted)
+      setAppearance({ theme: persisted, saving: false, saved: !result.errors.length,
+        error: result.errors.length
+          ? `Kondo couldn’t save that theme. Still using ${THEMES[persisted].name}. You can try again.` : null })
+    } catch {
+      if (request !== appearanceRequest.current) return
+      const previous = confirmedAppearance.current.theme
+      applyTheme(previous)
+      setAppearance({ theme: previous, saving: false, saved: false,
+        error: 'Kondo couldn’t save that theme. Check that Kondo can save its preferences and try again.' })
+    }
+  }
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">Skip to content</a>
@@ -107,9 +140,13 @@ export function App() {
           is what the user grabs to move it. */}
       <div className="titlebar" />
       <aside className="side">
-        <img className="mark" src={markUrl} width={30} height={30} alt="" />
-        <div className="wordmark">kondo</div>
-        <div className="tagline">keep your Claude tight</div>
+        <div className="brand-lockup">
+          <img className="mark" src={markUrl} width={30} height={30} alt="" />
+          <div className="brand-copy">
+            <div className="wordmark">kondo</div>
+            <div className="tagline">keep your Claude tight</div>
+          </div>
+        </div>
         <nav aria-label="Main navigation">
           {DESTINATIONS.map((entry) => (
             <button
@@ -125,6 +162,11 @@ export function App() {
             </button>
           ))}
         </nav>
+        <button type="button" className="tab appearance-link" aria-label="Themes"
+          aria-current={active === 'themes' ? 'page' : undefined} onClick={() => openView('themes')}>
+          <span>Themes</span>
+          <span className="nav-purpose">{THEMES[appearance.theme].name}{appearance.error ? ' · Not saved' : ''}</span>
+        </button>
         <div className="colophon">
           On your computer. Under your control.
           <br />v{__KONDO_VERSION__}
@@ -166,6 +208,7 @@ export function App() {
         {active === 'cleanup' && <Tidy section={cleanupSection} onSection={setCleanupSection}
           onOpenHistory={() => openView('history')} />}
         {active === 'history' && <Journal />}
+        {active === 'themes' && <Themes appearance={appearance} onChoose={(theme) => { void chooseTheme(theme) }} />}
       </main>
     </div>
   )

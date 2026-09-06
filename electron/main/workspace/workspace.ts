@@ -62,6 +62,7 @@ import { desktopStoreReport } from './desktop-store'
 import { slashed, tildify } from './display'
 import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
 import { createMutations } from './mutations'
+import { createAppearance } from './appearance'
 import type { ExistsFn } from './projects'
 import {
   readCategories,
@@ -132,6 +133,7 @@ async function inventoryFingerprint(locator: StoreLocator): Promise<string> {
 export function createWorkspace(options: WorkspaceOptions): KondoApi {
   const { locator, platform } = options
   const now = options.now ?? Date.now
+  const appearance = createAppearance(locator)
 
   let inventoryState: Promise<InventoryState> | null = null
 
@@ -425,6 +427,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
   }
 
   return {
+    ...appearance,
     entityList,
     entityMutate,
     storesOverview,

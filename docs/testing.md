@@ -20,7 +20,9 @@ in temp directories by the builders in `test/helpers.ts`.
 3. **Integration — the seam.** Workspace methods — the functions the IPC
    handlers delegate to one line each — invoked directly against a fixture
    store; asserts channel contracts (shape in, shape out, errors as values).
-   No test drives `registerIpc` itself.
+   `test/appearance-ipc.test.ts` also drives `registerIpc` with a mocked
+   Electron handler registry, verifying that native appearance updates follow
+   successful saves and are not sent after failed saves.
 4. **Safety invariants.** The tests that must never be deleted, and where
    each lives today:
    - The scanner never touches a path outside the stores and `.claude`
@@ -59,7 +61,8 @@ in temp directories by the builders in `test/helpers.ts`.
    runner) builds the run-kondo fixture in a fresh temp directory, launches
    the built app against it through the three `KONDO_*_ROOT` overrides with
    `--remote-debugging-port`, and drives it over Chromium's debugging
-   protocol: Library starts selected among four destinations, the projects list
+   protocol: Library starts selected among four work destinations, with Themes
+   reached separately from the shell; the projects list
    is the fixture's union, All projects lists the fixture's skills and plugins,
    the three Clean up sections answer, and one skill move goes through the bridge and comes back with its
    undo — the journal on disk checked both times. It runs on all three OSes in
@@ -86,6 +89,30 @@ Two things to know about the suite as it stands:
   separate. Set `KONDO_E2E_SHOTS` to an output directory for visual evidence.
   These checks use only synthetic stores and do not establish screen-reader
   or cross-platform desktop behavior beyond the platform actually tested.
+
+Appearance has its own safety boundary. The Electron smoke starts with Chalk,
+checks all six named native radios through Chromium's accessibility tree and
+real arrow-key navigation, and compares a visible background across light and
+dark selections. The shell header must keep its height across all six themes
+at 1360px, including the longer Signal Original name. Visiting Themes preserves
+the Library item and search plus the selected Project section. At 900x600,
+the selected theme card and Library detail must fit without horizontal
+overflow; optional screenshots
+capture both Chalk and Carbon. The suite then reloads the renderer and
+relaunches Electron against the same fixture to prove Carbon persists through
+`appearanceGet()` and Kondo's own `appearance.json`. Before and after these
+actions it compares every synthetic Claude file and directory plus the exact
+journal bytes, including the absence of a journal on first use. Changing
+appearance must never change any of them. These checks complement the
+preference adapter's invalid-input and write-error coverage; visual evidence
+does not prove every theme's colors or every assistive technology.
+An additional Electron regression temporarily replaces the fixture's
+`appearance.json` with an empty directory to force a portable save failure.
+Keyboard retries must keep focus on the checked native radio while the retry
+button disappears and reappears, including repeated failure and successful
+recovery after the collision is removed. Claude files and journal bytes stay
+unchanged. Optional screenshots also capture Signal Original and the save
+error/recovery states.
 
 ## Rules
 

@@ -5,12 +5,17 @@
  * imports (enforced by safety.test.ts).
  */
 
+import type { ThemeId } from './themes'
+export type { ThemeId } from './themes'
+
 // ---------------------------------------------------------------------------
 // Scan envelope (ADR-0005)
 
 export type ScanErrorCode =
   /** Reading a file or directory failed (not ENOENT); the item is missing from data. */
   | 'read-failed'
+  /** Saving Kondo's own preference failed; retain the returned theme and offer retry. */
+  | 'write-failed'
   /** Stat failed (not ENOENT); size/mtime for the item are absent. */
   | 'stat-failed'
   /** File read but not valid JSON/JSONL; content skipped. UI: suggest inspecting the file. */
@@ -47,6 +52,11 @@ export interface Scan<T> {
   errors: ScanError[]
   /** Entries kondo does not recognize — domain.md drift detection. */
   unknown: string[]
+}
+
+/** Kondo's own appearance; never a Claude Code setting or journaled change. */
+export interface AppearancePreferences {
+  theme: ThemeId
 }
 
 // ---------------------------------------------------------------------------
@@ -1069,6 +1079,10 @@ export interface ProjectDetail {
  * growth here is the operation, not the kind (ADR-0004).
  */
 export interface KondoApi {
+  /** Read Kondo's appearance, with Chalk fallback and any preference problems. */
+  appearanceGet(): Promise<Scan<AppearancePreferences>>
+  /** Save a recognized theme; failure returns the previous usable preference. */
+  appearanceSet(theme: ThemeId): Promise<Scan<AppearancePreferences>>
   /**
    * Every entity of one kind, narrowed to `parentId` for the listings that
    * take one — a plugin's own skills, a project's sessions. The generic
@@ -1350,6 +1364,8 @@ export const rendererReadyChannel = 'kondo:renderer-ready'
 
 /** Channel names, keyed by KondoApi method — written once, imported twice. */
 export const channels = {
+  appearanceGet: 'kondo:appearance-get',
+  appearanceSet: 'kondo:appearance-set',
   entityList: 'kondo:entity-list',
   entityMutate: 'kondo:entity-mutate',
   projectsList: 'kondo:projects-list',

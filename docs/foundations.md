@@ -115,11 +115,22 @@ the error half (ADR-0005).
 
 Kondo keeps its private state in `<kondo-data>` — Electron's `userData`
 directory for the app (e.g. `%APPDATA%/Kondo` on Windows). That is where the
-mutation journal (`journal.jsonl`), the kondo trash (`trash/`), and the scan
+mutation journal (`journal.jsonl`), the kondo trash (`trash/`), appearance
+preferences (`appearance.json`), and the scan
 cache (`scan-cache/<namespace>.json`, keyed by `(path, size, mtime)` per
 ADR-0007) live. Two rules: `<kondo-data>` is never inside a Claude store,
 and no Claude-truth is stored there (ADR-0006) — losing it loses undo
-history and caches, never the user's actual configuration.
+history, caches and Kondo's appearance choice, never the user's actual Claude
+configuration.
+
+`workspace/appearance.ts` owns validated appearance reads and atomic writes.
+Only one of the identifiers in `shared/themes.ts` crosses `appearanceGet` /
+`appearanceSet`; arbitrary paths and CSS are never accepted. These preferences
+are not Claude-store mutations and do not create journal entries. The main
+process reads the choice before creating the main window and updates native
+window colors after successful saves. Renderer startup applies the same shared
+palette before mounting React. Missing preferences use Chalk; invalid or
+unreadable preferences provide a usable fallback with an error shown in Themes.
 
 ## Growth path
 
@@ -155,7 +166,7 @@ Where the write path stands (v0.2):
 
 ## Renderer navigation
 
-`App` owns four destinations, initially Library, and their navigation state:
+`App` owns four management destinations, initially Library, plus Themes, and their navigation state:
 Library query/type/selected item, Projects query/selected project/category and
 browser/detail mode, and the selected Clean up subsection. Library joins the
 existing scan results by opaque IDs and opens the matching project category.
@@ -168,6 +179,8 @@ each owns its explicit selection and confirmation. History lists changes
 before the separate permanent trash operation. The responsive layout changes
 which pane is visible, with focus restoration when returning to the browser.
 
-These are projections of the existing typed bridge, with no new filesystem or
-network access. The [UX workflow plan](plans/2026-09-06-ux-workflow.md) records
-the interaction decisions and fixture validation.
+Management views are projections of the existing typed bridge. Themes only
+uses the separate Kondo appearance preference API; visiting it retains the
+Library and Projects context. The [UX workflow plan](plans/2026-09-06-ux-workflow.md)
+and [Signal themes plan](plans/2026-09-06-signal-themes.md) record the interaction
+decisions and fixture validation.

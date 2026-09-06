@@ -1,9 +1,11 @@
 import { ipcMain } from 'electron'
 import {
   channels,
+  type AppearancePreferences,
   type EntityKind,
   type KondoApi,
   type MutateRequest,
+  type ThemeId,
   type TidyCategory,
   type ToggleOperation
 } from '../../shared/contract'
@@ -17,7 +19,16 @@ import {
  * an alias the workspace forwards, kept for the views already written
  * against it; new work adds an operation, not a channel (ADR-0004).
  */
-export function registerIpc(api: KondoApi): void {
+export function registerIpc(
+  api: KondoApi,
+  onAppearanceChanged?: (preferences: AppearancePreferences) => void
+): void {
+  ipcMain.handle(channels.appearanceGet, () => api.appearanceGet())
+  ipcMain.handle(channels.appearanceSet, async (_event, theme: unknown) => {
+    const result = await api.appearanceSet(theme as ThemeId)
+    if (result.errors.length === 0) onAppearanceChanged?.(result.data)
+    return result
+  })
   ipcMain.handle(channels.entityList, (_event, kind: unknown, parentId: unknown) =>
     api.entityList(
       kind as EntityKind,

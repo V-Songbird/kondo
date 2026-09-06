@@ -42,3 +42,12 @@ Kondo useful without detailed knowledge of Claude's storage conventions.
 
 The [workflow plan](../plans/2026-09-06-ux-workflow.md) and
 [design system](../../DESIGN.md) describe the implementation and validation.
+
+## Appearance amendment
+
+The [Signal themes plan](../plans/2026-09-06-signal-themes.md) supersedes only
+the Flat File visual constraint above. Signal retains the brand and logo,
+with Chalk as the default appearance and five alternatives. A separate Themes
+control sits beside the four management destinations. Visiting it preserves
+their context; its preference methods are covered by ADR-0004 and do not
+change Claude configuration or management capabilities.
