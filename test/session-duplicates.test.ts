@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { KondoApi, SessionDuplicateGroup, SessionSummary } from '../shared/contract'
+import type {
+  JournalEntryInfo,
+  KondoApi,
+  SessionDuplicateGroup,
+  SessionSummary
+} from '../shared/contract'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import { openScanCache } from '../electron/main/workspace/scan-cache'
 import {
@@ -347,6 +352,38 @@ describe('trashing a chosen set of sessions (ADR-0001)', () => {
     const undone = await api.journalUndo(done.data?.id as string)
     expect(undone.errors).toEqual([])
     expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  // Entry 073, and the reason it is a blocker: a transcript is a file, and
+  // renaming a file over a file replaces it without a word. Claude writing
+  // at the same uuid between the sweep and the undo is the ordinary case.
+  it('keeps a transcript written at the same uuid after the trash', async () => {
+    const root = path.join(world.userRoot, 'projects', flattenPath(workdir))
+    const done = await api.sessionTrash([sessionId(UUID_A)])
+    expect(done.errors).toEqual([])
+    expect(await exists(path.join(root, `${UUID_A}.jsonl`))).toBe(false)
+
+    // Claude, later that session, saving to the same file.
+    const theirs = opening('their work, written after the sweep')
+    await fs.writeFile(path.join(root, `${UUID_A}.jsonl`), theirs, 'utf8')
+
+    const undone = await api.journalUndo(done.data?.id as string)
+    expect(undone.errors).toEqual([])
+    const undoId = (undone.data as JournalEntryInfo).id.slice('journal:'.length)
+
+    // The trashed transcript came back...
+    expect(await fs.readFile(path.join(root, `${UUID_A}.jsonl`), 'utf8')).toBe(opening(SHARED))
+    // ...and theirs is in the undo's own trash rather than gone.
+    const displaced = path.join(
+      world.kondoDataRoot,
+      'trash',
+      undoId,
+      'user',
+      'projects',
+      flattenPath(workdir),
+      `${UUID_A}.jsonl`
+    )
+    expect(await fs.readFile(displaced, 'utf8')).toBe(theirs)
   })
 
   it('names the one session when only one was picked', async () => {

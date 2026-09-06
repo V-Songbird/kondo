@@ -736,28 +736,40 @@ export function createMutations(
       const id = newId()
       // Reversing a `write` or a `copy` displaces bytes kondo itself put
       // there, so the undo has journal steps of its own and its own trash
-      // directory. A `move` and a `trash` only put back what was already
-      // recorded, and add nothing here.
-      const steps: JournalStep[] = original.steps.flatMap((step) => {
+      // directory. A `move` and a `trash` put back what was already recorded,
+      // and usually add nothing — but the path they put it back at can have
+      // been taken in the meantime, by Claude writing a transcript at the same
+      // uuid or by the user's own hand. That occupant is displaced rather than
+      // renamed over (ADR-0001), so it earns a step here too. Reading the disk
+      // at this point is what `mutate` already does in `planSteps`: the entry
+      // is appended before `act` runs, so a step it does not carry is a
+      // displacement nothing records.
+      const steps: JournalStep[] = []
+      for (const step of original.steps) {
         if (step.type === 'write') {
-          return [
-            {
+          steps.push({
+            type: 'trash' as const,
+            store: step.store,
+            from: step.from,
+            displaced: `${step.store}/${step.from}`
+          })
+        } else if (step.type === 'copy') {
+          const store = step.toStore as string
+          const from = step.to as string
+          steps.push({ type: 'trash' as const, store, from, displaced: `${store}/${from}` })
+        } else if (step.type === 'move' || step.type === 'trash') {
+          if (await exists(await resolveIn(step.store, step.from))) {
+            steps.push({
               type: 'trash' as const,
               store: step.store,
               from: step.from,
               displaced: `${step.store}/${step.from}`
-            }
-          ]
-        }
-        if (step.type === 'copy') {
-          const store = step.toStore as string
-          const from = step.to as string
-          return [{ type: 'trash' as const, store, from, displaced: `${store}/${from}` }]
+            })
+          }
         }
         // A `splice` displaces nothing, so it adds nothing here: what it
         // took out lives in its own `undoEdits` (ADR-0010).
-        return []
-      })
+      }
       const record: JournalRecord = {
         id,
         at: new Date(now()).toISOString(),
@@ -778,6 +790,11 @@ export function createMutations(
             // and the source never left. Reversing that is a no-op, not a
             // failure. An absent source is the other story, and still throws.
             if ((await exists(destination)) || !(await exists(source))) {
+              // Something took the path while the move stood. It goes to this
+              // undo's own trash first; nothing is ever renamed over.
+              if (await exists(source)) {
+                await relocate(source, trashPath(id, `${step.store}/${step.from}`))
+              }
               await relocate(destination, source)
             }
           } else if (step.type === 'copy') {
@@ -808,6 +825,11 @@ export function createMutations(
             // step never ran. Nothing in the trash and no source is the
             // emptied trash, which still throws and is still reported below.
             if ((await exists(kept)) || !(await exists(source))) {
+              // Claude writing a transcript at the same uuid is the ordinary
+              // way this happens, and it is exactly what must not be lost.
+              if (await exists(source)) {
+                await relocate(source, trashPath(id, `${step.store}/${step.from}`))
+              }
               await relocate(kept, source)
             }
           } else {

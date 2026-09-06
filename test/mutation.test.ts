@@ -150,6 +150,47 @@ describe('mutation safety invariants (ADR-0001)', () => {
     expect(size.data.entryCount).toBe(1)
   })
 
+  // Entry 073. The window between an operation and its undo belongs to
+  // whoever else writes there; a rename would have destroyed their bytes
+  // with nothing in the journal saying so.
+  it('displaces what took the restore path rather than renaming over it', async () => {
+    const done = await mutations.mutate({
+      op: 'trash',
+      kind: 'skill',
+      entityId: 'skill:user:beta-skill',
+      summary: 'Trash beta-skill',
+      steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }]
+    })
+    expect(done.errors).toEqual([])
+
+    // Someone puts a different beta-skill back at the same path.
+    const theirs = skillManifest('beta-skill', 'Rewritten while trashed')
+    await writeFileTree(world.userRoot, { 'skills/beta-skill/SKILL.md': theirs })
+
+    const undone = await mutations.undo(done.data!.id)
+    expect(undone.errors).toEqual([])
+    const undoId = undone.data!.id.slice('journal:'.length)
+
+    // The recorded bytes came back...
+    const restored = path.join(world.userRoot, 'skills', 'beta-skill', 'SKILL.md')
+    expect(await fsp.readFile(restored, 'utf8')).toBe(
+      skillManifest('beta-skill', 'Second skill')
+    )
+    // ...and theirs is in this undo's own trash, not gone.
+    const displaced = path.join(
+      world.kondoDataRoot,
+      'trash',
+      undoId,
+      'user',
+      'skills',
+      'beta-skill',
+      'SKILL.md'
+    )
+    expect(await fsp.readFile(displaced, 'utf8')).toBe(theirs)
+    // And the undo entry says so, rather than displacing bytes silently:
+    // reversing a bare trash carries no step at all.
+    expect(undone.data!.stepCount).toBe(1)
+  })
   it('journals the undo and marks the original undone', async () => {
     const done = await mutations.mutate({
       op: 'trash',

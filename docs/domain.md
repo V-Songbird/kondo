@@ -441,3 +441,12 @@ only sees what is on disk.
   back only what actually ran. A `write` is the exception it cannot skip: its
   target is there whether or not the step ran, so undo refuses the whole entry
   rather than displace bytes it has nothing to put back.
+- An undo never renames over a path that is occupied. The time between an
+  operation and its undo belongs to whoever else writes there — Claude
+  saving a transcript at the same uuid a sweep trashed is the ordinary case
+  — so a `move` or a `trash` being reversed stats its restore path first and
+  displaces any occupant into the undo's own
+  `<kondo-data>/trash/<undo-id>/` before putting the recorded bytes back.
+  That displacement is a `trash` step on the undo entry, decided while the
+  entry is built, because the entry is written before its steps run and a
+  step it does not carry is bytes nothing records.
