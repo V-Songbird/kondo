@@ -21,12 +21,16 @@ export function SkillDuplicates() {
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [change, setChange] = useState<JournalEntryInfo | null>(null)
+  // Which copy the confirm band is asking about; null when it is asking about
+  // none. One click used to be the whole decision (entry 076).
+  const [asking, setAsking] = useState<string | null>(null)
   const { reload } = state
 
   const trash = async (skillId: string): Promise<void> => {
     const api = window.kondo
     if (!api) return
     setBusy(true)
+    setAsking(null)
     setProblem(null)
     setChange(null)
     try {
@@ -90,14 +94,34 @@ export function SkillDuplicates() {
                               {shortDigest(member.digest)}
                             </td>
                             <td className="text-right">
-                              <button
-                                type="button"
-                                disabled={reason !== null || busy}
-                                className="btn btn-quiet btn-sm"
-                                onClick={() => void trash(member.skill.id)}
-                              >
-                                Move this copy to trash
-                              </button>
+                              {asking === member.skill.id ? (
+                                <div className="band band-pencil">
+                                  <span>Move this copy of {group.name} to trash?</span>
+                                  <button
+                                    type="button"
+                                    className="btn btn-pencil btn-sm"
+                                    onClick={() => void trash(member.skill.id)}
+                                  >
+                                    Move to trash
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-quiet btn-sm"
+                                    onClick={() => setAsking(null)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={reason !== null || busy}
+                                  className="btn btn-pencil btn-sm"
+                                  onClick={() => setAsking(member.skill.id)}
+                                >
+                                  Move this copy to trash
+                                </button>
+                              )}
                               <Refusal reason={reason} />
                             </td>
                           </tr>

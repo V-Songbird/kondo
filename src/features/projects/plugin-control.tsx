@@ -5,6 +5,7 @@ import type {
   PluginScopeState
 } from '../../../shared/contract'
 import type { Destination } from './projects'
+import { MovePicker } from '../../ui/move-picker'
 import { Refusal } from '../../ui/refusal'
 
 /**
@@ -114,28 +115,17 @@ export function PluginControl({
         {/* Beside the positions because it is the same question they answer —
             where this plugin is on — asked of somewhere else. It writes two
             files, so it is one control rather than a fourth position. */}
-        <span className="pick">
-          <select
-            value=""
-            disabled={busy || refusal !== null || destinations.length === 0}
-            title={
-              refusal === null
-                ? `Turns it off in ${target?.path ?? state.targetLayerId} and on where it lands`
-                : undefined
-            }
-            onChange={(event) => {
-              const destinationId = event.target.value
-              if (destinationId !== '') onMove(destinationId)
-            }}
-          >
-            <option value="">Move to…</option>
-            {destinations.map((destination) => (
-              <option key={destination.id} value={destination.id}>
-                {destination.label}
-              </option>
-            ))}
-          </select>
-        </span>
+        <MovePicker
+          name={state.name}
+          destinations={destinations}
+          disabled={busy || refusal !== null || destinations.length === 0}
+          title={
+            refusal === null
+              ? `Turns it off in ${target?.path ?? state.targetLayerId} and on where it lands`
+              : undefined
+          }
+          onMove={onMove}
+        />
         {/* What Claude actually honours here, which is not always what this
             scope says: a silent project is answered by the user layer. */}
         <span className="text-xs text-ink-2">

@@ -21,6 +21,7 @@ import type {
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { LastChange } from '../../ui/last-change'
+import { MovePicker } from '../../ui/move-picker'
 import { Refusal } from '../../ui/refusal'
 import { flatKeyParts, formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
 import { PluginControl } from './plugin-control'
@@ -825,25 +826,14 @@ function PlacedList({
                 {nowhere !== undefined ? (
                   <Refusal reason={nowhere} />
                 ) : (
-                  <span className="pick">
-                    <select
-                      value=""
-                      disabled={!entry.capabilities.move.allowed || busy}
-                      onChange={(event) => {
-                        const targetId = event.target.value
-                        if (targetId !== '') {
-                          void run((api) => api.entityMutate(entry.id, { op: 'move', targetId }))
-                        }
-                      }}
-                    >
-                      <option value="">Move to…</option>
-                      {destinations.map((destination) => (
-                        <option key={destination.id} value={destination.id}>
-                          {destination.label}
-                        </option>
-                      ))}
-                    </select>
-                  </span>
+                  <MovePicker
+                    name={entry.name}
+                    destinations={destinations}
+                    disabled={!entry.capabilities.move.allowed || busy}
+                    onMove={(targetId) =>
+                      void run((api) => api.entityMutate(entry.id, { op: 'move', targetId }))
+                    }
+                  />
                 )}
                 <Refusal reason={entry.capabilities.move.reason} />
               </td>
@@ -1006,25 +996,12 @@ function SkillTable({
               </td>
               <td className="max-w-md text-ink-2">{skill.description ?? '—'}</td>
               <td>
-                <span className="pick">
-                  <select
-                    value=""
-                    disabled={!skill.capabilities.move.allowed || busy}
-                    onChange={(event) => {
-                      const destinationId = event.target.value
-                      if (destinationId !== '') {
-                        void run((api) => api.skillMove(skill.id, destinationId))
-                      }
-                    }}
-                  >
-                    <option value="">Move to…</option>
-                    {destinations.map((destination) => (
-                      <option key={destination.id} value={destination.id}>
-                        {destination.label}
-                      </option>
-                    ))}
-                  </select>
-                </span>
+                <MovePicker
+                  name={skill.name}
+                  destinations={destinations}
+                  disabled={!skill.capabilities.move.allowed || busy}
+                  onMove={(destinationId) => void run((api) => api.skillMove(skill.id, destinationId))}
+                />
                 <Refusal reason={skill.capabilities.move.reason} />
               </td>
               <td className="text-right">
