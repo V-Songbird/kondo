@@ -20,6 +20,7 @@ between the two is the part a later reader needs.
 - [026 — the Projects home](026-projects-home.md) — **in progress**
 - [Claude Code usability and safety review](2026-09-06-claude-usability-review.md) — **in progress**
 - [Approachable UX workflow](2026-09-06-ux-workflow.md) — **in progress**
+- [Signal themes](2026-09-06-signal-themes.md) — **in progress**
 
 ## Template
 
