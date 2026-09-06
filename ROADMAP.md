@@ -159,15 +159,64 @@ entry and shipped the same day:
   rather than as its `>-` header (070) — the shape nearly every skill on a
   real machine uses, and every kind read from markdown frontmatter benefits.
 
-## Now
+## Now — the road to a release someone else can trust
 
-One entry is open: rehearse every destructive path against a copy of a real
-store, with undo, before the first release (071). The journal on the owner's
-machine holds ten writes, all of them toggles, and no trash directory — so
-ADR-0001's reversibility promise has never been tested on a real byte. The
-release itself is the owner's to cut ([docs/release.md](docs/release.md));
-what comes after is chosen from Later, or from what the released app turns
-up.
+Twenty-six entries stand between today and v1.0, from a six-dimension audit of the
+repository on 2026-09-05: mutation safety, the release pipeline, public-repo
+readiness, first-run experience, cross-platform correctness and the quality gates.
+Every one names the file and line that proves the gap.
+
+Four decisions frame them and are not up for re-argument here:
+
+- **v1.0 means a stranger can trust it** — install kondo, point it at their own
+  `~/.claude`, and mutate safely. The Later section below stays out of scope.
+- **Windows is verified; macOS and Linux ship untested** and must say so.
+- **The repository goes public** at release.
+- **Releases stay unsigned** under [ADR-0011](docs/adr/0011-unsigned-releases-for-now.md).
+  Honest install docs, not certificates.
+
+### v0.6 — the first tagged release
+
+Safety before packaging. The four blockers that touch a real user's bytes come
+first, and 071's real-store rehearsal is gated behind all four:
+
+- 072 splice the settings toggles with a digest guard instead of whole-file writes;
+  ADR-0010 already forbids what `kinds.ts` does today, and all ten real writes so
+  far took that path.
+- 073 displace whatever occupies a restore path before an undo renames over it.
+- 075 stop an unreadable or unmounted project path from being reported `gone` and
+  offered for wholesale trashing.
+- 076 stage every move picker behind a confirm, and confirm the one-click trash —
+  one keypress on a focused select currently moves files.
+- 071 then rehearses every destructive path, with undo, against a copy of a real
+  store. 074 hardens the splice write against a crash and a symlink.
+
+Then the pipeline, which has never run: 077 build from the lockfile and lock both
+workflows down, 078 make one tag produce one complete draft that can be rehearsed
+without a tag, 079 attach SHA-256 checksums and CHANGELOG-derived notes, 080 smoke
+the artifacts that actually ship rather than the unpacked directories, 081 say which
+platform is verified and fix the per-OS install recipes.
+
+Then what a public repository and a first launch need: 082 untrack the private and
+machine-local files, 083 ship the IBM Plex OFL notice with the installers, 084 take
+the single-instance lock and pin ADR-0004's window settings in a test, 085 catch
+renderer exceptions and outbound requests in the smoke test, 086 delete the `TMP_OK`
+gate that lets 22 mutation and undo tests skip silently, 087 define Library's missing
+`.line` rule, 088 catch a render-time throw instead of blanking the window, and 089
+tell the README where kondo's own data lives and how to rehearse on a copy.
+
+### v1.0 — the public invitation
+
+- 090 give every control a name, a role and a keyboard route.
+- 091 route `XDG_CONFIG_HOME` and `os.tmpdir()` through the store locator.
+- 092 cover the permission-denied adapter case [docs/testing.md](docs/testing.md)
+  has always called missing.
+- 093 prove an absent `~/.claude` neither throws nor floods the first read.
+- 094 close the two seam promises no test proves.
+- 095 drop a malformed journal line the way a bad parse already is.
+- 096 prepare the public repo surface a stranger lands on.
+
+The release itself is the owner's to cut ([docs/release.md](docs/release.md)).
 
 ## Later
 
