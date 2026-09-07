@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { collector } from '../electron/main/workspace/scan'
@@ -21,6 +21,7 @@ describe('desktop store adapter', () => {
     })
   })
   afterEach(async () => {
+    vi.restoreAllMocks()
     await world.cleanup()
   })
 
@@ -49,6 +50,72 @@ describe('desktop store adapter', () => {
     expect(c.unknown.some((entry) => entry.includes('artifacts'))).toBe(false)
     expect(c.unknown.some((entry) => entry.includes('cowork'))).toBe(false)
     expect(c.unknown.some((entry) => entry.endsWith('agent'))).toBe(false)
+  })
+
+  it('keeps healthy sessions when a sibling account directory denies listing', async () => {
+    await writeFileTree(world.desktopRoot, {
+      'local-agent-mode-sessions/dev-1/acct-denied/local_hidden.json': '{}'
+    })
+    const denied = path.join(world.desktopRoot, 'local-agent-mode-sessions', 'dev-1', 'acct-denied')
+    const original = fs.readdir
+    const failure = Object.assign(new Error('fixture account listing denied'), { code: 'EACCES' })
+    let deniedCalls = 0
+    const readdir = vi.spyOn(fs, 'readdir').mockImplementation(async (...args) => {
+      if (args[0] === denied) {
+        deniedCalls += 1
+        throw failure
+      }
+      return original(...args)
+    })
+
+    const c = collector()
+    const sessions = await desktopSessions(world.locator, c)
+
+    expect(deniedCalls).toBe(1)
+    expect(readdir).toHaveBeenCalledWith(denied, { withFileTypes: true })
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]).toMatchObject({
+      id: 'session:desktop:dev-1/acct-1/s1',
+      accountId: 'acct-1',
+      bytes: Buffer.byteLength(writeJson({ title: 'x' })) + Buffer.byteLength('sidecar bytes')
+    })
+    expect(c.errors).toEqual([{
+      code: 'read-failed',
+      path: denied.split(path.sep).join('/'),
+      message: failure.message
+    }])
+  })
+
+  it('keeps healthy report entries when a sibling file denies stat', async () => {
+    await writeFileTree(world.desktopRoot, { 'denied.bin': 'unavailable bytes' })
+    const baseline = await desktopStoreReport(world.locator, collector())
+    const denied = path.join(world.desktopRoot, 'denied.bin')
+    const original = fs.stat
+    const failure = Object.assign(new Error('fixture desktop entry stat denied'), { code: 'EACCES' })
+    let deniedCalls = 0
+    const stat = vi.spyOn(fs, 'stat').mockImplementation(async (...args) => {
+      if (args[0] === denied) {
+        deniedCalls += 1
+        throw failure
+      }
+      return original(...args)
+    })
+
+    const c = collector()
+    const report = await desktopStoreReport(world.locator, c)
+
+    expect(deniedCalls).toBe(1)
+    expect(stat).toHaveBeenCalledWith(denied)
+    expect(report.exists).toBe(true)
+    expect(report.entries).toHaveLength(2)
+    expect(report.entries).toEqual(baseline.entries.filter((entry) => entry.name !== 'denied.bin'))
+    expect(report.entries.find((entry) => entry.name === 'ant-device-registry.json')?.bytes).toBe(2)
+    expect(report.totalBytes).toBe(baseline.totalBytes - Buffer.byteLength('unavailable bytes'))
+    expect(c.errors).toEqual([{
+      code: 'stat-failed',
+      path: denied.split(path.sep).join('/'),
+      message: failure.message
+    }])
   })
 
   it('reports sizes for top-level entries without failing on a missing store', async () => {

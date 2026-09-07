@@ -217,8 +217,9 @@ tell the README where kondo's own data lives and how to rehearse on a copy.
 
 - 090 give every control a name, a role and a keyboard route.
 - 091 route `XDG_CONFIG_HOME` and `os.tmpdir()` through the store locator.
-- 092 cover the permission-denied adapter case [docs/testing.md](docs/testing.md)
-  has always called missing.
+- 092 covers permission-denied adapter behavior with deterministic injected
+  `EACCES` fixtures; [docs/testing.md](docs/testing.md) describes the coverage
+  and its native OS ACL limitation.
 - 093 prove an absent `~/.claude` neither throws nor floods the first read.
 - 094 close the two seam promises no test proves.
 - 095 drop a malformed journal line the way a bad parse already is.
@@ -234,8 +235,6 @@ The release itself is the owner's to cut ([docs/release.md](docs/release.md)).
 - Time analytics: worked time per session (active spans, not wall clock),
   timelines per project and per week.
 - Code signing and macOS notarization, when ADR-0011's conditions hold.
-- A permission-denied adapter fixture, the one case docs/testing.md names and
-  no test covers — it has no reliable cross-platform recipe yet.
 
 ## Non-goals
 

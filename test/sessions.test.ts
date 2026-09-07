@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { scanSessionInventory, toSessionProjects, toSessionSummaries } from '../electron/main/workspace/sessions'
@@ -41,7 +41,57 @@ describe('scanSessionInventory', () => {
     await fs.utimes(path.join(project, `${UUID_A}.jsonl`), OLD, OLD)
   })
   afterEach(async () => {
+    vi.restoreAllMocks()
     await world.cleanup()
+  })
+
+  it('preserves a readable project when a sibling directory read is denied (ADR-0005)', async () => {
+    const denied = path.join(world.userRoot, 'projects', 'D--Projects-denied')
+    await writeFileTree(denied, { [`${UUID_D}.jsonl`]: healthyTranscript(UUID_D) })
+    const readdir = fs.readdir
+    const read = vi.spyOn(fs, 'readdir').mockImplementation(async (...args) => {
+      if (args[0] === denied) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+      }
+      return readdir(...args)
+    })
+
+    const scan = await scanSessionInventory(world.locator, process.platform, async () => 'absent')
+
+    expect(read).toHaveBeenCalledWith(denied, { withFileTypes: true })
+    expect(scan.data.byDirName.get('D--Projects-app')?.sessions.map((s) => s.uuid).sort())
+      .toEqual([UUID_A, UUID_B])
+    expect(scan.data.byDirName.get('D--Projects-app')?.sessions.find((s) => s.uuid === UUID_A)?.bytes)
+      .toBeGreaterThan(0)
+    expect(scan.data.byDirName.get('D--Projects-denied')?.sessions).toEqual([])
+    expect(scan.errors).toEqual([{
+      code: 'read-failed',
+      path: '~/.claude/projects/D--Projects-denied',
+      message: 'permission denied'
+    }])
+  })
+
+  it('preserves a sibling transcript when one transcript stat is denied (ADR-0005)', async () => {
+    const denied = path.join(world.userRoot, 'projects', 'D--Projects-app', `${UUID_B}.jsonl`)
+    const stat = fs.stat
+    const probe = vi.spyOn(fs, 'stat').mockImplementation(async (...args) => {
+      if (args[0] === denied) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+      }
+      return stat(...args)
+    })
+
+    const scan = await scanSessionInventory(world.locator, process.platform, async () => 'absent')
+
+    expect(probe).toHaveBeenCalledWith(denied)
+    const sessions = scan.data.byDirName.get('D--Projects-app')?.sessions
+    expect(sessions?.map((s) => s.uuid)).toEqual([UUID_A])
+    expect(sessions?.[0]?.bytes).toBeGreaterThan(0)
+    expect(scan.errors).toEqual([{
+      code: 'stat-failed',
+      path: `~/.claude/projects/D--Projects-app/${UUID_B}.jsonl`,
+      message: 'permission denied'
+    }])
   })
 
   it('inventories transcripts, sidecars, orphans, and unknown entries', async () => {

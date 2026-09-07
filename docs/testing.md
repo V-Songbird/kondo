@@ -9,9 +9,14 @@ in temp directories by the builders in `test/helpers.ts`.
 1. **Unit — store adapters.** Every adapter is exercised against fixture
    trees: a healthy store, an empty store, a store with malformed JSON, a
    store from a newer Claude version with unknown files. Adapters must return
-   partial data + itemized errors, never throw. (A permission-denied fixture
-   is still missing — chmod-style unreadability has no reliable
-   cross-platform recipe yet; add it when one exists.)
+   partial data + itemized errors, never throw. Permission-denied regressions
+   in `test/sessions.test.ts`, `test/user-store.test.ts` and
+   `test/desktop-store.test.ts` inject `EACCES` at exact fixture paths while
+   forwarding unrelated filesystem calls. They assert the denied operation
+   ran, the scan resolved, healthy sibling data survived, and the error names
+   the path with `read-failed` or `stat-failed`. Spies restore before fixture
+   cleanup. This is deterministic adapter coverage, not evidence of native
+   OS ACL enforcement; no real stores or system permissions are changed.
 2. **Unit — analysis.** Staleness (`isStale`) and the project-path join
    (`projects.ts`) are pure functions over scanned data, table-tested.
    Prompt-signature grouping (`sessionNearDuplicates`) and the scan cache

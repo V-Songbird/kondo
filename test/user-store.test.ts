@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import { collector } from '../electron/main/workspace/scan'
 import {
@@ -70,7 +71,63 @@ describe('user store adapter', () => {
     })
   })
   afterEach(async () => {
+    vi.restoreAllMocks()
     await world.cleanup()
+  })
+
+  it('preserves other skill scopes when the user skill directory read is denied (ADR-0005)', async () => {
+    const c = collector()
+    const layers = await readSettingsLayers(world.locator, verified, c)
+    const denied = path.join(world.userRoot, 'skills')
+    const readdir = fs.readdir
+    const read = vi.spyOn(fs, 'readdir').mockImplementation(async (...args) => {
+      if (args[0] === denied) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+      }
+      return readdir(...args)
+    })
+
+    const skills = await scanSkills(world.locator, verified, layers, new Set(), c)
+
+    expect(read).toHaveBeenCalledWith(denied, { withFileTypes: true })
+    expect(skills.map((skill) => skill.name).sort()).toEqual(['beta-skill', 'delta-skill'])
+    expect(skills.find((skill) => skill.name === 'delta-skill')).toMatchObject({
+      description: 'Project-scoped', scope: 'project'
+    })
+    expect(c.errors).toEqual([{
+      code: 'read-failed', path: '~/.claude/skills', message: 'permission denied'
+    }])
+  })
+
+  it('preserves a sibling skill when one manifest read is denied (ADR-0005)', async () => {
+    await writeFileTree(world.userRoot, {
+      'skills/healthy-skill/SKILL.md': skillManifest('healthy-skill', 'Readable sibling')
+    })
+    const c = collector()
+    const layers = await readSettingsLayers(world.locator, verified, c)
+    const denied = path.join(world.userRoot, 'skills', 'alpha-skill', 'SKILL.md')
+    const readFile = fs.readFile
+    const read = vi.spyOn(fs, 'readFile').mockImplementation(async (...args) => {
+      if (args[0] === denied) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+      }
+      return readFile(...args)
+    })
+
+    const skills = await scanSkills(world.locator, verified, layers, new Set(), c)
+
+    expect(read).toHaveBeenCalledWith(denied, 'utf8')
+    expect(skills.map((skill) => skill.name).sort()).toEqual([
+      'beta-skill', 'delta-skill', 'healthy-skill'
+    ])
+    expect(skills.find((skill) => skill.name === 'healthy-skill')).toMatchObject({
+      description: 'Readable sibling', scope: 'user'
+    })
+    expect(c.errors).toEqual([{
+      code: 'read-failed',
+      path: '~/.claude/skills/alpha-skill/SKILL.md',
+      message: 'permission denied'
+    }])
   })
 
   it('reads settings layers, including missing files as exists:false', async () => {
