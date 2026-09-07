@@ -287,6 +287,9 @@
   .band-note::before { content: '-'; color: var(--off); }
   .band-pencil::before { content: '!'; color: var(--bad); }
   .band-pencil { border-color: var(--bad); }
+  .error-recovery { max-width: 72ch; }
+  .error-recovery > p { margin: 18px 0; }
+  .render-error-message { white-space: pre-wrap; overflow-wrap: anywhere; }
   .disclose { display: inline-flex; align-items: baseline; gap: 5px; font-family: var(--font-sans); font-size: 13px; font-weight: 700; color: var(--ink-2); cursor: pointer; }
   .disclose:hover { color: var(--ink); }
   .disclose::before { content: '+'; font-family: var(--font-mono); color: var(--ink-3); }

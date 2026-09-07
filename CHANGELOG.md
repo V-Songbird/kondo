@@ -8,6 +8,9 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Render failures now show the error message, application version and a
+  keyboard-accessible Reload Kondo button instead of an empty window.
+
 - A second launch using the same Kondo app data exits and brings the existing
   window forward, preventing competing workspace owners of the journal and
   trash. The splash now has the same explicit isolation and navigation guards

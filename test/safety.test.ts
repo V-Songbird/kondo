@@ -28,6 +28,8 @@ const shell = await vi.hoisted(async () => {
     destroyed = false
     webContents = Object.assign(new EventEmitter(), {
       ipc: new EventEmitter(),
+      mainFrame: {},
+      reload: vi.fn(),
       setWindowOpenHandler: vi.fn()
     })
     constructor(readonly options: BrowserWindowConstructorOptions) {
@@ -156,6 +158,25 @@ describe('ADR-0004 entry-module security and lifecycle (mocked Electron)', () =>
       expect(preventDefault).toHaveBeenCalledTimes(1)
       expect(open.mock.invocationCallOrder[0]).toBeLessThan(window.loadFile.mock.invocationCallOrder[0]!)
     }
+  })
+
+  it('reloads only the owning main frame without changing navigation denial', async () => {
+    await start()
+    const { rendererReloadChannel } = await import('../shared/contract')
+    const [main, splash] = shell.Window.windows
+    expect(splash!.webContents.ipc.listenerCount(rendererReloadChannel)).toBe(0)
+    main!.webContents.ipc.emit(rendererReloadChannel, { senderFrame: {} })
+    main!.webContents.ipc.emit(rendererReloadChannel, { senderFrame: null })
+    expect(main!.webContents.reload).not.toHaveBeenCalled()
+    main!.webContents.ipc.emit(rendererReloadChannel, { senderFrame: main!.webContents.mainFrame }, 'https://example.invalid')
+    expect(main!.webContents.reload).toHaveBeenCalledExactlyOnceWith()
+    expect(splash!.webContents.reload).not.toHaveBeenCalled()
+    const preventDefault = vi.fn()
+    main!.webContents.emit('will-navigate', { preventDefault }, 'file:///different.html')
+    expect(preventDefault).toHaveBeenCalledOnce()
+    main!.destroy()
+    main!.webContents.ipc.emit(rendererReloadChannel, { senderFrame: main!.webContents.mainFrame })
+    expect(main!.webContents.reload).toHaveBeenCalledTimes(1)
   })
 
   it.each([

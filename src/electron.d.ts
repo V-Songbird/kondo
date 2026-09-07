@@ -16,6 +16,8 @@ declare global {
      * main process listens for it exactly once.
      */
     kondoReady?: () => void
+    /** Reload this window through main without accepting a URL (ADR-0014). */
+    kondoReload?: () => void
   }
   /** package.json's version, stamped in by electron.vite.config.ts `define`. */
   const __KONDO_VERSION__: string

@@ -86,7 +86,7 @@ in temp directories by the builders in `test/helpers.ts`.
    bypassed and requires a new ready renderer plus an observed `file:` document
    request. This monitors a full renderer initialization on each launch.
    After each test and final shutdown, retained evidence from every launch must
-   contain no exceptions, no error console output, and no request URLs outside
+   contain no exceptions, no unexpected error console output, and no request URLs outside
    `file:` and `devtools:`. Invalid URLs also fail. Diagnostics include full
    violating payloads. The app and Themes import the mark SVG with `?no-inline`
    so Vite emits a local file; its default data-URL inlining would fail this
@@ -127,6 +127,23 @@ creating the workspace. It writes exact synthetic paths to the fixture's
 `~/.claude.json` (ADR-0009), so project resolution does not depend on reversing
 flattened directory names. Their mutation and undo cases run unconditionally,
 including when the temporary root contains hyphens.
+
+`test/error-boundary.test.tsx` covers defensive error normalization and static
+fallback markup (including escaped text and the version); server rendering is
+not evidence that a boundary catches descendant errors. Electron smoke drives
+the actual App boundary through a test-only synthetic Search input event: its
+value throws the retained Error during catalog filtering in the next render.
+This uses React's host-node handler property and fails explicitly if that
+scaffolding changes; no production crash API ships. Smoke exempts exactly one
+caught-error console event per exercise, only after CDP proves its sole
+argument is that same Error object. All other console events, every uncaught
+exception and every request retain the normal health gate, including after
+reload and shutdown. The fixture test asserts populated startup after the
+initial read, alert and button accessibility roles, literal message, build
+version, heading focus, visible keyboard focus, and Enter-to-reload recovery.
+Chalk and Carbon are checked at 1360x860 and 900x600 with optional screenshots
+and unchanged fixture stores/journal. This does not establish screen-reader
+announcements or recovery of asynchronous actions or store mutations.
 
 One remaining suite limitation:
 

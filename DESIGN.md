@@ -134,6 +134,11 @@ An honest null remains an em dash; a measured zero remains `0`.
 
 ## Task flow and feedback
 
+A render failure replaces the application content with a focused heading,
+the existing `band-pencil` error alert, the build version and a native Reload
+Kondo button. Keep the drag strip and current theme. Error text wraps inside
+the reading measure and is displayed literally, including markup-like text.
+
 Library finds skills, plugins, connections and other configured tools. Projects
 answers where they work. Clean up contains Files and caches, Settings leftovers
 and Duplicate skills. History provides the record and Undo. Themes changes

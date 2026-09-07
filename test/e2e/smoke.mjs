@@ -37,6 +37,13 @@ let client
 let fixtureEnv
 let appImage
 const rendererRuns = []
+// Exempt only the sole console argument proven to be the injected Error.
+// Retain all evidence, including every exception and request.
+const expectedRenderErrors = new Set()
+const assertSmokeHealthy = (evidence) => assertRendererHealthy({
+  ...evidence,
+  consoleErrors: evidence.consoleErrors.filter((event) => !expectedRenderErrors.has(event))
+})
 
 /** Reuse the same injected roots when testing a real application restart. */
 const launch = async () => {
@@ -140,7 +147,7 @@ before(async () => {
 })
 
 afterEach(() => {
-  for (const evidence of rendererRuns) assertRendererHealthy(evidence)
+  for (const evidence of rendererRuns) assertSmokeHealthy(evidence)
 })
 
 after(async () => {
@@ -151,7 +158,7 @@ after(async () => {
     const stopped = !child?.pid || child.exitCode !== null || child.signalCode !== null
     if (base && stopped) await fs.rm(base, { recursive: true, force: true })
   }
-  for (const evidence of rendererRuns) assertRendererHealthy(evidence)
+  for (const evidence of rendererRuns) assertSmokeHealthy(evidence)
 })
 
 const call = (expression) => client.evaluate(`(async () => ${expression})()`)
@@ -313,6 +320,9 @@ const chooseTheme = async (theme) => {
 }
 
 test('the four work destinations and separate Themes entry retain native keyboard navigation', async () => {
+  await client.waitFor(`document.querySelector('.library-item') !== null && document.querySelector('[aria-busy="true"]') === null`)
+  assert.ok(await client.evaluate(`document.getElementById('root').childNodes.length > 0`),
+    'The root must remain populated after the initial read settles')
   const labels = await client.evaluate(`[...document.querySelectorAll('nav[aria-label="Main navigation"] button')].map((b) => b.getAttribute('aria-label'))`)
   assert.deepEqual(labels, ['Library', 'Projects', 'Clean up', 'History'])
   assert.equal(await client.evaluate(`document.querySelectorAll('button[aria-label="Themes"]').length`), 1)
@@ -334,6 +344,74 @@ test('the four work destinations and separate Themes entry retain native keyboar
   await press(' ')
   await client.waitFor(`document.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.getAttribute('aria-label') === 'Projects'`)
   await navigate('Library')
+})
+
+test('a descendant render failure shows accessible recovery and keyboard reload restores App', async () => {
+  const beforeFiles = await fixtureSnapshot()
+  const beforeJournal = await journalBytes()
+  const { version } = JSON.parse(await fs.readFile(path.join(repo, 'package.json'), 'utf8'))
+  const message = 'Synthetic render failure: <img src="invalid" onerror="throw 1"> & ' + 'long-detail-'.repeat(24)
+  try {
+    for (const theme of ['chalk', 'carbon']) {
+      await openThemes()
+      await chooseTheme(theme)
+      await browseLibrary()
+      await client.waitFor(`document.querySelector('.library-item') !== null`)
+      const evidence = rendererRuns.at(-1)
+      const consoleStart = evidence.consoleErrors.length
+      const origin = await client.evaluate('performance.timeOrigin')
+      // React keeps its handler on the host node. The synthetic onChange
+      // succeeds; catalog filtering throws during the next descendant render.
+      // This test-only input adds no production crash switch or bridge override.
+      await client.evaluate(`(() => {
+        const input = document.querySelector('input[aria-label="Search the Library"]');
+        const key = Object.keys(input).find((key) => key.startsWith('__reactProps$'));
+        if (!key || typeof input[key].onChange !== 'function') throw new Error('Search handler unavailable to smoke');
+        window.__kondoSmokeRenderError = new Error(${JSON.stringify(message)});
+        input[key].onChange({ target: { value: { trim() { throw window.__kondoSmokeRenderError; } } } });
+      })()`)
+      await client.waitFor(`document.querySelector('.error-boundary [role="alert"]') !== null`)
+      const intentional = evidence.consoleErrors.slice(consoleStart)
+      assert.equal(intentional.length, 1, 'Expected exactly one React caught-error report')
+      assert.equal(intentional[0].args.length, 1)
+      const objectId = intentional[0].args[0].objectId
+      assert.ok(objectId, 'Caught report must retain the original Error object')
+      const identity = await client.send('Runtime.callFunctionOn', {
+        objectId, functionDeclaration: 'function () { return this === window.__kondoSmokeRenderError }', returnByValue: true
+      })
+      assert.equal(identity.result.value, true, 'Only the injected Error may be exempted')
+      expectedRenderErrors.add(intentional[0])
+      assertSmokeHealthy(evidence)
+      assert.equal(await client.evaluate(`document.querySelector('[role="alert"]').textContent`), message)
+      assert.equal(await client.evaluate(`document.querySelector('[role="alert"] img') === null`), true)
+      assert.equal(await client.evaluate(`document.querySelector('.error-boundary .font-mono').textContent`), `Kondo v${version}`)
+      assert.equal(await client.evaluate(`document.activeElement?.id`), 'render-error-title')
+      const accessibility = await client.send('Accessibility.getFullAXTree')
+      assert.ok(accessibility.nodes.some((node) => node.role?.value === 'alert' && !node.ignored))
+      assert.ok(accessibility.nodes.some((node) => node.role?.value === 'button' && node.name?.value === 'Reload Kondo' && !node.ignored))
+      await press('Tab')
+      assert.equal(await client.evaluate(`document.activeElement?.textContent.trim()`), 'Reload Kondo')
+      assert.equal(await client.evaluate(`getComputedStyle(document.activeElement).outlineStyle`), 'solid')
+      for (const [width, height] of [[1360, 860], [900, 600]]) {
+        await client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+        await assertNoHorizontalOverflow()
+        await assertInViewport(button('Reload Kondo'))
+        await capture(`render-error-${theme}-${width}`)
+      }
+      await press('Enter')
+      await client.waitFor(`performance.timeOrigin !== ${origin} && document.querySelector('.library-item') !== null && document.querySelector('[aria-busy="true"]') === null`)
+      assert.equal(await client.evaluate(`document.querySelector('.error-boundary') === null && document.getElementById('root').childNodes.length > 0`), true)
+      assert.equal(await client.evaluate(`document.documentElement.dataset.theme`), theme)
+      assert.deepEqual(await fixtureSnapshot(), beforeFiles)
+      assert.equal(await journalBytes(), beforeJournal)
+      assertSmokeHealthy(evidence)
+    }
+  } finally {
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
+  await openThemes()
+  await chooseTheme('chalk')
+  await browseLibrary()
 })
 
 test('six named native theme choices respond to arrow keys without changing Claude data', async (t) => {

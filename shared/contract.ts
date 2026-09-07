@@ -1362,6 +1362,9 @@ export interface KondoApi {
  */
 export const rendererReadyChannel = 'kondo:renderer-ready'
 
+/** Reload only the sending main window; accepts no destination (ADR-0014). */
+export const rendererReloadChannel = 'kondo:renderer-reload'
+
 /** Channel names, keyed by KondoApi method — written once, imported twice. */
 export const channels = {
   appearanceGet: 'kondo:appearance-get',

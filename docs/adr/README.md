@@ -19,6 +19,7 @@ re-asked. Numbered, never renumbered; a superseded ADR stays and gains a
 - [0011 — Unsigned releases for now](0011-unsigned-releases-for-now.md)
 - [0012 — Organize navigation around user tasks](0012-organize-navigation-around-user-tasks.md)
 - [0013 — Keep private working records local](0013-keep-working-records-local.md)
+- [0014 — Reload through a window lifecycle signal](0014-reload-through-window-lifecycle.md)
 
 ## Template
 

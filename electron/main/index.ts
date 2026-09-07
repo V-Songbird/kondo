@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, nativeTheme, session } from 'electron'
 import { mkdirSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { rendererReadyChannel, type ThemeId } from '../../shared/contract'
+import { rendererReadyChannel, rendererReloadChannel, type ThemeId } from '../../shared/contract'
 import { THEMES } from '../../shared/themes'
 import { createLocator } from './workspace/locator'
 import { createWorkspace } from './workspace/workspace'
@@ -174,6 +174,11 @@ function createMainWindow(theme: ThemeId): void {
   // Scoped to this window's contents, so a second window cannot be shown by
   // the first one's signal.
   window.webContents.ipc.once(rendererReadyChannel, handOver)
+  window.webContents.ipc.on(rendererReloadChannel, (event) => {
+    if (!window.isDestroyed() && event.senderFrame === window.webContents.mainFrame) {
+      window.webContents.reload()
+    }
+  })
   window.once('ready-to-show', () => setTimeout(handOver, SPLASH_MAX_MS))
   hardenWindow(window)
 

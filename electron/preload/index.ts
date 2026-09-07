@@ -7,7 +7,8 @@ import {
   type TidyCategory,
   type ThemeId,
   type ToggleOperation,
-  rendererReadyChannel
+  rendererReadyChannel,
+  rendererReloadChannel
 } from '../../shared/contract'
 
 /** The bridge stays dumb: one invoke per method, no logic, no state. */
@@ -80,3 +81,4 @@ contextBridge.exposeInMainWorld('kondo', api)
 // so the main process can retire the splash (electron/main/index.ts). Send, not
 // invoke — there is no answer to wait for.
 contextBridge.exposeInMainWorld('kondoReady', () => ipcRenderer.send(rendererReadyChannel))
+contextBridge.exposeInMainWorld('kondoReload', () => ipcRenderer.send(rendererReloadChannel))

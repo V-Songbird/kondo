@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/app'
+import { ErrorBoundary } from './ui/error-boundary'
 import { DEFAULT_THEME, isThemeId } from '../shared/themes'
 import { applyTheme } from './features/themes/appearance'
 import type { AppearanceState } from './features/themes/themes'
@@ -23,7 +24,9 @@ async function mount(): Promise<void> {
   applyTheme(appearance.theme)
   createRoot(root).render(
     <StrictMode>
-      <App initialAppearance={appearance} />
+      <ErrorBoundary>
+        <App initialAppearance={appearance} />
+      </ErrorBoundary>
     </StrictMode>
   )
 }

@@ -46,6 +46,13 @@ Rules the structure enforces:
   (`connect-src 'none'` when packaged — the no-network promise is enforced,
   not just intended), and navigation handlers that refuse to leave the app.
 
+App is wrapped by `src/ui/error-boundary.tsx`. A descendant render failure
+shows an error alert, build version and reload action, and signals readiness
+so an early failure can retire the splash. The parameterless `kondoReload`
+lifecycle bridge lets the owning main frame reload its existing contents
+without relaxing navigation denial or accepting a path/URL (ADR-0014).
+Asynchronous action failures retain their feature-level handling.
+
 ## The workspace
 
 `createWorkspace(locator)` owns the in-memory scan state and reaches every
