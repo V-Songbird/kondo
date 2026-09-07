@@ -1,6 +1,6 @@
 # Plan: Session projection and protected-file boundary
 
-Status: **done — implementation verified; awaiting acceptance**
+Status: **done — shipped in 59ae26b; accepted**
 
 Task 094 removes an unused OS path from the session-project payload and
 makes the five read-never filenames explicit regression targets.
