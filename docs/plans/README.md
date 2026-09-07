@@ -13,7 +13,7 @@ between the two is the part a later reader needs.
 
 ## Index
 
-- [080 — Smoke the release artifacts](080-release-artifact-smoke.md) — **in progress**
+- [080 — Smoke the release artifacts](080-release-artifact-smoke.md) — **done**
 - [074 — Durable and confined splice replacement](074-safe-splice.md) — **in progress**
 - [v0.1 — the read-only core](v1-read-only-core.md) — **done**
 - [001 — the mutation journal and kondo trash](001-mutation-journal-and-trash.md) — **done**

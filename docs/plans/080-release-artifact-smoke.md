@@ -1,9 +1,9 @@
 # Plan: Smoke the release artifacts
 
-Status: **in progress**
+Status: **done — shipped in d293540**
 
-Implementation complete; awaiting acceptance. Local Windows verification is
-recorded below; hosted release CI has not been run.
+Implementation accepted by the owner. Local Windows verification is recorded
+below; hosted release CI has not been run.
 
 The release workflow currently tests unpacked Windows/Linux executables and
 uploads the macOS DMG without a packaged smoke. Gate each upload on the same
