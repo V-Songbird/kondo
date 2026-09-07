@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import type { KondoApi, ToggleOperation } from '../shared/contract'
 import { capabilitiesFor } from '../electron/main/workspace/capabilities'
@@ -12,6 +11,7 @@ import {
   healthyTranscript,
   makeWorld,
   recordWrites,
+  registerProjects,
   skillManifest,
   UUID_A,
   writeFileTree,
@@ -28,10 +28,6 @@ import {
  * `skills/`. Plugin-shipped skills are refused by the capability matrix, not
  * by the UI.
  */
-
-// A project path is reconstructed from its flattened directory name, which
-// cannot round-trip hyphens — the project half needs a hyphen-free tmpdir.
-const TMP_OK = !os.tmpdir().includes('-')
 
 const PLUGIN_SKILL = 'skill:plugin/alpha@acme:gamma-skill'
 
@@ -66,6 +62,7 @@ describe('skill enable/disable (ADR-0006)', () => {
       '.claude/skills/delta-skill/SKILL.md': skillManifest('delta-skill', 'Project-scoped'),
       'src/secret.ts': 'export const apiKey = "never-read-me"'
     })
+    await registerProjects(world, [workdir])
 
     api = createWorkspace({ locator: world.locator, platform: process.platform })
   })
@@ -174,7 +171,7 @@ describe('skill enable/disable (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // Project scope
 
-  it.runIf(TMP_OK)('toggles a project skill in its own settings.local.json, asking before creating it', async () => {
+  it('toggles a project skill in its own settings.local.json, asking before creating it', async () => {
     const projectId = 'skill:project/X--work-proj:delta-skill'.replace(
       'X--work-proj',
       flattenPath(workdir)
@@ -209,7 +206,7 @@ describe('skill enable/disable (ADR-0006)', () => {
     )
   })
 
-  it.runIf(TMP_OK)('never writes outside the project .claude directory', async () => {
+  it('never writes outside the project .claude directory', async () => {
     const touched: string[] = []
     const restores = recordWrites(touched)
     try {

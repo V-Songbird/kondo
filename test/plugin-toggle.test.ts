@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import type {
   KondoApi,
@@ -16,6 +15,7 @@ import {
   healthyTranscript,
   makeWorld,
   recordWrites,
+  registerProjects,
   UUID_A,
   writeFileTree,
   writeJson,
@@ -27,11 +27,7 @@ import {
  * the `enabledPlugins` key of one settings layer, edited in place so the
  * file's other keys and its formatting survive byte-for-byte, journaled
  * first and therefore reversible (ADR-0001).
- *
- * A project path is reconstructed from its flattened directory name, which
- * cannot round-trip hyphens — the project half needs a hyphen-free tmpdir.
  */
-const TMP_OK = !os.tmpdir().includes('-')
 
 const ALPHA = 'plugin:alpha@acme'
 const GAMMA = 'plugin:gamma@acme'
@@ -101,6 +97,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
       '.claude/settings.json': PROJECT_SETTINGS,
       'src/secret.ts': 'export const apiKey = "never-read-me"'
     })
+    await registerProjects(world, [workdir])
 
     api = createWorkspace({ locator: world.locator, platform: process.platform })
   })
@@ -150,7 +147,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     expect(after['enabledPlugins']).toEqual({ 'alpha@acme': false, 'beta@acme': false })
   })
 
-  it.runIf(TMP_OK)('adds enabledPlugins to a layer that has no such key', async () => {
+  it('adds enabledPlugins to a layer that has no such key', async () => {
     const file = path.join(claudeDir, 'settings.json')
     const before = await fs.readFile(file, 'utf8')
     const result = await api.pluginToggle(ALPHA, `settings:project:${dirName}`, 'disable')
@@ -167,7 +164,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // Which layer wins
 
-  it.runIf(TMP_OK)('ranks the layers local over project over user', async () => {
+  it('ranks the layers local over project over user', async () => {
     expect((await plugin(ALPHA)).scopes.map((scope) => scope.layer)).toEqual([
       'local',
       'project',
@@ -175,7 +172,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     ])
   })
 
-  it.runIf(TMP_OK)('names the project each layer belongs to, by id and by label', async () => {
+  it('names the project each layer belongs to, by id and by label', async () => {
     // Two layers per project all read "project" and "local"; the owning
     // project is the only thing that tells one project's pair from another's,
     // and the id is what tells apart two projects sharing a folder name.
@@ -190,7 +187,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     expect(at('local').projectLabel).toBe('proj')
   })
 
-  it.runIf(TMP_OK)('resolves the winning layer per project, local over project over user', async () => {
+  it('resolves the winning layer per project, local over project over user', async () => {
     const owner = `project:code:${dirName}`
     const at = (info: PluginInfo, projectId: string | null): string | undefined =>
       info.effectiveIn.find((state) => state.projectId === projectId)?.layerId
@@ -226,7 +223,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // A layer is created only on confirmation
 
-  it.runIf(TMP_OK)('refuses to create a missing layer until told to', async () => {
+  it('refuses to create a missing layer until told to', async () => {
     const local = path.join(claudeDir, 'settings.local.json')
     const asked = await api.pluginToggle(ALPHA, `settings:local:${dirName}`, 'enable')
 
@@ -238,7 +235,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     expect((await api.journalList()).data).toEqual([])
   })
 
-  it.runIf(TMP_OK)('creates the layer once confirmed, holding only that key', async () => {
+  it('creates the layer once confirmed, holding only that key', async () => {
     const local = path.join(claudeDir, 'settings.local.json')
     const result = await api.pluginToggle(ALPHA, `settings:local:${dirName}`, 'enable', true)
     expect(result.errors).toEqual([])
@@ -294,7 +291,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     // The whole point of the guard: their key is still there.
     expect(await readUserSettings()).toBe(theirs)
   })
-  it.runIf(TMP_OK)('undoes a created layer back out of existence', async () => {
+  it('undoes a created layer back out of existence', async () => {
     const before = await hashTree(claudeDir)
     const done = await api.pluginToggle(ALPHA, `settings:local:${dirName}`, 'enable', true)
     expect(done.errors).toEqual([])
@@ -322,7 +319,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     expect(journalAt).toBeLessThan(storeAt)
   })
 
-  it.runIf(TMP_OK)('never writes outside the project .claude directory', async () => {
+  it('never writes outside the project .claude directory', async () => {
     const touched: string[] = []
     const restores = recordWrites(touched)
     try {

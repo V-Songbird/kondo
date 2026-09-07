@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import type { KondoApi } from '../shared/contract'
 import { capabilitiesFor } from '../electron/main/workspace/capabilities'
@@ -27,10 +26,6 @@ import {
  * verify the copy, and only then displace the source into kondo's trash. No
  * intermediate state can lose the skill, and `undo` puts it back.
  */
-
-// A project path is reconstructed from its flattened directory name, which
-// cannot round-trip hyphens — the project half needs a hyphen-free tmpdir.
-const TMP_OK = !os.tmpdir().includes('-')
 
 const PLUGIN_SKILL = 'skill:plugin/alpha@acme:gamma-skill'
 const USER = 'user'
@@ -78,6 +73,7 @@ describe('skill move between scopes (ADR-0001)', () => {
       '.claude/skills/.keep': '',
       'src/other.ts': 'export const other = 1'
     })
+    await registerProjects(world, [workdir, otherdir])
 
     api = createWorkspace({ locator: world.locator, platform: process.platform })
   })
@@ -151,7 +147,7 @@ describe('skill move between scopes (ADR-0001)', () => {
     expect(ids).not.toContain('skill:user:alpha-skill')
   })
 
-  it.runIf(TMP_OK)('moves a project skill into the user scope', async () => {
+  it('moves a project skill into the user scope', async () => {
     const result = await api.skillMove(
       `skill:project/${flattenPath(workdir)}:delta-skill`,
       USER
@@ -163,7 +159,7 @@ describe('skill move between scopes (ADR-0001)', () => {
     expect(await idsFrom()).toContain('skill:user:delta-skill')
   })
 
-  it.runIf(TMP_OK)('moves a project skill into another project', async () => {
+  it('moves a project skill into another project', async () => {
     const result = await api.skillMove(
       `skill:project/${flattenPath(workdir)}:delta-skill`,
       projectId(otherdir)

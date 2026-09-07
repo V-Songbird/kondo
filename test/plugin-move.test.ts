@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import type { KondoApi, PluginInfo } from '../shared/contract'
 import { capabilitiesFor } from '../electron/main/workspace/capabilities'
@@ -11,6 +10,7 @@ import {
   hashTree,
   healthyTranscript,
   makeWorld,
+  registerProjects,
   UUID_A,
   UUID_B,
   writeFileTree,
@@ -25,11 +25,7 @@ import {
  *
  * Both edits are one plan and therefore one journal entry, so ADR-0001's undo
  * puts the pair of files back together or not at all.
- *
- * A project path is reconstructed from its flattened directory name, which
- * cannot round-trip hyphens — the project half needs a hyphen-free tmpdir.
  */
-const TMP_OK = !os.tmpdir().includes('-')
 
 const ALPHA = 'plugin:alpha@acme'
 const BETA = 'plugin:beta@acme'
@@ -99,6 +95,7 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
     // A verified project with a store and not one settings file in it: the
     // destination whose layer has to be created before it can hold anything.
     await fs.mkdir(blankClaude, { recursive: true })
+    await registerProjects(world, [workdir, blankDir])
 
     api = createWorkspace({ locator: world.locator, platform: process.platform })
   })
@@ -110,7 +107,7 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // The two-step plan
 
-  it.runIf(TMP_OK)('writes false where it was and true where it goes, in one entry', async () => {
+  it('writes false where it was and true where it goes, in one entry', async () => {
     const userBefore = await readUserSettings()
     const projectBefore = await fs.readFile(projectSettingsFile(), 'utf8')
 
@@ -131,7 +128,7 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
     expect((await api.journalList()).data).toHaveLength(1)
   })
 
-  it.runIf(TMP_OK)('leaves every other key in both files alone', async () => {
+  it('leaves every other key in both files alone', async () => {
     const before = JSON.parse(await readUserSettings()) as Record<string, unknown>
     await api.pluginMove(ALPHA, USER_LAYER, `project:code:${dirName}`)
     const after = JSON.parse(await readUserSettings()) as Record<string, unknown>
@@ -145,7 +142,7 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
     expect(project['permissions']).toEqual({ allow: ['Bash(ls:*)'] })
   })
 
-  it.runIf(TMP_OK)('restores both files byte-for-byte when the move is undone', async () => {
+  it('restores both files byte-for-byte when the move is undone', async () => {
     const userBefore = await hashTree(world.userRoot)
     const projectBefore = await hashTree(claudeDir)
 
@@ -162,7 +159,7 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // A destination settings file is created only on confirmation
 
-  it.runIf(TMP_OK)('refuses a destination with no settings file until told to', async () => {
+  it('refuses a destination with no settings file until told to', async () => {
     const userBefore = await readUserSettings()
     const asked = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${blankName}`)
 
@@ -176,7 +173,7 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
     expect((await api.journalList()).data).toEqual([])
   })
 
-  it.runIf(TMP_OK)('creates the destination layer once confirmed, holding only that key', async () => {
+  it('creates the destination layer once confirmed, holding only that key', async () => {
     const before = await readUserSettings()
     const done = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${blankName}`, true)
     expect(done.errors).toEqual([])
@@ -190,7 +187,7 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
     )
   })
 
-  it.runIf(TMP_OK)('undoes a created destination layer back out of existence', async () => {
+  it('undoes a created destination layer back out of existence', async () => {
     const userBefore = await hashTree(world.userRoot)
     const done = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${blankName}`, true)
     expect(done.errors).toEqual([])
@@ -231,7 +228,7 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // Refusals
 
-  it.runIf(TMP_OK)('refuses a source layer that does not enable the plugin', async () => {
+  it('refuses a source layer that does not enable the plugin', async () => {
     const before = await readUserSettings()
     const result = await api.pluginMove(BETA, USER_LAYER, `project:code:${dirName}`)
     expect(result.data).toBeNull()
@@ -240,7 +237,7 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
     expect(await readUserSettings()).toBe(before)
   })
 
-  it.runIf(TMP_OK)('refuses the same move twice, the source having nothing left', async () => {
+  it('refuses the same move twice, the source having nothing left', async () => {
     expect((await api.pluginMove(ALPHA, USER_LAYER, `project:code:${dirName}`)).errors).toEqual([])
     const again = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${dirName}`)
     expect(again.data).toBeNull()
@@ -261,11 +258,12 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
     expect((await api.pluginMove(ALPHA, USER_LAYER, '')).errors[0]?.code).toBe('bad-request')
   })
 
-  it.runIf(TMP_OK)('refuses a project that has no .claude to write into', async () => {
+  it('refuses a project that has no .claude to write into', async () => {
     const homeless = path.join(world.base, 'work', 'homeless')
     await writeFileTree(world.userRoot, {
       [`projects/${flattenPath(homeless)}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A)
     })
+    await registerProjects(world, [workdir, path.dirname(blankClaude), homeless])
     const fresh = createWorkspace({ locator: world.locator, platform: process.platform })
     const result = await fresh.pluginMove(
       ALPHA,

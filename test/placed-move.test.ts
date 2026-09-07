@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import os from 'node:os'
 import path from 'node:path'
 import type { KondoApi, PlacedEntryInfo, PlacedKind } from '../shared/contract'
 import { createWorkspace } from '../electron/main/workspace/workspace'
@@ -22,10 +21,6 @@ import {
  * entry (ADR-0001) — reached through the generic mutate channel and driven by
  * the one placement table, so the four kinds get it without a recipe each.
  */
-
-// A project path is reconstructed from its flattened directory name, which
-// cannot round-trip hyphens — the project half needs a hyphen-free tmpdir.
-const TMP_OK = !os.tmpdir().includes('-')
 
 /** The three kinds a project store actually holds, and their directories. */
 const IN_PROJECT = [
@@ -86,7 +81,7 @@ describe('promoting placed entries between scopes (entry 028)', () => {
   // The promotion itself — project → user, for every kind a project holds
 
   for (const { kind, dir, project } of IN_PROJECT) {
-    it.runIf(TMP_OK)(`promotes a project ${kind} into the user scope`, async () => {
+    it(`promotes a project ${kind} into the user scope`, async () => {
       const flat = flattenPath(workdir)
       const result = await move(`${kind}:project/${flat}:${project}`, 'user')
       expect(result.errors).toEqual([])

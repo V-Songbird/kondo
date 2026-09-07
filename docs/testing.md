@@ -121,14 +121,15 @@ in temp directories by the builders in `test/helpers.ts`.
    Gatekeeper approval. Installer prompts, signing warnings and broader desktop
    behavior still need platform-specific checks.
 
-Two things to know about the suite as it stands:
+Project fixtures in the plugin-move, plugin-toggle, skill-move, skill-toggle
+and placed-move suites use `registerProjects` from `test/helpers.ts` before
+creating the workspace. It writes exact synthetic paths to the fixture's
+`~/.claude.json` (ADR-0009), so project resolution does not depend on reversing
+flattened directory names. Their mutation and undo cases run unconditionally,
+including when the temporary root contains hyphens.
 
-- Several mutation suites still gate verified-project cases on
-  `it.runIf(TMP_OK)` (a tmpdir with no hyphen) because they name the project
-  through the fallback guess. `registerProjects` in `test/helpers.ts` writes
-  the fixture's `~/.claude.json` (ADR-0009) and removes the need; the
-  boundary and workspace suites use it, the rest should follow. CI does not
-  assert that gated tests ran.
+One remaining suite limitation:
+
 - The renderer has no isolated DOM unit suite; the built Electron smoke covers
   Library-to-project navigation and return with preserved filters/selection,
   real Tab/Enter/Space routes, native disclosures, named controls, focus on
