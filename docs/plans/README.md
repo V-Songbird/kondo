@@ -13,7 +13,7 @@ between the two is the part a later reader needs.
 
 ## Index
 
-- [096 — Public repository surface](096-public-repository-surface.md) — **in progress**
+- [096 — Public repository surface](096-public-repository-surface.md) — **done**
 
 - [094 — Session projection and protected-file boundary](094-session-path-privacy.md) — **done**
 - [091 — Store config and temporary roots](091-store-root-resolution.md) — **done**

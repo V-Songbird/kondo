@@ -1,6 +1,6 @@
 # Plan: Public repository contribution and reporting surface
 
-Status: **in progress**
+Status: **done — shipped in 08a401d**
 
 Prepare package identity, contributor guidance and privacy-conscious reporting
 for the configured V-Songbird/kondo repository (Foreman 096).
@@ -61,5 +61,4 @@ route, confirm private vulnerability reporting or provide a fallback, and declar
 a supported release range. Local tags are empty; hosted releases and reporting
 availability could not be verified. No publication or settings change was made.
 
-Implementation is complete and awaiting acceptance; this plan remains in
-progress until accepted and shipped.
+Accepted by the owner on 2026-09-07 for local integration into main.
