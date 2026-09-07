@@ -395,6 +395,179 @@ describe('mutation safety invariants (ADR-0001)', () => {
     expect((await mutations.trashSize()).data.entryCount).toBe(0)
   })
 
+  it('syncs and closes temporary contents before publishing, after the journal sync', async () => {
+    const source = await readSettings()
+    const events: string[] = []
+    const open = fsp.open.bind(fsp)
+    const rename = fsp.rename.bind(fsp)
+    vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
+      const handle = await open(...args)
+      const temporary = String(args[0]).includes('.kondo-')
+      const sync = handle.sync.bind(handle)
+      vi.spyOn(handle, 'sync').mockImplementation(async () => {
+        await sync()
+        events.push(temporary ? 'temporary synced' : 'journal synced')
+      })
+      if (temporary) {
+        expect(args[1]).toBe('wx')
+        events.push('temporary opened')
+        const close = handle.close.bind(handle)
+        vi.spyOn(handle, 'close').mockImplementation(async () => {
+          await close()
+          events.push('temporary closed')
+        })
+      }
+      return handle
+    })
+    vi.spyOn(fsp, 'rename').mockImplementation(async (from, to) => {
+      expect(await fsp.readFile(from, 'utf8')).toBe(source.replace('quiet', 'loud'))
+      events.push('rename')
+      await rename(from, to)
+    })
+    expect((await spliceQuietToLoud(source)).errors).toEqual([])
+    expect(events).toEqual([
+      'journal synced', 'temporary opened', 'temporary synced', 'temporary closed', 'rename'
+    ])
+    expect((await fsp.readdir(world.userRoot)).filter((name) => name.includes('.kondo-'))).toEqual([])
+  })
+
+  it.each(['write', 'sync', 'close', 'rename'] as const)(
+    'closes handles and removes temporary bytes after a %s failure',
+    async (failure) => {
+      const source = await readSettings()
+      const open = fsp.open.bind(fsp)
+      let temporaryHandle: Awaited<ReturnType<typeof fsp.open>> | undefined
+      vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
+        const handle = await open(...args)
+        if (String(args[0]).includes('.kondo-')) {
+          temporaryHandle = handle
+          if (failure === 'write') {
+            const write = handle.writeFile.bind(handle)
+            vi.spyOn(handle, 'writeFile').mockImplementationOnce(async () => {
+              // Create real partial contents before the simulated I/O failure.
+              await write('partial', 'utf8')
+              throw new Error('temporary write failed')
+            })
+          } else if (failure === 'sync') {
+            vi.spyOn(handle, 'sync').mockRejectedValueOnce(new Error('temporary sync failed'))
+          } else if (failure === 'close') {
+            vi.spyOn(handle, 'close').mockRejectedValueOnce(new Error('temporary close failed'))
+          }
+        }
+        return handle
+      })
+      const rename = vi.spyOn(fsp, 'rename')
+      if (failure === 'rename') rename.mockRejectedValueOnce(new Error('temporary rename failed'))
+
+      const result = await spliceQuietToLoud(source)
+      expect(result.data).toBeNull()
+      expect(result.errors[0]!.message).toContain(`temporary ${failure} failed`)
+      expect(temporaryHandle).toBeDefined()
+      expect(temporaryHandle!.fd).toBe(-1)
+      expect(await readSettings()).toBe(source)
+      expect((await fsp.readdir(world.userRoot)).filter((name) => name.includes('.kondo-'))).toEqual([])
+      if (failure !== 'rename') expect(rename).not.toHaveBeenCalled()
+      const failed = (await mutations.list()).data[0]!
+      expect(failed.failed).toBe(true)
+      // The failed splice has no effect to reverse.
+      expect((await mutations.undo(failed.id)).errors).toEqual([])
+      expect(await readSettings()).toBe(source)
+    }
+  )
+
+  it('keeps the write error when temporary cleanup also fails', async () => {
+    const source = await readSettings()
+    const open = fsp.open.bind(fsp)
+    let temporaryHandle: Awaited<ReturnType<typeof fsp.open>> | undefined
+    vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
+      const handle = await open(...args)
+      if (String(args[0]).includes('.kondo-')) {
+        temporaryHandle = handle
+        const write = handle.writeFile.bind(handle)
+        vi.spyOn(handle, 'writeFile').mockImplementationOnce(async () => {
+          await write('partial', 'utf8')
+          throw new Error('original write failure')
+        })
+      }
+      return handle
+    })
+    const rm = vi.spyOn(fsp, 'rm').mockRejectedValueOnce(new Error('cleanup failure'))
+    const result = await spliceQuietToLoud(source)
+    expect(result.errors[0]!.message).toContain('original write failure')
+    expect(result.errors[0]!.message).not.toContain('cleanup failure')
+    expect(temporaryHandle!.fd).toBe(-1)
+    expect(rm).toHaveBeenCalledOnce()
+    expect(await readSettings()).toBe(source)
+    // Cleanup cannot promise removal when the filesystem refuses it.
+    expect((await fsp.readdir(world.userRoot)).filter((name) => name.includes('.kondo-'))).toHaveLength(1)
+  })
+
+  it('does not remove an existing temporary file when exclusive open fails', async () => {
+    const source = await readSettings()
+    const open = fsp.open.bind(fsp)
+    let collision = ''
+    vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
+      if (String(args[0]).includes('.kondo-')) {
+        collision = String(args[0])
+        await fsp.writeFile(collision, 'someone else owns this')
+      }
+      return open(...args)
+    })
+    const rm = vi.spyOn(fsp, 'rm')
+    expect((await spliceQuietToLoud(source)).data).toBeNull()
+    expect(await fsp.readFile(collision, 'utf8')).toBe('someone else owns this')
+    expect(rm).not.toHaveBeenCalled()
+    expect(await readSettings()).toBe(source)
+  })
+
+  it.for(['file', 'directory'] as const)('preserves an in-store %s link through splice and undo', async (kind, ctx) => {
+    const source = await readSettings()
+    const backing = path.join(world.userRoot, 'backing')
+    await fsp.mkdir(backing)
+    await fsp.rename(settingsFile(), path.join(backing, 'settings.json'))
+    const link = kind === 'file' ? settingsFile() : path.join(world.userRoot, 'linked')
+    const referent = kind === 'file' ? path.join(backing, 'settings.json') : backing
+    try {
+      await fsp.symlink(referent, link, kind === 'file' ? 'file' : process.platform === 'win32' ? 'junction' : 'dir')
+    } catch (cause) {
+      if (['EPERM', 'EACCES', 'ENOSYS'].includes((cause as NodeJS.ErrnoException).code ?? '')) {
+        ctx.skip(`Platform cannot create ${kind} symlink: ${String(cause)}`)
+      }
+      throw cause
+    }
+    const originalLink = await fsp.readlink(link)
+    const done = kind === 'file' ? await spliceQuietToLoud(source) : await mutations.mutate({
+      op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user', summary: 'Splice linked settings',
+      steps: [{ type: 'splice', store: 'user', at: 'linked/settings.json', expectDigest: digestSource(source),
+        edits: [{ at: source.indexOf('quiet'), remove: 5, insert: 'loud' }] }]
+    })
+    expect(done.errors).toEqual([])
+    expect(await fsp.readFile(path.join(backing, 'settings.json'), 'utf8')).toBe(source.replace('quiet', 'loud'))
+    expect((await fsp.lstat(link)).isSymbolicLink()).toBe(true)
+    expect(await fsp.readlink(link)).toBe(originalLink)
+    expect((await mutations.undo(done.data!.id)).errors).toEqual([])
+    expect(await fsp.readFile(path.join(backing, 'settings.json'), 'utf8')).toBe(source)
+    expect((await fsp.lstat(link)).isSymbolicLink()).toBe(true)
+    expect(await fsp.readlink(link)).toBe(originalLink)
+    expect(await fsp.readdir(backing)).toEqual(['settings.json'])
+  })
+
+  it('still refuses an absent splice and creates an ordinary missing write destination', async () => {
+    const source = await readSettings()
+    await fsp.rm(settingsFile())
+    const missing = await spliceQuietToLoud(source)
+    expect(missing.errors[0]!.code).toBe('read-failed')
+    expect(missing.errors[0]!.message).toContain('Nothing to splice')
+    const done = await mutations.mutate({
+      op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user', summary: 'Create nested fixture',
+      steps: [{ type: 'write', store: 'user', at: 'new/nested/settings.json', content: source }]
+    })
+    expect(done.errors).toEqual([])
+    expect(await fsp.readFile(path.join(world.userRoot, 'new/nested/settings.json'), 'utf8')).toBe(source)
+    expect((await mutations.undo(done.data!.id)).errors).toEqual([])
+    expect(await exists(path.join(world.userRoot, 'new'))).toBe(false)
+  })
+
   it('refuses a splice whose file has moved on, writing nothing at all', async () => {
     const before = await readSettings()
     const beforeTree = await hashTree(world.userRoot)

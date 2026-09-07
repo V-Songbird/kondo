@@ -435,6 +435,15 @@ only sees what is on disk.
   fallback signal and are what staleness uses first (cheap).
 - All JSON/JSONL reads assume partial corruption is possible (interrupted
   writes). A bad line is skipped and reported, never fatal.
+- Settings can be reached through filesystem links ◇; this is a supported
+  layout, not a newly observed Claude convention. Splices edit the resolved
+  file and preserve in-store file and parent-link identity. Mutation targets
+  must stay inside their resolved store root; missing destinations resolve
+  through existing ancestors and dangling links refuse. The registry remains
+  one named file under its resolved parent, not permission to follow a link
+  into another home file. Temporary splice contents are synced and closed
+  before rename; handled failures attempt cleanup without masking the original
+  error. See ADR-0010 for concurrency and power-loss limits.
 - Journal shape validation is covered by fixtures ✅: a line is accepted only
   when its record and every step have the fields the operation needs, including
   inverse splice edits and undo/failure links. Valid JSON with the wrong shape

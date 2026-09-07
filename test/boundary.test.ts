@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type TestContext } from 'vitest'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type { KondoApi } from '../shared/contract'
@@ -6,6 +6,7 @@ import { createKindContext, kinds } from '../electron/main/workspace/kinds'
 import { collector } from '../electron/main/workspace/scan'
 import { scanSessionInventory } from '../electron/main/workspace/sessions'
 import { createWorkspace } from '../electron/main/workspace/workspace'
+import { createMutations, digestSource, type MutationPlan } from '../electron/main/workspace/mutations'
 import {
   healthyTranscript,
   hashTree,
@@ -192,5 +193,179 @@ describe('privacy boundary (ADR-0002)', () => {
     expect(await Promise.all(roots.map(hashTree))).toEqual(before)
     expect(await fsp.readFile(world.locator.userConfigFile, 'utf8')).toBe(registry)
     expect(await fsp.readdir(world.kondoDataRoot)).toEqual(['appearance.json'])
+  })
+})
+
+describe('resolved mutation boundaries', () => {
+  let world: FixtureWorld
+  const contents = '{"outputStyle":"quiet"}\n'
+
+  beforeEach(async () => {
+    world = await makeWorld()
+  })
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await world.cleanup()
+  })
+
+  const link = async (
+    context: TestContext,
+    target: string,
+    at: string,
+    directory = false
+  ): Promise<void> => {
+    try {
+      await fsp.symlink(target, at, directory ? (process.platform === 'win32' ? 'junction' : 'dir') : 'file')
+    } catch (cause) {
+      const code = (cause as NodeJS.ErrnoException).code
+      if (code === 'EPERM' || code === 'EACCES' || code === 'ENOSYS') {
+        context.skip(`Fixture symlinks unavailable on ${process.platform}: ${code}`)
+      }
+      throw cause
+    }
+  }
+
+  const splice = (store: string, at: string): MutationPlan => ({
+    op: 'settings-edit',
+    kind: 'settings',
+    entityId: 'settings:boundary',
+    summary: 'Exercise resolved boundary',
+    steps: [{
+      type: 'splice', store, at, expectDigest: digestSource(contents),
+      edits: [{ at: contents.indexOf('quiet'), remove: 5, insert: 'loud' }]
+    }]
+  })
+
+  const refusesWithoutIo = async (
+    run: () => Promise<{ data: unknown; errors: Array<{ code: string }> }>,
+    code = 'out-of-store',
+    allowedReads: string[] = []
+  ): Promise<void> => {
+    const reads = vi.spyOn(fsp, 'readFile')
+    // A refusal must happen before any mutation entry point, including
+    // rename/copy: asserting zero calls also covers their destination paths.
+    const writes = (['open', 'writeFile', 'appendFile', 'mkdir', 'rename', 'cp', 'copyFile', 'rm', 'rmdir'] as const)
+      .map((method) => vi.spyOn(fsp, method))
+    const result = await run()
+    expect(result.data).toBeNull()
+    expect(result.errors.map((error) => error.code)).toContain(code)
+    for (const call of reads.mock.calls) expect(allowedReads).toContain(call[0])
+    for (const write of writes) expect(write).not.toHaveBeenCalled()
+    reads.mockRestore()
+    for (const write of writes) write.mockRestore()
+  }
+
+  it.for(['file', 'parent'] as const)('refuses an external %s link before reading its contents', async (kind, context) => {
+    const outside = path.join(world.base, 'outside')
+    await writeFileTree(outside, { 'settings.json': contents })
+    const target = path.join(outside, 'settings.json')
+    const directory = kind === 'parent'
+    const at = directory ? 'linked/settings.json' : 'settings.json'
+    await link(context, directory ? outside : target, path.join(world.userRoot, directory ? 'linked' : at), directory)
+
+    await refusesWithoutIo(() => createMutations(world.locator).mutate(splice('user', at)))
+    expect(await fsp.readFile(target, 'utf8')).toBe(contents)
+    expect(await fsp.readdir(outside)).toEqual(['settings.json'])
+  })
+
+  it('refuses a missing destination below an external parent junction before creating directories', async (context) => {
+    const outside = path.join(world.base, 'outside')
+    await writeFileTree(outside, { 'sentinel.txt': 'unchanged' })
+    await link(context, outside, path.join(world.userRoot, 'linked'), true)
+    const plan = splice('user', 'unused')
+    plan.steps = [{ type: 'write', store: 'user', at: 'linked/new/nested/settings.json', content: contents }]
+
+    await refusesWithoutIo(() => createMutations(world.locator).mutate(plan))
+    expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
+    expect(await fsp.readFile(path.join(outside, 'sentinel.txt'), 'utf8')).toBe('unchanged')
+  })
+
+  it.for(['file', 'parent'] as const)('refuses a dangling %s link instead of treating it as an absent destination', async (kind, context) => {
+    const outside = path.join(world.base, 'outside')
+    await writeFileTree(outside, { 'sentinel.txt': 'unchanged' })
+    const directory = kind === 'parent'
+    await link(context, path.join(outside, 'absent'), path.join(world.userRoot, 'dangling'), directory)
+    const plan = splice('user', 'unused')
+    plan.steps = [{ type: 'write', store: 'user', at: directory ? 'dangling/nested/settings.json' : 'dangling', content: contents }]
+
+    await refusesWithoutIo(() => createMutations(world.locator).mutate(plan), 'read-failed')
+    expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
+    expect(await fsp.readFile(path.join(outside, 'sentinel.txt'), 'utf8')).toBe('unchanged')
+    expect((await fsp.lstat(path.join(world.userRoot, 'dangling'))).isSymbolicLink()).toBe(true)
+  })
+
+  it('keeps user-config confined to one file when the registry links to a sibling', async (context) => {
+    const sibling = path.join(world.home, 'unrelated.json')
+    await fsp.writeFile(sibling, contents)
+    await link(context, sibling, world.locator.userConfigFile)
+
+    await refusesWithoutIo(() => createMutations(world.locator).mutate(
+      splice('user-config', path.basename(world.locator.userConfigFile))
+    ))
+    expect(await fsp.readFile(sibling, 'utf8')).toBe(contents)
+    expect((await fsp.lstat(world.locator.userConfigFile)).isSymbolicLink()).toBe(true)
+  })
+
+  it('does not extend the project MCP read exception to linked mutation targets', async (context) => {
+    const project = path.join(world.base, 'project')
+    const projectStore = path.join(project, '.claude')
+    const mcp = path.join(project, '.mcp.json')
+    await fsp.mkdir(projectStore, { recursive: true })
+    await fsp.writeFile(mcp, contents)
+    await link(context, mcp, path.join(projectStore, 'settings.json'))
+    const mutations = createMutations(world.locator, Date.now, async (store) =>
+      store === 'project:fixture' ? projectStore : null
+    )
+
+    await refusesWithoutIo(() => mutations.mutate(splice('project:fixture', 'settings.json')))
+    expect(await fsp.readFile(mcp, 'utf8')).toBe(contents)
+    expect(await fsp.readdir(project)).toEqual(['.claude', '.mcp.json'])
+  })
+
+  it('returns an undo refusal when a restore parent becomes an external junction', async (context) => {
+    const parent = path.join(world.userRoot, 'restore')
+    const outside = path.join(world.base, 'outside')
+    await writeFileTree(parent, { 'settings.json': contents })
+    await writeFileTree(outside, { 'settings.json': 'outside bytes' })
+    const mutations = createMutations(world.locator)
+    const plan = splice('user', 'unused')
+    plan.steps = [{ type: 'trash', store: 'user', from: 'restore/settings.json' }]
+    const done = await mutations.mutate(plan)
+    expect(done.errors).toEqual([])
+    expect(done.data).not.toBeNull()
+    await fsp.rmdir(parent)
+    await link(context, outside, parent, true)
+    const journal = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const beforeJournal = await fsp.readFile(journal, 'utf8')
+    const beforeTrash = await hashTree(path.join(world.kondoDataRoot, 'trash'))
+
+    await refusesWithoutIo(() => mutations.undo(done.data!.id), 'out-of-store', [journal])
+    expect(await fsp.readFile(path.join(outside, 'settings.json'), 'utf8')).toBe('outside bytes')
+    expect(await fsp.readFile(journal, 'utf8')).toBe(beforeJournal)
+    expect(await hashTree(path.join(world.kondoDataRoot, 'trash'))).toBe(beforeTrash)
+  })
+
+  it('reports a dangling splice undo parent without claiming the trash was emptied', async (context) => {
+    const backing = path.join(world.userRoot, 'backing')
+    const parent = path.join(world.userRoot, 'linked')
+    const outside = path.join(world.base, 'outside')
+    await writeFileTree(backing, { 'settings.json': contents })
+    await writeFileTree(outside, { 'sentinel.txt': 'unchanged' })
+    await link(context, backing, parent, true)
+    const mutations = createMutations(world.locator)
+    const done = await mutations.mutate(splice('user', 'linked/settings.json'))
+    expect(done.errors).toEqual([])
+    expect(done.data).not.toBeNull()
+    await fsp.unlink(parent)
+    await link(context, path.join(outside, 'absent'), parent, true)
+
+    const undone = await mutations.undo(done.data!.id)
+    expect(undone.data).toBeNull()
+    expect(undone.errors.map((error) => error.code)).toContain('read-failed')
+    expect(undone.errors.map((error) => error.message).join(' ')).not.toContain('emptied')
+    expect(await fsp.readFile(path.join(backing, 'settings.json'), 'utf8')).toBe(contents.replace('quiet', 'loud'))
+    expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
+    expect(await fsp.readFile(path.join(outside, 'sentinel.txt'), 'utf8')).toBe('unchanged')
+    expect((await fsp.lstat(parent)).isSymbolicLink()).toBe(true)
   })
 })

@@ -98,10 +98,29 @@ export async function safeReadJson(
 export const relativeTo = (root: string, target: string): string =>
   path.relative(root, target).split(path.sep).join('/')
 
-/** True when target lies strictly inside root (never for root itself). */
+/** Lexical containment only; resolve filesystem links before using as a write boundary. */
 export function pathWithin(target: string, root: string): boolean {
   const rel = path.relative(root, target)
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+}
+
+/** Resolve missing destinations through their nearest existing ancestor. */
+export async function realpathWithMissing(target: string): Promise<string> {
+  try {
+    return await fs.realpath(target)
+  } catch (cause) {
+    if (!isEnoent(cause)) throw cause
+    // ENOENT can also mean a dangling link. Never turn that into a new file
+    // or directory at its unchecked referent.
+    const entry = await fs.lstat(target).catch((error: unknown) => {
+      if (!isEnoent(error)) throw error
+      return null
+    })
+    if (entry !== null) throw cause
+    const parent = path.dirname(target)
+    if (parent === target) throw cause
+    return path.join(await realpathWithMissing(parent), path.basename(target))
+  }
 }
 
 /** Bounded-concurrency map; order-preserving. */

@@ -93,6 +93,11 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Settings splices sync and close temporary contents before replacement,
+  attempt temporary cleanup on failures, and preserve in-store symlinks.
+  Mutation targets that resolve outside their allowed store are refused,
+  including escapes through parent links and the single-file user registry.
+
 - Library now shows failures and unrecognized files from every inventory read
   alongside partial data, including history. Label/value rows are aligned, and
   explanations of partially applied changes are visible without hovering.

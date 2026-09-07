@@ -66,3 +66,30 @@ arithmetic and each edit stays as narrow as the member it removes.
 - A file kondo cannot parse faithfully still produces no plan at all
   (ADR-0005): the splicer answers null and the caller refuses rather than
   reformatting.
+
+## Amendment: resolved targets and temporary durability (074)
+
+Mutation paths are checked lexically and against the resolved store root.
+For a missing destination, resolution walks to the nearest existing ancestor;
+a dangling link is a refusal, not permission to create its unchecked target.
+The `user-config` store remains exactly the named registry file under its
+resolved parent: a link to another home-directory file is not allowed.
+
+A splice reads and digest-checks the resolved file, then replaces that file
+through a temporary sibling. In-store file links and parent-directory links
+retain their identity through splice and undo. Move and trash operations keep
+their directory-entry semantics after containment validation.
+
+Temporary files are opened with `wx`, written through the handle, synced and
+closed before rename. On a handled failure, closure and removal are attempted;
+the original error wins if cleanup also fails. A failed exclusive open does
+not grant ownership of an existing temporary file. Cleanup removes only
+Kondo's temporary bytes, never an original store file.
+
+This narrows failure windows; it is not a transaction with other writers.
+Node's path-based calls still permit a path or content change between checks
+and use. The parent directory is not synced, so the rename's survival across
+power loss is not guaranteed. A process crash can leave a temporary sibling,
+and a filesystem that refuses cleanup can leave one after a handled failure.
+These target checks do not audit links nested inside recursive copy trees or
+change the separate scanner read paths.

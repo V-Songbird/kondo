@@ -17,7 +17,8 @@ import {
   directorySize,
   finish,
   isEnoent,
-  pathWithin
+  pathWithin,
+  realpathWithMissing
 } from './scan'
 import { tildify } from './display'
 
@@ -344,7 +345,7 @@ export function createMutations(
     return dynamic
   }
 
-  const resolveIn = async (store: string, relative: string): Promise<string> => {
+  const resolveIn = async (store: string, relative: string, dereference = false): Promise<string> => {
     if (store === USER_CONFIG_STORE && relative !== userConfigName) {
       throw new Refused(
         'out-of-store',
@@ -357,7 +358,26 @@ export function createMutations(
     if (!pathWithin(target, root)) {
       throw new Refused('out-of-store', relative, 'A step may not leave its store root.')
     }
-    return target
+    let resolvedRoot: string
+    let resolved: string
+    try {
+      resolvedRoot = await realpathWithMissing(root)
+      resolved = await realpathWithMissing(target)
+    } catch (cause) {
+      // In undo, raw ENOENT means missing trash. Resolution failures are a
+      // different refusal, including a link whose referent disappeared.
+      throw new Refused('read-failed', relative, `Cannot resolve the mutation path: ${describe(cause)}`)
+    }
+    if (
+      !pathWithin(resolved, resolvedRoot) ||
+      (store === USER_CONFIG_STORE &&
+        path.relative(path.join(resolvedRoot, userConfigName), resolved) !== '')
+    ) {
+      throw new Refused('out-of-store', relative, 'The resolved path may not leave its allowed store boundary.')
+    }
+    // Moves/trash still operate on the directory entry; a splice edits the
+    // referent so renaming the temporary file never replaces the link itself.
+    return dereference ? resolved : target
   }
 
   // A project store is named `project:<dirName>` and no Windows path segment
@@ -425,13 +445,32 @@ export function createMutations(
    * something else is writing (ADR-0010).
    */
   const replaceAtomically = async (target: string, text: string): Promise<void> => {
+    // The caller read and digest-checked this resolved path. Refuse a new
+    // link introduced since then rather than following a different referent.
+    const resolved = await fs.realpath(target).catch((cause: unknown) => {
+      throw new Refused('read-failed', target, `Cannot resolve the splice target: ${describe(cause)}`)
+    })
+    if (path.relative(target, resolved) !== '') {
+      throw new Refused('out-of-store', target, 'The splice target changed its resolved path.')
+    }
     const temporary = `${target}.kondo-${randomUUID().slice(0, 8)}`
-    await fs.writeFile(temporary, text, 'utf8')
+    let handle: Awaited<ReturnType<typeof fs.open>> | undefined
+    let owned = false
     try {
+      handle = await fs.open(temporary, 'wx')
+      owned = true
+      await handle.writeFile(text, 'utf8')
+      await handle.sync()
+      await handle.close()
+      handle = undefined
       await fs.rename(temporary, target)
-    } catch (cause) {
-      await fs.rm(temporary, { force: true })
-      throw cause
+      owned = false
+    } finally {
+      // A remaining handle or owned path means the operation threw. Attempt
+      // both cleanups without masking that error; a failed exclusive open
+      // owns nothing to remove. Successful rename needs neither cleanup.
+      await handle?.close().catch(() => undefined)
+      if (owned) await fs.rm(temporary, { force: true }).catch(() => undefined)
     }
   }
 
@@ -639,7 +678,7 @@ export function createMutations(
           trashPath(journalId, step.displaced as string)
         )
       } else if (step.type === 'splice') {
-        const target = await resolveIn(step.store, step.from)
+        const target = await resolveIn(step.store, step.from, true)
         // Re-read rather than reuse the plan's read: the journal entry is
         // already on the platter, and this is the check that counts.
         const text = await readForSplice(target, step.from)
@@ -661,7 +700,7 @@ export function createMutations(
     const steps: JournalStep[] = []
     for (const step of planned) {
       if (step.type === 'splice') {
-        const target = await resolveIn(step.store, step.at)
+        const target = await resolveIn(step.store, step.at, true)
         // Checked here as well as at apply time, so the ordinary case —
         // Claude wrote the file between the scan and the click — refuses
         // without leaving a journal entry for work that never happened.
@@ -832,30 +871,35 @@ export function createMutations(
       // is appended before `act` runs, so a step it does not carry is a
       // displacement nothing records.
       const steps: JournalStep[] = []
-      for (const step of original.steps) {
-        if (step.type === 'write') {
-          steps.push({
-            type: 'trash' as const,
-            store: step.store,
-            from: step.from,
-            displaced: `${step.store}/${step.from}`
-          })
-        } else if (step.type === 'copy') {
-          const store = step.toStore as string
-          const from = step.to as string
-          steps.push({ type: 'trash' as const, store, from, displaced: `${store}/${from}` })
-        } else if (step.type === 'move' || step.type === 'trash') {
-          if (await exists(await resolveIn(step.store, step.from))) {
+      try {
+        for (const step of original.steps) {
+          if (step.type === 'write') {
             steps.push({
               type: 'trash' as const,
               store: step.store,
               from: step.from,
               displaced: `${step.store}/${step.from}`
             })
+          } else if (step.type === 'copy') {
+            const store = step.toStore as string
+            const from = step.to as string
+            steps.push({ type: 'trash' as const, store, from, displaced: `${store}/${from}` })
+          } else if (step.type === 'move' || step.type === 'trash') {
+            if (await exists(await resolveIn(step.store, step.from))) {
+              steps.push({
+                type: 'trash' as const,
+                store: step.store,
+                from: step.from,
+                displaced: `${step.store}/${step.from}`
+              })
+            }
           }
+          // A `splice` displaces nothing, so it adds nothing here: what it
+          // took out lives in its own `undoEdits` (ADR-0010).
         }
-        // A `splice` displaces nothing, so it adds nothing here: what it
-        // took out lives in its own `undoEdits` (ADR-0010).
+      } catch (cause) {
+        if (cause instanceof Refused) return refuseUndo(cause.code, cause.at, cause.message)
+        return refuseUndo('read-failed', journalId, describe(cause))
       }
       const record: JournalRecord = {
         id,
@@ -894,7 +938,7 @@ export function createMutations(
               await relocate(destination, trashPath(id, `${step.toStore}/${step.to}`))
             }
           } else if (step.type === 'splice') {
-            const target = await resolveIn(step.store, step.from)
+            const target = await resolveIn(step.store, step.from, true)
             const text = await readForSplice(target, step.from)
             // The file still holding the pre-splice bytes means the step
             // never ran: the entry was journaled and then failed. Reversing
