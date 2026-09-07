@@ -1,10 +1,33 @@
 # Contributing
 
+Please follow our [Code of Conduct](CODE_OF_CONDUCT.md) in project spaces.
+Use the [issue forms](https://github.com/V-Songbird/kondo/issues/new/choose)
+for bugs and feature requests. For vulnerabilities, follow
+[SECURITY.md](SECURITY.md) instead of posting a public issue.
+
 ## Setup
 
 - Node 22+ (`.nvmrc` provided; `fnm use` / `nvm use`).
 - `npm install`, then `npm run dev` for the app with hot reload.
-- `npm test`, `npm run typecheck`, `npm run lint` must all pass before review.
+- `npm run guards`, `npm test`, `npm run typecheck`, `npm run lint` must all
+  pass before review. Tests use synthetic stores; never point tests at real data.
+- On PowerShell with fnm, initialize each shell before Node/npm commands:
+  `fnm env --use-on-cd | Out-String | Invoke-Expression`.
+
+### Repository guards and optional commit hook
+
+`npm run guards` runs Jig's repository checks for privacy, process boundaries
+and paired documentation changes. Paired-change checks inspect the staged
+index and can report skipped when no relevant files are staged. CI runs the
+same runner plus `node .jig/checks/run.mjs --selftest` to exercise guard fixtures.
+
+Hooks are a per-clone opt-in. Inspect `git config --show-origin --get core.hooksPath`
+and any existing hooks before opting in with `git config --local core.hooksPath .jig/hooks`.
+This redirects **all** hooks, not only pre-commit; preserve any previous setting.
+To undo, restore that setting, or use `git config --local --unset core.hooksPath`
+if no local value existed. See [Jig activation](.jig/activation.md).
+The hook skips checks if Node is unavailable in its environment; initialize
+fnm before committing and run the checks explicitly. CI remains required.
 
 ## Repository shape
 

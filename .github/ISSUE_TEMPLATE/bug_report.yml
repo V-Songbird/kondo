@@ -1,0 +1,74 @@
+name: Bug report
+description: Report a problem with a safe, reproducible example.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This report is public. Do not attach transcripts, settings, credentials,
+        tokens, personal paths, screenshots containing private data, or copied
+        private store data. Use invented examples, not redacted copies.
+        For exploitable problems, use [private security guidance](https://github.com/V-Songbird/kondo/blob/main/SECURITY.md).
+        Follow our [Code of Conduct](https://github.com/V-Songbird/kondo/blob/main/CODE_OF_CONDUCT.md).
+  - type: input
+    id: version
+    attributes:
+      label: Kondo version or source commit
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS version and architecture
+      placeholder: Windows 11 x64
+    validations:
+      required: true
+  - type: dropdown
+    id: store-context
+    attributes:
+      label: Where did this happen?
+      description: Select the context only; do not upload store contents or retry mutations on real data.
+      options:
+        - Synthetic fixture
+        - Real store
+        - Before a store opened
+        - Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Safe reproduction steps
+      description: Use synthetic data and generic names. If you cannot reproduce safely, say so.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Describe the result in your own words without copying private content.
+    validations:
+      required: true
+  - type: input
+    id: history-id
+    attributes:
+      label: History entry ID (optional, mutation bugs only)
+      description: If visible and safe to share, include only the ID. Do not attach the journal or entry contents.
+  - type: dropdown
+    id: undo
+    attributes:
+      label: Undo outcome (optional, mutation bugs only)
+      description: Report only what you already observed; do not repeat a risky operation to answer.
+      options:
+        - Restored the previous state
+        - Did not fully restore the previous state
+        - Undo failed
+        - Not tried
+        - Not available
+        - Not applicable
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: This report and any attachments contain no secrets or private store contents.
+          required: true

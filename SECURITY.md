@@ -55,8 +55,26 @@ surfaced; of `~/.claude.json` kondo keeps only the project paths and, later,
 MCP server names (ADR-0009). Kondo does not write `~/.claude.json` at all
 until a splice step can prove the bytes it changes are the bytes it read.
 
+## Supported versions
+
+No supported release range or backport window is currently declared. The source
+package identifies itself as 0.5.0, but a package version and changelog are not
+proof of a published release. Consult [GitHub Releases](https://github.com/V-Songbird/kondo/releases)
+for published artifacts and [the release process](docs/release.md).
+Development builds and older versions carry no security-maintenance commitment.
+The repository owner must declare the supported versions and update this policy
+when publishing releases; no response or fix deadline is promised.
+
 ## Reporting a vulnerability
 
-Open a private security advisory on the GitHub repository (Security tab →
-"Report a vulnerability"). Please do not open public issues for exploitable
-problems. You will get a response within a week.
+Use the repository's existing private route:
+[Report a vulnerability](https://github.com/V-Songbird/kondo/security/advisories/new)
+(Security tab). Do not open public issues for exploitable problems.
+Private reporting availability depends on the repository's GitHub settings and
+has not been verified here. If the option is unavailable, do not publish exploit
+details; the owner needs to confirm that channel or designate a private fallback.
+No alternate address is currently documented.
+
+Include the Kondo version or source commit, OS, impact, and a minimal synthetic
+reproduction. Do not attach real transcripts, settings, credentials, tokens,
+personal paths, or copied private store data, even in a private report.

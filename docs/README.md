@@ -13,9 +13,11 @@ and its home is not obvious from the table below, fix the table in the same PR.
 | [README.md](../README.md) | Front door: what kondo is, principles, quickstart | The product story or commands change |
 | [ROADMAP.md](../ROADMAP.md) | Direction and non-goals | Priorities shift; an item ships or dies |
 | [CHANGELOG.md](../CHANGELOG.md) | User-visible changes per release | Every user-visible PR |
-| [SECURITY.md](../SECURITY.md) | Threat model, reporting channel | The security posture changes |
+| [SECURITY.md](../SECURITY.md) | Threat model, private reporting, supported-version policy | The security posture changes |
 | [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | Bundled font and Electron attribution; packaged license locations | Those components or their licensing change |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Dev setup, workflow, conventions, review bar | Tooling or process changes |
+| [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | Participation expectations, enforcement and reporting limits | Conduct policy or contact changes |
+| [.github/ISSUE_TEMPLATE/](../.github/ISSUE_TEMPLATE/) | Safe bug and feature intake, security routing | Reporter information needs change |
 | [AGENTS.md](../AGENTS.md) | Operating manual for AI agents and humans working here | Working rules change |
 | [CLAUDE.md](../CLAUDE.md) | Claude Code entry point; defers to AGENTS.md | Rarely |
 | [DESIGN.md](../DESIGN.md) | The visual system: palette, type, shapes, cards, controls and rules | The look changes; a new control, state or colour is designed |

@@ -1,0 +1,49 @@
+name: Feature request
+description: Explain a use case and the improvement you need.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This request is public. Use invented examples, not copied private data.
+        Do not attach transcripts, settings, credentials, tokens, personal paths,
+        or screenshots containing private data.
+        Follow our [Code of Conduct](https://github.com/V-Songbird/kondo/blob/main/CODE_OF_CONDUCT.md).
+        Vulnerabilities belong in the [private security channel](https://github.com/V-Songbird/kondo/blob/main/SECURITY.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the workflow using generic names and synthetic examples.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: input
+    id: environment
+    attributes:
+      label: Kondo version and OS (if relevant)
+      description: Include OS architecture for platform-specific requests; no personal paths.
+  - type: dropdown
+    id: store-context
+    attributes:
+      label: Store context (if relevant)
+      options:
+        - Synthetic fixture
+        - Real store
+        - Not applicable
+        - Unknown
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: This request and any attachments contain no secrets or private store contents.
+          required: true

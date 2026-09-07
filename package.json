@@ -1,6 +1,14 @@
 {
   "name": "kondo",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/V-Songbird/kondo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/V-Songbird/kondo/issues"
+  },
+  "homepage": "https://github.com/V-Songbird/kondo#readme",
   "version": "0.5.0",
   "author": "Victor Villegas",
   "description": "Keep your Claude tight — a local-first desktop app that manages Claude's sessions, skills, plugins, hooks, and settings.",
