@@ -29,17 +29,8 @@ const projB = path.join(BASE, 'work', 'website')
 // two counts differ (entry 038), and a move destination with no store.
 const projC = path.join(BASE, 'work', 'cli')
 
-const BACKSLASH = String.fromCharCode(92)
-
-/** Flatten an absolute path the way Claude Code names project directories. */
-const flatten = (target) =>
-  target
-    .replace(/^([A-Za-z]):[\\/]/, '$1--')
-    .split(BACKSLASH)
-    .join('-')
-    .split('/')
-    .join('-')
-
+/** Claude replaces every non-ASCII-alphanumeric character, not only slashes. */
+const flatten = (target) => target.replace(/[^A-Za-z0-9]/g, '-')
 const skill = (name, description) =>
   `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`
 

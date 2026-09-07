@@ -9,6 +9,8 @@ resolved with `realpath` before constructing registry paths or write expectation
 including macOS temp symlinks and Windows short-name aliases. The Electron smoke
 requests graceful shutdown before removing its disposable tree; a forced or
 abnormal exit fails the smoke, and transient file locks receive bounded retries.
+The smoke prefix deliberately contains a dot, underscore and space so the fixture's
+flattened transcript names must follow Claude's full non-alphanumeric rule.
 
 1. **Unit — store adapters.** Every adapter is exercised against fixture
    trees covering healthy data, malformed JSON and unknown files from newer

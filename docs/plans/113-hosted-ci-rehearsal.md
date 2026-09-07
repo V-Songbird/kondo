@@ -45,3 +45,9 @@ projects in the Windows smoke. `fs.realpathSync` retains Windows 8.3 names;
 `fs.realpathSync.native` expands them. Use the native resolver for the one
 OS temporary root and test short-name classification plus neighboring-path
 rejection. No extra project reads or mutation permissions are introduced.
+Run 34170601164 then passed Windows smoke but exposed a second fixture defect
+on macOS: the standalone fixture flattened only separators, while Claude and
+the adapter flatten every non-alphanumeric character. Random macOS temp roots
+can contain underscores. Correct the fixture rule and include punctuation and
+a space in every smoke root, making the existing project-union and cleanup
+assertions a deterministic regression on all platforms.

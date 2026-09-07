@@ -130,7 +130,7 @@ const stop = async () => {
 }
 
 before(async () => {
-  base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'kondo-e2e-')))
+  base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'kondo-e2e_.with space-')))
   const printed = execFileSync(process.execPath, ['.claude/skills/run-kondo/fixture.mjs', base], {
     cwd: repo,
     encoding: 'utf8'
