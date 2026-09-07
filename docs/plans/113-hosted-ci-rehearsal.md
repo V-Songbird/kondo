@@ -1,0 +1,39 @@
+# Plan: hosted CI and release rehearsal
+
+Status: **in progress**
+
+Validate the pushed candidate with GitHub Actions on Windows, macOS and Linux,
+including a manual release rehearsal that builds installers without publishing.
+
+## Scope
+
+- Diagnose actual failures from the hosted verify, smoke and packaging jobs.
+- Canonicalize disposable fixture roots before constructing registry paths and
+  safety expectations. macOS temporary-directory symlinks and Windows short-name
+  aliases must identify the same synthetic tree as the application's locator.
+- Let Electron shut down its child processes before deleting a smoke fixture;
+  retain failures when shutdown cannot be confirmed.
+- Preserve security assertions, test counts and synthetic-store isolation.
+
+## Out of scope
+
+Product audit repairs remain separate pending tasks. This rehearsal does not
+approve public Git history, change repository visibility, tag or publish a release.
+
+## Seam changes
+
+None. Fixture infrastructure only unless hosted evidence identifies a product bug.
+
+## Verification
+
+Run typecheck, tests, lint, guards, guard self-tests, build and the local Electron
+smoke. Repeat hosted CI and manual packaging on the corrected exact commit on
+all three platforms; inspect installer artifacts and packaged smoke results.
+
+## Initial evidence
+
+- CI run 34169801057: Linux verify/smoke and macOS smoke passed. macOS and
+  Windows write probes compared alias paths against resolved paths. Windows
+  smoke also observed duplicate fixture projects and a locked shutdown file.
+- Release rehearsal 34169817791: Linux AppImage passed; Windows and macOS
+  stopped at the same unit-test path comparisons.
