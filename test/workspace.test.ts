@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { KondoApi } from '../shared/contract'
+import { createLocator } from '../electron/main/workspace/locator'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   healthyTranscript,
@@ -126,5 +128,61 @@ describe('workspace (KondoApi)', () => {
     expect(overview.data.user.exists).toBe(true)
     expect(overview.data.user.entries.some((entry) => entry.name === 'skills')).toBe(true)
     expect(overview.data.desktop.exists).toBe(true)
+  })
+})
+
+describe('workspace first read without user data', () => {
+  let world: FixtureWorld
+
+  beforeEach(async () => { world = await makeWorld() })
+  afterEach(async () => { await world.cleanup() })
+
+  it.each([
+    { state: 'absent', exists: false },
+    { state: 'empty directory', exists: true }
+  ])('keeps an $state user store honest and quiet', async ({ exists }) => {
+    // makeWorld creates its user store. Use a new home so absence is real,
+    // while the desktop, registry, app data and temporary roots stay injected.
+    const home = path.join(world.base, 'fresh-home')
+    await fs.mkdir(home)
+    const locator = createLocator({
+      home,
+      appData: null,
+      userData: world.kondoDataRoot,
+      tmpRoot: world.base,
+      platform: process.platform,
+      env: { KONDO_DESKTOP_STORE_ROOT: world.desktopRoot }
+    })
+    expect(locator.userRoot).toBe(path.join(home, '.claude'))
+    expect(locator.userConfigFile).toBe(path.join(home, '.claude.json'))
+    await expect(fs.lstat(locator.userRoot)).rejects.toMatchObject({ code: 'ENOENT' })
+    if (exists) await fs.mkdir(locator.userRoot)
+    const expectedHome = exists ? ['.claude'] : []
+    expect(await fs.readdir(home)).toEqual(expectedHome)
+
+    const freshWorkspace = (): KondoApi => createWorkspace({ locator, platform: process.platform })
+    const overview = await freshWorkspace().storesOverview()
+    expect(overview.errors).toEqual([])
+    expect(overview.unknown).toEqual([])
+    expect(overview.data.user).toEqual({ root: '~/.claude', exists, entries: [], totalBytes: 0 })
+    expect(overview.data.sessions).toEqual({
+      projectCount: 0,
+      transcriptProjectCount: 0,
+      sessionCount: 0,
+      staleCount: 0,
+      transcriptBytes: 0
+    })
+
+    // Each listing is the first call on its own workspace, with no inventory
+    // warmed by the overview or another listing.
+    for (const method of ['sessionProjects', 'skillsList', 'hooksList', 'configOrphansPreview'] as const) {
+      expect(await freshWorkspace()[method](), method).toEqual({ data: [], errors: [], unknown: [] })
+    }
+    expect(await fs.readdir(home)).toEqual(expectedHome)
+    if (exists) {
+      expect(await fs.readdir(locator.userRoot)).toEqual([])
+    } else {
+      await expect(fs.lstat(locator.userRoot)).rejects.toMatchObject({ code: 'ENOENT' })
+    }
   })
 })

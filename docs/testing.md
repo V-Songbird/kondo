@@ -7,8 +7,9 @@ test strategy centers on **fixture stores**: synthetic `.claude` trees built
 in temp directories by the builders in `test/helpers.ts`.
 
 1. **Unit — store adapters.** Every adapter is exercised against fixture
-   trees: a healthy store, an empty store, a store with malformed JSON, a
-   store from a newer Claude version with unknown files. Adapters must return
+   trees covering healthy data, malformed JSON and unknown files from newer
+   Claude versions. `test/sessions.test.ts` also covers an existing empty
+   user directory with no `projects/` directory. Adapters must return
    partial data + itemized errors, never throw. Permission-denied regressions
    in `test/sessions.test.ts`, `test/user-store.test.ts` and
    `test/desktop-store.test.ts` inject `EACCES` at exact fixture paths while
@@ -25,6 +26,12 @@ in temp directories by the builders in `test/helpers.ts`.
 3. **Integration — the seam.** Workspace methods — the functions the IPC
    handlers delegate to one line each — invoked directly against a fixture
    store; asserts channel contracts (shape in, shape out, errors as values).
+   `test/workspace.test.ts` distinguishes a genuinely absent `.claude` from
+   an existing empty directory in a synthetic home, with isolated registry,
+   desktop, app-data and temporary roots. It asserts honest `user.exists`,
+   zero overview counts, and empty session-project, skill, hook and configuration
+   orphan listings with no errors or unknown entries. Each API starts from a
+   fresh workspace; the reads leave the user store absent or empty as supplied.
    `test/appearance-ipc.test.ts` also drives `registerIpc` with a mocked
    Electron handler registry, verifying that native appearance updates follow
    successful saves and are not sent after failed saves.
