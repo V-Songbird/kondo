@@ -162,10 +162,17 @@ jobs:
             echo
             echo "---"
             echo
-            echo 'Unsigned build — see the install notes in README.md.'
-            echo 'Windows: SmartScreen will ask; choose "More info" → "Run anyway".'
-            echo 'macOS: right-click the app → Open, or allow it under Privacy & Security.'
-            echo 'Check your download against the SHA256SUMS asset — README, Install.'
+            cat <<'INSTALL_NOTES'
+          Artifacts: Windows x64 NSIS (`Kondo Setup <version>.exe`), macOS arm64 DMG (`Kondo-<version>-arm64.dmg`, Apple silicon only), Linux x64 AppImage (`Kondo-<version>.AppImage`). No Intel Mac or Windows/Linux ARM build is provided.
+
+          Platform coverage: Windows x64 has recorded local fixture validation of the UI and installed NSIS app. macOS arm64 and Linux x64 have no recorded manual validation. Release CI requires packaged smoke checks before upload; a green run verifies the installed Windows app, Linux AppImage in extract-and-run mode, and macOS app bundle. DMG installation, Gatekeeper, and Linux FUSE mounting remain unverified.
+
+          Unsigned build. Check your download against the SHA256SUMS asset and proceed only if you trust this release; see README, Install, for the full instructions and recorded Windows evidence.
+
+          - Windows: run the installer. If SmartScreen shows an unknown publisher warning and offers it, choose "More info" → "Run anyway".
+          - macOS: open the DMG and copy Kondo to Applications. Try opening it, then use System Settings → Privacy & Security → Open Anyway and confirm Open if the developer cannot be verified ([Apple instructions](https://support.apple.com/en-us/102445)). If a trusted download is still blocked by quarantine, `xattr -dr com.apple.quarantine "/Applications/Kondo.app"` removes that attribute recursively from this app bundle only; reopen Kondo. This does not sign or notarize the app. Do not override a malware warning.
+          - Linux: run `chmod +x Kondo-*.AppImage`, then `./Kondo-<version>.AppImage` with the downloaded version substituted. For missing FUSE / `libfuse.so.2`, use `sudo apt install libfuse2` on Ubuntu 22.04 or `sudo apt install libfuse2t64` on Ubuntu 24.04; other distributions need their own FUSE 2 compatibility package ([AppImage guide](https://docs.appimage.org/user-guide/troubleshooting/fuse.html)).
+          INSTALL_NOTES
           } >> notes.md
           cat notes.md
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2

@@ -53,7 +53,10 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
       ],
       "signtoolOptions": null
     },
@@ -63,7 +66,10 @@
     },
     "mac": {
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        }
       ],
       "category": "public.app-category.developer-tools",
       "identity": null,
@@ -72,7 +78,10 @@
     },
     "linux": {
       "target": [
-        "AppImage"
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
       ],
       "category": "Development"
     },

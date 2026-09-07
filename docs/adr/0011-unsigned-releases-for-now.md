@@ -13,9 +13,9 @@ what no build pipeline can supply — the owner's money, an Apple developer
 account, and secrets in the repository's settings.
 
 Unsigned builds cost the user a warning: Windows SmartScreen interrupts the
-installer, macOS Gatekeeper refuses to open the app until it is allowed under
-Privacy & Security or opened from the context menu. Neither prevents running
-the app; both look alarming.
+installer, and macOS Gatekeeper can block an unidentified developer's app.
+The current per-app opening instructions and verification limits live in
+[README, Install](../../README.md#install); OS policy can prevent an override.
 
 ## Decision
 
@@ -28,10 +28,12 @@ the app; both look alarming.
   and how to proceed.
 - A release is a **draft** until a person publishes it. The workflow builds
   and attaches; publishing is a click, after the checklist in docs/release.md.
-- The smoke test runs against the packaged binary before it is attached, on
-  the OSes whose unpacked layout it can spawn (Windows, Linux); the macOS
-  bundle is attached on the strength of the build and the dev-electron smoke
-  that ci.yml already ran there.
+- The smoke test gates upload of every platform artifact. As updated by
+  [task 080](../plans/080-release-artifact-smoke.md), it drives the installed
+  Windows executable, Linux AppImage in extract-and-run mode, and macOS app
+  bundle. It does not verify DMG installation, Gatekeeper or Linux FUSE
+  mounting. Configured gates are distinct from recorded successful runs;
+  [release.md](../release.md) describes the evidence required before publishing.
 
 ## Considered options
 

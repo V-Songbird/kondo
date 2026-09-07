@@ -75,8 +75,8 @@ machine; nothing is ever sent anywhere.
    ([ADR-0006](docs/adr/0006-native-conventions-over-invented-state.md)).
 4. **Project privacy boundary.** Claude-only files, nothing else
    ([ADR-0002](docs/adr/0002-project-privacy-boundary.md)).
-5. **Cross-platform from day one.** Windows, macOS, Linux
-   ([ADR-0003](docs/adr/0003-store-locator.md)).
+5. **Platform-aware stores.** Windows, macOS and Linux locations
+   ([ADR-0003](docs/adr/0003-store-locator.md)); verified coverage is listed below.
 
 ## Status
 
@@ -90,22 +90,50 @@ CI from a version tag and published as drafts a person promotes
 
 ## Install
 
-Packaged builds — an NSIS installer for Windows, a DMG for macOS, an AppImage
-for Linux — are attached to each
-[GitHub Release](../../releases). They are **unsigned** for now
-([ADR-0011](docs/adr/0011-unsigned-releases-for-now.md)), so:
+Packaged builds are attached to each [GitHub Release](../../releases):
 
-- **Windows** — SmartScreen will say the publisher is unknown. Choose *More
-  info* → *Run anyway*.
-- **macOS** — Gatekeeper will refuse the first open. Right-click the app and
-  choose *Open*, or allow it under *System Settings → Privacy & Security*.
-- **Linux** — `chmod +x Kondo-*.AppImage` and run it.
+| Platform | Architecture | Artifact |
+|---|---|---|
+| Windows | x64 (Intel/AMD 64-bit) | NSIS installer, `Kondo Setup <version>.exe` |
+| macOS | arm64 (Apple silicon only) | DMG, `Kondo-<version>-arm64.dmg` |
+| Linux | x64 (Intel/AMD 64-bit) | AppImage, `Kondo-<version>.AppImage` |
+
+The DMG does not support Intel Macs. Windows/Linux ARM builds are not provided.
+
+Platform coverage: Windows x64 has recorded local fixture validation of the UI and installed NSIS app. macOS arm64 and Linux x64 have no recorded manual validation. Release CI requires packaged smoke checks before upload; a green run verifies the installed Windows app, Linux AppImage in extract-and-run mode, and macOS app bundle. DMG installation, Gatekeeper, and Linux FUSE mounting remain unverified.
+
+See the recorded [Windows UI validation](docs/plans/2026-09-06-ux-workflow.md#validation-2026-09-06)
+and [17 installed-app smoke checks](docs/plans/080-release-artifact-smoke.md#observed-verification).
+Configured CI gates alone do not establish a successful run; the
+[release procedure](docs/release.md) describes the required rehearsal.
+
+Builds are **unsigned** for now
+([ADR-0011](docs/adr/0011-unsigned-releases-for-now.md)). After checking the
+download against `SHA256SUMS` below, proceed only if you trust the release:
+
+- **Windows** — run the NSIS installer. If SmartScreen shows an unknown
+  publisher warning and offers it, choose *More info* → *Run anyway*.
+- **macOS** — open the DMG and copy Kondo to Applications. Try opening it,
+  then, if the developer cannot be verified, use *System Settings → Privacy
+  & Security → Open Anyway* and confirm *Open*
+  ([Apple's instructions](https://support.apple.com/en-us/102445)). If a trusted
+  download is still blocked by quarantine, run
+  `xattr -dr com.apple.quarantine "/Applications/Kondo.app"` in Terminal, then
+  reopen Kondo. This removes the quarantine attribute recursively from that
+  app bundle only; it does not sign or notarize it. Do not use this to override
+  a malware warning.
+- **Linux** — in the download directory, run `chmod +x Kondo-*.AppImage`, then
+  `./Kondo-<version>.AppImage` with the downloaded version substituted. If it
+  reports missing FUSE or `libfuse.so.2`, install the FUSE 2 compatibility
+  library: `sudo apt install libfuse2` on Ubuntu 22.04, or
+  `sudo apt install libfuse2t64` on Ubuntu 24.04. Other distributions use
+  different package names; follow the [AppImage FUSE guide](https://docs.appimage.org/user-guide/troubleshooting/fuse.html).
 
 Because they are unsigned, the `SHA256SUMS` asset attached to the same release
 is the only thing that tells you a download is the file CI built. Hash what you
 downloaded and compare it against that file's line for it:
 
-- **Windows** — `Get-FileHash Kondo-*.exe -Algorithm SHA256` in PowerShell.
+- **Windows** — `Get-FileHash 'Kondo Setup *.exe' -Algorithm SHA256` in PowerShell.
 - **macOS** — `shasum -a 256 Kondo-*.dmg`.
 - **Linux** — `sha256sum -c SHA256SUMS --ignore-missing`.
 

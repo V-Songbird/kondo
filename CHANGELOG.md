@@ -57,6 +57,11 @@ All notable changes to kondo are documented here. The format follows
 
 ### Changed
 
+- Release targets explicitly select Windows x64 NSIS, Apple silicon arm64 DMG
+  and Linux x64 AppImage. Installation guidance distinguishes recorded Windows
+  validation from CI smoke requirements and documents scoped macOS quarantine
+  handling and distribution-specific FUSE compatibility libraries.
+
 - Library is now the starting screen. Four primary destinations explain their
   purpose; settings leftovers and duplicate skills are inside Clean up.
 - Library opens the matching project category and preserves search/selection
