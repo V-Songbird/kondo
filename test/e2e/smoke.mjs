@@ -3,11 +3,12 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { after, before, test } from 'node:test'
+import { after, afterEach, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import electron from 'electron'
 import { connect, waitForPage } from '../../.claude/skills/run-kondo/cdp.mjs'
 import { launchOptions, stopAppImage } from './process.mjs'
+import { assertRendererHealthy, monitorRenderer } from './renderer-health.mjs'
 
 /**
  * The end-to-end smoke (docs/testing.md, tier 5): the BUILT app — main,
@@ -35,6 +36,7 @@ let child
 let client
 let fixtureEnv
 let appImage
+const rendererRuns = []
 
 /** Reuse the same injected roots when testing a real application restart. */
 const launch = async () => {
@@ -43,9 +45,12 @@ const launch = async () => {
     platform: process.platform, ci: process.env.CI, port: PORT, base
   })
   appImage = options.detached
+  const env = { ...process.env, ...options.env, ...fixtureEnv }
+  delete env.ELECTRON_RENDERER_URL
+  delete env.ELECTRON_RUN_AS_NODE
   child = spawn(binary, options.args, {
     cwd: repo,
-    env: { ...process.env, ...options.env, ...fixtureEnv },
+    env,
     detached: options.detached,
     stdio: ['ignore', 'pipe', 'pipe']
   })
@@ -56,7 +61,40 @@ const launch = async () => {
   child.on('error', (cause) => log.push(`launch failed: ${cause.message}`))
 
   try {
-    client = await connect(await waitForPage(PORT))
+    // Only drive the endpoint published by this fixture's child, never a
+    // pre-existing app that happens to own the requested debugging port.
+    const endpointDeadline = Date.now() + 30_000
+    let endpoint
+    while (!endpoint && Date.now() < endpointDeadline) {
+      endpoint = log.join('').match(/DevTools listening on (ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[^\s]+)/)?.[1]
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error('Fixture exited before CDP attachment')
+      if (!endpoint) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    assert.ok(endpoint, 'Fixture did not publish its own debugging endpoint')
+    const port = Number(new URL(endpoint).port)
+    const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()
+    assert.equal(version.webSocketDebuggerUrl, endpoint)
+    client = await connect(await waitForPage(port))
+    const evidence = await monitorRenderer(client)
+    rendererRuns.push(evidence)
+    // Capture a complete renderer initialization after both domains are on.
+    // The process's first navigation may have happened before CDP attached.
+    const origin = await client.evaluate('performance.timeOrigin')
+    await client.send('Page.reload', { ignoreCache: true })
+    const deadline = Date.now() + 30_000
+    let ready = false
+    while (!ready && Date.now() < deadline) {
+      try {
+        ready = await client.evaluate(`performance.timeOrigin !== ${origin} && typeof window.kondo === 'object' && document.querySelector('nav[aria-label="Main navigation"]') !== null`)
+      } catch (cause) {
+        if (!/context|navigat/i.test(cause.message)) throw cause
+      }
+      if (!ready) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    assert.ok(ready, 'Monitored renderer reload did not become ready')
+    assert.ok(evidence.requests.some(({ type, request }) => type === 'Document' && request.url.startsWith('file:')),
+      'Network monitoring did not observe the built renderer document')
+    assertRendererHealthy(evidence)
   } catch (cause) {
     throw new Error(`${cause.message}\n${log.join('')}`)
   }
@@ -92,7 +130,17 @@ before(async () => {
     encoding: 'utf8'
   })
   fixtureEnv = JSON.parse(printed)
+  for (const key of ['KONDO_STORE_ROOT', 'KONDO_DESKTOP_STORE_ROOT', 'KONDO_DATA_ROOT']) {
+    assert.equal(typeof fixtureEnv[key], 'string', `Missing fixture override: ${key}`)
+    const relative = path.relative(base, fixtureEnv[key])
+    assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative),
+      `${key} must be inside this test's disposable fixture`)
+  }
   await launch()
+})
+
+afterEach(() => {
+  for (const evidence of rendererRuns) assertRendererHealthy(evidence)
 })
 
 after(async () => {
@@ -103,6 +151,7 @@ after(async () => {
     const stopped = !child?.pid || child.exitCode !== null || child.signalCode !== null
     if (base && stopped) await fs.rm(base, { recursive: true, force: true })
   }
+  for (const evidence of rendererRuns) assertRendererHealthy(evidence)
 })
 
 const call = (expression) => client.evaluate(`(async () => ${expression})()`)

@@ -13,6 +13,7 @@ between the two is the part a later reader needs.
 
 ## Index
 
+- [085 — Renderer evidence in the CDP smoke](085-cdp-smoke-events.md) — **done**
 - [084 — Single-instance startup and window security](084-single-instance-security.md) — **done**
 - [083 — Bundle third-party notices](083-bundled-third-party-notices.md) — **done**
 - [081 — Platform and installation guidance](081-platform-release-guidance.md) — **done**

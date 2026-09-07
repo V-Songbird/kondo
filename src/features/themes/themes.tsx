@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import { DEFAULT_THEME, THEMES, THEME_IDS } from '../../../shared/themes'
 import type { ThemeId } from '../../../shared/themes'
-import markUrl from '../../assets/kondo-mark.svg'
+import markUrl from '../../assets/kondo-mark.svg?no-inline'
 import { themeStyle } from './appearance'
 import './themes.css'
 

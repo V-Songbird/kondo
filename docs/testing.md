@@ -77,6 +77,32 @@ in temp directories by the builders in `test/helpers.ts`.
    protocol client (`.claude/skills/run-kondo/cdp.mjs`) with the `run-kondo`
    skill's `drive.mjs`, the manual UI check, so the two cannot drift apart.
    It is not part of `npm test`: it needs a built app and a display.
+   The shared client exposes `on(method, handler)` (returning unsubscribe),
+   `exceptions` (`Runtime.exceptionThrown` payloads), and `consoleErrors`
+   (error-type `Runtime.consoleAPICalled` payloads, including arguments and
+   stack traces). Runtime collectors are installed before Runtime.enable,
+   including any replayed evidence. Smoke subscribes to
+   `Network.requestWillBeSent` before Network.enable, then reloads with cache
+   bypassed and requires a new ready renderer plus an observed `file:` document
+   request. This monitors a full renderer initialization on each launch.
+   After each test and final shutdown, retained evidence from every launch must
+   contain no exceptions, no error console output, and no request URLs outside
+   `file:` and `devtools:`. Invalid URLs also fail. Diagnostics include full
+   violating payloads. The app and Themes import the mark SVG with `?no-inline`
+   so Vite emits a local file; its default data-URL inlining would fail this
+   policy even though that image makes no outbound connection.
+   Intentional malformed-store and save-failure checks
+   expect bridge error values and visible alerts; they do not exempt console
+   errors or uncaught exceptions. Warnings and ordinary console logs do not fail.
+   `test/cdp.test.mjs` exercises the actual client and smoke assertion with
+   synthetic frames, proving each failure without making external requests.
+   Evidence survives reloads, disconnects, and fixture app relaunches. Coverage
+   begins when each CDP domain is enabled; the first navigation before attachment
+   can be missed. The monitored reload covers renderer initialization, not the
+   original process startup. This page-target check does not monitor Electron
+   main-process traffic, the splash, or separate worker/other page targets, and
+   does not establish whole-process network silence. Capture ends at CDP
+   disconnect, before forced process termination in the direct-executable lane.
    The release workflow also gates **each artifact upload** on this smoke:
    Windows silently installs the generated NSIS package into a unique runner
    temp directory and drives its installed `Kondo.exe`; Linux drives the

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import markUrl from '../assets/kondo-mark.svg'
+import markUrl from '../assets/kondo-mark.svg?no-inline'
 import { FIRST_PLACE, Projects } from '../features/projects/projects'
 import type { ProjectsPlace, ProjectSection } from '../features/projects/projects'
 import { Library } from '../features/library/library'

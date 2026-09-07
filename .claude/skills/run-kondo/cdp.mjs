@@ -48,8 +48,41 @@ export async function connect(page) {
 
   let nextId = 0
   const pending = new Map()
+  const listeners = new Map()
+  const exceptions = []
+  const consoleErrors = []
+  let closed = false
+  const on = (method, handler) => {
+    if (closed) throw new Error('CDP connection is closed')
+    if (!listeners.has(method)) listeners.set(method, new Set())
+    const handlers = listeners.get(method)
+    handlers.add(handler)
+    return () => {
+      handlers.delete(handler)
+      if (handlers.size === 0 && listeners.get(method) === handlers) listeners.delete(method)
+    }
+  }
+  // Runtime.enable can replay evidence before its command response arrives.
+  on('Runtime.exceptionThrown', (params) => exceptions.push(params))
+  on('Runtime.consoleAPICalled', (params) => {
+    if (params.type === 'error') consoleErrors.push(params)
+  })
+  const disconnect = () => {
+    closed = true
+    for (const entry of pending.values()) entry.reject(new Error('CDP connection closed before replying'))
+    pending.clear()
+    listeners.clear()
+  }
+  socket.addEventListener('close', disconnect)
+  socket.addEventListener('error', disconnect)
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(event.data)
+    if (message.id === undefined) {
+      // Snapshot: handlers added during delivery start with the next event.
+      // oxlint-disable-next-line unicorn/no-useless-spread
+      for (const handler of [...(listeners.get(message.method) ?? [])]) handler(message.params)
+      return
+    }
     const entry = pending.get(message.id)
     if (!entry) return
     pending.delete(message.id)
@@ -58,10 +91,16 @@ export async function connect(page) {
   })
 
   const send = (method, params = {}) => {
+    if (closed) return Promise.reject(new Error('CDP connection is closed'))
     const id = ++nextId
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject })
-      socket.send(JSON.stringify({ id, method, params }))
+      try {
+        socket.send(JSON.stringify({ id, method, params }))
+      } catch (cause) {
+        pending.delete(id)
+        reject(cause)
+      }
     })
   }
 
@@ -77,11 +116,20 @@ export async function connect(page) {
     return result.result.value
   }
 
-  await send('Page.enable')
-  await send('Runtime.enable')
+  try {
+    await send('Page.enable')
+    await send('Runtime.enable')
+  } catch (cause) {
+    disconnect()
+    socket.close()
+    throw cause
+  }
 
   return {
     send,
+    on,
+    exceptions,
+    consoleErrors,
     evaluate,
     /** PNG bytes of the current frame. */
     async screenshot() {
@@ -100,6 +148,7 @@ export async function connect(page) {
       throw new Error(`timed out waiting for ${expression} (last value: ${JSON.stringify(last)})`)
     },
     close() {
+      disconnect()
       socket.close()
     }
   }
