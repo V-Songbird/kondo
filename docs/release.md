@@ -32,13 +32,18 @@ decision.
    fails the run when the tag has none, or an empty one.
 2. CI green on all three OSes (`verify` and `smoke` jobs).
 3. Rehearse. Run the `release` workflow from the Actions tab — it takes a
-   `workflow_dispatch` — against `main`. All three installers build and the
-   smoke test drives them; the `publish` job is skipped, because a rehearsal
-   has no tag to attach anything to. A red leg here is a blocker the tag
+   `workflow_dispatch` — against `main`. All three installers build. Before
+   upload, Windows installs the NSIS package silently to a unique runner temp
+   directory and smokes its installed `Kondo.exe`; Linux smokes the AppImage
+   with `--appimage-extract-and-run` under xvfb; macOS smokes the executable
+   inside the generated `Kondo.app` bundle. Each smoke uses synthetic stores
+   and an isolated Electron profile. The macOS check does not mount/install
+   the DMG or establish Gatekeeper behavior. The `publish` job is skipped,
+   because a rehearsal has no tag to attach anything to. A red leg here is a blocker the tag
    would have hit anyway, found without burning a version number.
 4. `git tag v<version> && git push --tags`. The `package` job builds the NSIS
    installer, the DMG and the AppImage, runs the end-to-end smoke against the
-   packaged binary on Windows and Linux, and uploads each installer as a
+   same platform artifacts described in step 3, and uploads each installer as a
    workflow artifact. `publish` waits on all three and attaches them to one
    **draft** GitHub Release, alongside a `SHA256SUMS` asset covering all three
    — the only integrity signal an unsigned build has. The draft's notes are the
@@ -51,3 +56,16 @@ decision.
    blank window or any network request is a blocker.
 6. Publish the draft. `npm run package` builds the same artifacts locally,
    unsigned, when a check is wanted before the tag.
+
+For a local packaged smoke, set `KONDO_E2E_BINARY` to the installed Windows
+executable, the `.AppImage`, or the macOS app-bundle executable and run
+`npm run test:e2e` (under xvfb on a headless Linux host). The harness creates
+all fixture roots itself. AppImage paths automatically enable extract-and-run.
+The NSIS CI command uses `/S /currentuser /D=<temp>` with `/D` last and
+unquoted, even when the path contains spaces. It runs on a disposable hosted
+runner: **a temporary `/D` does not isolate NSIS upgrade behavior**. For local
+installation, first verify there is no existing Kondo install registration,
+running application, shortcut or updater cache that the installer could replace;
+otherwise use a disposable Windows account or VM. Uninstall only the verified
+temporary installation afterward. Never launch the package against real stores
+to validate this workflow.

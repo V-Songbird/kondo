@@ -7,6 +7,7 @@ import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import electron from 'electron'
 import { connect, waitForPage } from '../../.claude/skills/run-kondo/cdp.mjs'
+import { launchOptions, stopAppImage } from './process.mjs'
 
 /**
  * The end-to-end smoke (docs/testing.md, tier 5): the BUILT app — main,
@@ -21,10 +22,9 @@ import { connect, waitForPage } from '../../.claude/skills/run-kondo/cdp.mjs'
  * repeated warning). `--no-sandbox` is passed only on Linux CI, where the
  * runner's kernel refuses Chromium's sandbox.
  *
- * KONDO_E2E_BINARY names a packaged executable (`release/win-unpacked/Kondo.exe`,
- * `release/linux-unpacked/kondo`) to drive instead of the dev electron over
- * `out/`: the release workflow runs the same assertions against what it is
- * about to publish.
+ * KONDO_E2E_BINARY names the installed Kondo.exe, Linux .AppImage, or macOS
+ * app-bundle executable instead of dev Electron over `out/`. AppImages use
+ * extract-and-run (no FUSE); their wrapper must exit before fixture restart.
  */
 
 const repo = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
@@ -34,21 +34,26 @@ let base
 let child
 let client
 let fixtureEnv
+let appImage
 
 /** Reuse the same injected roots when testing a real application restart. */
 const launch = async () => {
   const binary = process.env.KONDO_E2E_BINARY ?? electron
-  const args = [...(binary === electron ? ['.'] : []), `--remote-debugging-port=${PORT}`]
-  if (process.platform === 'linux' && process.env.CI) args.push('--no-sandbox')
-  child = spawn(binary, args, {
+  const options = launchOptions(binary, electron, {
+    platform: process.platform, ci: process.env.CI, port: PORT, base
+  })
+  appImage = options.detached
+  child = spawn(binary, options.args, {
     cwd: repo,
-    env: { ...process.env, ...fixtureEnv },
+    env: { ...process.env, ...options.env, ...fixtureEnv },
+    detached: options.detached,
     stdio: ['ignore', 'pipe', 'pipe']
   })
   const log = []
   child.stdout.on('data', (chunk) => log.push(String(chunk)))
   child.stderr.on('data', (chunk) => log.push(String(chunk)))
   child.on('exit', (code) => log.push(`electron exited with ${code}`))
+  child.on('error', (cause) => log.push(`launch failed: ${cause.message}`))
 
   try {
     client = await connect(await waitForPage(PORT))
@@ -60,6 +65,16 @@ const launch = async () => {
 }
 
 const stop = async () => {
+  if (appImage && child) {
+    try {
+      await stopAppImage(child, client)
+    } finally {
+      client?.close()
+      client = null
+    }
+    child = null
+    return
+  }
   client?.close()
   client = null
   if (child && child.exitCode === null && child.signalCode === null) {
@@ -81,8 +96,13 @@ before(async () => {
 })
 
 after(async () => {
-  await stop()
-  if (base) await fs.rm(base, { recursive: true, force: true })
+  try {
+    await stop()
+  } finally {
+    // Keep evidence if a failed shutdown could still be using the fixture.
+    const stopped = !child?.pid || child.exitCode !== null || child.signalCode !== null
+    if (base && stopped) await fs.rm(base, { recursive: true, force: true })
+  }
 })
 
 const call = (expression) => client.evaluate(`(async () => ${expression})()`)

@@ -70,6 +70,23 @@ in temp directories by the builders in `test/helpers.ts`.
    protocol client (`.claude/skills/run-kondo/cdp.mjs`) with the `run-kondo`
    skill's `drive.mjs`, the manual UI check, so the two cannot drift apart.
    It is not part of `npm test`: it needs a built app and a display.
+   The release workflow also gates **each artifact upload** on this smoke:
+   Windows silently installs the generated NSIS package into a unique runner
+   temp directory and drives its installed `Kondo.exe`; Linux drives the
+   generated `.AppImage` under xvfb with `--appimage-extract-and-run`; macOS
+   drives `release/mac*/Kondo.app/Contents/MacOS/Kondo`. Missing or ambiguous
+   artifact/executable matches fail the leg. `KONDO_E2E_BINARY` selects the
+   executable; `test/e2e/process.mjs` recognizes Linux `.AppImage` paths and
+   prepends the runtime flag, preserving the Electron arguments. All launches
+   and restarts retain the three fixture root overrides and use an isolated
+   Electron profile. AppImage extraction also stays inside the fixture; the
+   harness requests browser shutdown and waits for the runtime to finish its
+   cleanup before restarting. A shutdown timeout kills that fixture's process
+   group and fails smoke. Launcher regressions run in `npm test` through
+   `test/e2e-process.test.mjs`.
+   macOS coverage is **app-bundle smoke**, not DMG mounting/installation or
+   Gatekeeper approval. Installer prompts, signing warnings and broader desktop
+   behavior still need platform-specific checks.
 
 Two things to know about the suite as it stands:
 

@@ -9,8 +9,9 @@ name: release
 # certificate is read, so the workflow needs no secret beyond GITHUB_TOKEN.
 #
 # Before an installer is attached, the end-to-end smoke test drives the very
-# binary that was packaged (KONDO_E2E_BINARY), on the OSes whose unpacked
-# layout the test can spawn directly. The app must run fully offline
+# installed Windows executable, Linux AppImage, or macOS app-bundle executable
+# (KONDO_E2E_BINARY). macOS smoke does not mount the DMG or test Gatekeeper.
+# The app must run fully offline
 # (SECURITY.md); a release build that reaches the network is a blocker, and the
 # smoke test runs against a fixture store with no network of any kind.
 
@@ -33,13 +34,10 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            binary: release/win-unpacked/Kondo.exe
             files: release/*.exe
           - os: macos-latest
-            binary: ''
             files: release/*.dmg
           - os: ubuntu-latest
-            binary: release/linux-unpacked/kondo
             files: release/*.AppImage
     runs-on: ${{ matrix.os }}
     env:
@@ -73,20 +71,51 @@ jobs:
       - run: node .jig/checks/run.mjs --selftest
       - run: npm run build
       - run: npx electron-builder --publish never
-      - if: runner.os == 'Windows'
-        run: npm run test:e2e
-        env:
-          KONDO_E2E_BINARY: ${{ matrix.binary }}
-      - if: runner.os == 'Linux'
+      - name: Install NSIS and smoke the installed Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
+          $installers = @(Get-ChildItem -Path release/*.exe -File)
+          if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)" }
+          # Hosted runners are disposable: /D alone does not protect an existing
+          # installation from NSIS's upgrade/uninstall logic. Never copy this
+          # installation step to a developer account without checking its scope.
+          $destination = Join-Path $env:RUNNER_TEMP "kondo-smoke-$([guid]::NewGuid())"
+          # NSIS requires /D last, with no quotes around its value, even for spaces.
+          $installer = Start-Process -FilePath $installers[0].FullName -ArgumentList "/S /currentuser /D=$destination" -WindowStyle Hidden -Wait -PassThru
+          if ($installer.ExitCode -ne 0) { throw "NSIS failed with exit code $($installer.ExitCode)" }
+          $env:KONDO_E2E_BINARY = Join-Path $destination 'Kondo.exe'
+          if (-not (Test-Path -LiteralPath $env:KONDO_E2E_BINARY -PathType Leaf)) { throw 'Installed Kondo.exe is missing' }
+          npm run test:e2e
+      - name: Smoke the Linux AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          images=(release/*.AppImage)
+          if [ "${#images[@]}" -ne 1 ]; then
+            echo "Expected one AppImage, found ${#images[@]}" >&2
+            exit 1
+          fi
+          chmod +x "${images[0]}"
+          export KONDO_E2E_BINARY="$PWD/${images[0]}"
           sudo apt-get update
           sudo apt-get install -y xvfb
+          # The harness prepends --appimage-extract-and-run for .AppImage binaries.
           xvfb-run -a npm run test:e2e
-        env:
-          KONDO_E2E_BINARY: ${{ matrix.binary }}
-      # The macOS app bundle's path carries the architecture; the dev-electron
-      # smoke already ran in ci.yml on this OS, so the packaged bundle is handed
-      # on on the strength of the build succeeding.
+      - name: Smoke the macOS app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          binaries=(release/mac*/Kondo.app/Contents/MacOS/Kondo)
+          if [ "${#binaries[@]}" -ne 1 ]; then
+            echo "Expected one macOS app executable, found ${#binaries[@]}" >&2
+            exit 1
+          fi
+          test -x "${binaries[0]}"
+          export KONDO_E2E_BINARY="$PWD/${binaries[0]}"
+          npm run test:e2e
       - uses: actions/upload-artifact@v7
         with:
           name: installer-${{ matrix.os }}
