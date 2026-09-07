@@ -1,6 +1,6 @@
 # Plan: Evidence-based platform and installation guidance
 
-Status: **in progress** — implementation verified; awaiting owner acceptance.
+Status: **done — shipped in eba6088**. Accepted by the owner.
 
 Align the README, generated release notes and release procedure with recorded
 platform evidence, and make the intended package architectures independent of
@@ -84,4 +84,5 @@ notes without publishing. These checks do not establish package execution.
 
 All three documentation surfaces agree on evidence and architectures, the
 existing package defaults select the intended architectures explicitly, and
-installation guidance is accurate and scoped. Implementation awaits acceptance.
+installation guidance is accurate and scoped. Implementation accepted by the owner;
+the recorded platform verification limits remain unchanged.
