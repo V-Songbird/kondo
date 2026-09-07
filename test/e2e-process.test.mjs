@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { launchOptions, stopAppImage } from './e2e/process.mjs'
+import { launchOptions, stopAppImage, stopElectron } from './e2e/process.mjs'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -94,5 +94,38 @@ describe('AppImage shutdown', () => {
     const kill = vi.spyOn(process, 'kill').mockImplementation(() => true)
     await stopAppImage(child, null)
     expect(kill).not.toHaveBeenCalled()
+  })
+})
+
+describe('Electron shutdown', () => {
+  it('waits for a graceful exit instead of killing the fixture process', async () => {
+    const child = Object.assign(wrapper(), { kill: vi.fn() })
+    const send = vi.fn(() => new Promise(() => {}))
+    let finished = false
+    const stopped = stopElectron(child, { send }).then(() => { finished = true })
+    await Promise.resolve()
+    expect(send).toHaveBeenCalledWith('Browser.close')
+    expect(finished).toBe(false)
+    child.exitCode = 0
+    child.emit('exit', 0)
+    await stopped
+    expect(child.kill).not.toHaveBeenCalled()
+    expect(child.listenerCount('exit')).toBe(0)
+  })
+
+  it('fails on timeout even after forced termination succeeds', async () => {
+    const child = Object.assign(wrapper(), { kill: vi.fn(() => {
+      child.signalCode = 'SIGTERM'
+      child.emit('exit', null, 'SIGTERM')
+    }) })
+    await expect(stopElectron(child, { send: () => Promise.reject(new Error('closed')) }, 5))
+      .rejects.toThrow('did not exit cleanly')
+    expect(child.kill).toHaveBeenCalledOnce()
+    expect(child.listenerCount('exit')).toBe(0)
+  })
+
+  it('rejects an abnormal exit', async () => {
+    await expect(stopElectron(Object.assign(wrapper(), { exitCode: 7 }), null))
+      .rejects.toThrow('Electron exited with 7')
   })
 })

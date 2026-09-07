@@ -25,7 +25,8 @@ export interface FixtureWorld {
 export async function makeWorld(): Promise<FixtureWorld> {
   // No hyphen in the prefix: the suites that still rely on the fallback
   // guess (rather than `registerProjects`) cannot round-trip one.
-  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'kondotest'))
+  // Resolve OS temp aliases before building registry keys and write probes.
+  const base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'kondotest')))
   const home = path.join(base, 'home')
   const userRoot = path.join(home, '.claude')
   const desktopRoot = path.join(base, 'desktop')

@@ -7,7 +7,7 @@ import { after, afterEach, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import electron from 'electron'
 import { connect, waitForPage } from '../../.claude/skills/run-kondo/cdp.mjs'
-import { launchOptions, stopAppImage } from './process.mjs'
+import { launchOptions, stopAppImage, stopElectron } from './process.mjs'
 import { assertRendererHealthy, monitorRenderer } from './renderer-health.mjs'
 
 /**
@@ -120,18 +120,17 @@ const stop = async () => {
     child = null
     return
   }
-  client?.close()
-  client = null
-  if (child && child.exitCode === null && child.signalCode === null) {
-    const exited = new Promise((resolve) => child.once('exit', resolve))
-    child.kill()
-    await exited
+  try {
+    if (child) await stopElectron(child, client)
+  } finally {
+    client?.close()
+    client = null
   }
   child = null
 }
 
 before(async () => {
-  base = await fs.mkdtemp(path.join(os.tmpdir(), 'kondo-e2e-'))
+  base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'kondo-e2e-')))
   const printed = execFileSync(process.execPath, ['.claude/skills/run-kondo/fixture.mjs', base], {
     cwd: repo,
     encoding: 'utf8'
@@ -156,7 +155,7 @@ after(async () => {
   } finally {
     // Keep evidence if a failed shutdown could still be using the fixture.
     const stopped = !child?.pid || child.exitCode !== null || child.signalCode !== null
-    if (base && stopped) await fs.rm(base, { recursive: true, force: true })
+    if (base && stopped) await fs.rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
   for (const evidence of rendererRuns) assertSmokeHealthy(evidence)
 })

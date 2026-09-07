@@ -59,3 +59,20 @@ export async function stopAppImage(child, client, timeoutMs = 10_000) {
     : 'AppImage did not exit cleanly after Browser.close; killed its process group'
   throw new Error(`${reason}${terminated ? '' : '; wrapper termination unconfirmed'}`)
 }
+
+/** Close Electron gracefully so its utility processes release fixture files. */
+export async function stopElectron(child, client, timeoutMs = 10_000) {
+  if (!child.pid) throw new Error('Electron failed to spawn')
+  if (child.exitCode === null && child.signalCode === null && client) {
+    void client.send('Browser.close').catch(() => {})
+  }
+  const graceful = await waitForExit(child, timeoutMs)
+  if (graceful && child.exitCode === 0) return
+  if (!graceful) {
+    child.kill()
+    await waitForExit(child, 2000)
+  }
+  throw new Error(graceful
+    ? `Electron exited with ${child.exitCode ?? child.signalCode}`
+    : 'Electron did not exit cleanly after Browser.close')
+}

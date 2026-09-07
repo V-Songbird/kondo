@@ -4,7 +4,11 @@
 
 Kondo's core risk is misreading or damaging a user's real Claude state, so the
 test strategy centers on **fixture stores**: synthetic `.claude` trees built
-in temp directories by the builders in `test/helpers.ts`.
+in temp directories by the builders in `test/helpers.ts`. Fixture roots are
+resolved with `realpath` before constructing registry paths or write expectations,
+including macOS temp symlinks and Windows short-name aliases. The Electron smoke
+requests graceful shutdown before removing its disposable tree; a forced or
+abnormal exit fails the smoke, and transient file locks receive bounded retries.
 
 1. **Unit — store adapters.** Every adapter is exercised against fixture
    trees covering healthy data, malformed JSON and unknown files from newer
