@@ -1,6 +1,6 @@
 # Plan: Render failure recovery
 
-Status: **done — verified locally; awaiting user acceptance**
+Status: **done — shipped in 133e85b; accepted by the user**
 
 A descendant render failure currently unmounts App and leaves an empty window.
 Task 088 adds a last-resort renderer fallback with the error message, the

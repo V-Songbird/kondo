@@ -13,7 +13,7 @@ between the two is the part a later reader needs.
 
 ## Index
 
-- [088 — Render failure recovery](088-render-error-boundary.md) — **done; awaiting acceptance**
+- [088 — Render failure recovery](088-render-error-boundary.md) — **done**
 - [085 — Renderer evidence in the CDP smoke](085-cdp-smoke-events.md) — **done**
 - [084 — Single-instance startup and window security](084-single-instance-security.md) — **done**
 - [083 — Bundle third-party notices](083-bundled-third-party-notices.md) — **done**
