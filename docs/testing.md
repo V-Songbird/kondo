@@ -37,9 +37,19 @@ in temp directories by the builders in `test/helpers.ts`.
    successful saves and are not sent after failed saves.
 4. **Safety invariants.** The tests that must never be deleted, and where
    each lives today:
-   - The scanner never touches a path outside the stores and `.claude`
-     directories — `test/boundary.test.ts` records every `fs` call across a
-     full API sweep and fails on any escape.
+   - `test/boundary.test.ts` observes `fs/promises.readdir`, `stat`, `lstat`
+     and `readFile` across the fixture read-API sweep, rejecting pathname
+     escapes except the named registry, project-root stat and project MCP
+     file. All five protected identity/token files exist as invented
+     sentinels: a separate assertion rejects any `readFile` attempt naming
+     one, even when an adapter catches its failure. Five negative cases
+     inject EACCES and prove that assertion fails. Spies forward ordinary
+     calls and restore before fixture cleanup. This does not intercept
+     transcript `createReadStream`, `open`/file-handle reads, synchronous
+     access or resolved symlink destinations; it is not an all-mechanisms
+     filesystem proof. Workspace tests also assert that the emitted project
+     objects omit `guessedPath`, while internal inventory resolution remains
+     covered by boundary and session tests.
    - APIs refuse renderer-supplied free-form paths and unknown ids —
      `test/workspace.test.ts`.
    - The renderer has no filesystem or Electron access, the contract stays

@@ -440,12 +440,13 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       // readdirs per project that has a store, and not one file opened.
       const rows = await mapPool(projects, 8, async (project): Promise<ProjectRow> => {
         const root = await storeRoot(project.dirName)
+        const record = scan.data.byDirName.get(project.dirName)
         return {
           id: project.id,
-          ...naming(project),
+          ...naming(record ?? { guessedPath: null, dirName: project.dirName }),
           global: false,
           location: project.location,
-          throwaway: isScratchProjectName(project.dirName, tmpRoots, project.guessedPath),
+          throwaway: isScratchProjectName(project.dirName, tmpRoots, record?.guessedPath ?? null),
           hasStore: project.hasStore,
           sessionCount: project.sessionCount,
           lastActivityMs: project.lastActivityMs,
@@ -484,7 +485,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         const project = rows.find((candidate) => candidate.id === id)
         row = {
           id,
-          ...naming(project ?? { guessedPath: null, dirName }),
+          ...naming(record),
           global: false,
           location: project?.location ?? 'unlocated',
           throwaway: isScratchProjectName(dirName, tmpRoots, record.guessedPath),

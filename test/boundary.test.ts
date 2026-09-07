@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type TestContext } from 'vitest'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { KondoApi } from '../shared/contract'
-import { createKindContext, kinds } from '../electron/main/workspace/kinds'
-import { collector } from '../electron/main/workspace/scan'
+import { collector, safeReadJson } from '../electron/main/workspace/scan'
 import { scanSessionInventory } from '../electron/main/workspace/sessions'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import { createMutations, digestSource, type MutationPlan } from '../electron/main/workspace/mutations'
@@ -14,31 +14,48 @@ import {
   makeWorld,
   mcpServer,
   placedManifest,
+  READ_NEVER_FILES,
   registerMcp,
   skillManifest,
   UUID_A,
   writeFileTree,
   writeJson,
+  writeReadNeverFiles,
   type FixtureWorld
 } from './helpers'
 
 /**
  * The ADR-0002 boundary test: run every read API over a fixture world whose
- * verified project contains real files OUTSIDE .claude, recording every path
- * the workspace touches through node:fs/promises, and assert none escapes
- * the allowed roots. (Transcript streaming goes through node:fs
+ * verified project contains synthetic files OUTSIDE .claude, recording
+ * readdir/stat/lstat/readFile calls through node:fs/promises. Assert no
+ * recorded path escapes the allowed roots and no readFile attempt names a
+ * protected identity/token file. (Transcript streaming goes through node:fs
  * createReadStream, whose static import this spy cannot intercept; those
  * paths come from inventory records that are inside the user store by
  * construction.)
  */
 
+function expectNoProtectedReads(calls: readonly (readonly unknown[])[]): void {
+  for (const [argument] of calls) {
+    const target = argument instanceof URL ? fileURLToPath(argument)
+      : Buffer.isBuffer(argument) ? argument.toString() : argument
+    // Fail closed if a future caller switches to a file handle: its path
+    // needs separate observation instead of silently skipping the call.
+    expect(typeof target, 'readFile target must be an observed path').toBe('string')
+    expect(READ_NEVER_FILES, `protected readFile attempt: ${String(target)}`)
+      .not.toContain(path.basename(target as string).toLowerCase())
+  }
+}
+
 describe('privacy boundary (ADR-0002)', () => {
   let world: FixtureWorld
   let workdir: string
   let api: KondoApi
+  let protectedFiles: string[]
 
   beforeEach(async () => {
     world = await makeWorld()
+    protectedFiles = await writeReadNeverFiles(world)
     workdir = path.join(world.base, 'work', 'proj')
     await writeFileTree(world.userRoot, {
       [`projects/${flattenPath(workdir)}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
@@ -51,6 +68,13 @@ describe('privacy boundary (ADR-0002)', () => {
       'commands/ship.md': placedManifest('User command'),
       'rules/house-style.md': placedManifest('User rule'),
       'output-styles/terse.md': placedManifest('User output style')
+    })
+    await writeFileTree(world.userRoot, {
+      'plugins/installed_plugins.json': writeJson({ version: 2, plugins: {
+        'alpha@acme': [{ scope: 'user', version: '1.0.0',
+          installPath: path.join(world.userRoot, 'plugins/cache/acme/alpha/1.0.0') }]
+      } }),
+      'plugins/cache/acme/alpha/1.0.0/skills/plugin-skill/SKILL.md': skillManifest('plugin-skill', 'Plugin copy')
     })
     await writeFileTree(workdir, {
       '.claude/settings.json': writeJson({ outputStyle: 'quiet' }),
@@ -82,47 +106,48 @@ describe('privacy boundary (ADR-0002)', () => {
 
   it('no read API touches a path outside the stores, ~/.claude.json and .claude', async () => {
     await writeFileTree(world.kondoDataRoot, { 'appearance.json': writeJson({ theme: 'slate' }) })
-    const spies = (['readdir', 'stat', 'lstat', 'readFile'] as const).map((method) =>
+    expect(protectedFiles.map((file) => path.basename(file))).toEqual([...READ_NEVER_FILES])
+    for (const file of protectedFiles) expect((await fsp.stat(file)).isFile(), file).toBe(true)
+    const reads = vi.spyOn(fsp, 'readFile')
+    const spies = (['readdir', 'stat', 'lstat'] as const).map((method) =>
       vi.spyOn(fsp, method)
     )
 
     const projects = await api.sessionProjects()
-    expect(projects.data[0]?.guessedPath).toBe(workdir)
+    expect(projects.data[0]).not.toHaveProperty('guessedPath')
     const sessions = await api.sessionList(projects.data[0]!.id)
     await api.sessionDetail(sessions.data[0]!.id)
+    await api.sessionNearDuplicates(projects.data[0]!.id)
+    await api.projectsList()
+    await api.projectDetail(projects.data[0]!.id)
+    await api.projectDetail('store:user:user')
     await api.storesOverview()
     await api.desktopSessions()
     await api.skillsList()
     await api.skillDuplicates()
     await api.pluginsList()
+    expect((await api.pluginSkills('plugin:alpha@acme')).data).toHaveLength(1)
     await api.hooksList()
     await api.settingsLayers()
     await api.journalList()
     await api.trashSize()
     expect((await api.appearanceGet()).data.theme).toBe('slate')
+    await api.tidyPreview()
+    await api.configOrphansPreview()
 
-    // The kinds with no API method yet run inside the same recorded window,
-    // called straight off the registry: `mcp` because it is the one listing
-    // that reaches outside a `.claude` directory at all (entry 026 gives it a
-    // method), and the four placed kinds because they read four more
-    // directories per project store (entry 026 likewise).
-    const c = collector()
+    // Verify the OS path at its owning layer, inside the observed window.
     const inventory = (await scanSessionInventory(world.locator, process.platform)).data
-    const context = createKindContext({
-      locator: world.locator,
-      c,
-      now: Date.now(),
-      inventory: async () => inventory,
-      projects: async () => [{ dirName: flattenPath(workdir), absPath: workdir }]
-    })
-    const servers = await kinds.mcp.discover(context)
-    expect(servers?.map((server) => server.name).sort()).toEqual(['committed', 'registry'])
+    expect(inventory.byDirName.get(flattenPath(workdir))?.guessedPath).toBe(workdir)
+    const servers = await api.entityList('mcp')
+    expect(servers.data.map((server) => server.id).sort()).toEqual([
+      `mcp:project:${flattenPath(workdir)}/committed`, 'mcp:user:registry'
+    ].sort())
 
-    for (const kind of [kinds.agent, kinds.command, kinds.rule, kinds.outputStyle]) {
-      const entries = (await kind.discover(context)) ?? []
-      expect(entries.length, kind.kind).toBeGreaterThan(0)
+    for (const kind of ['agent', 'command', 'rule', 'output-style'] as const) {
+      const entries = (await api.entityList(kind)).data
+      expect(entries.length, kind).toBeGreaterThan(0)
       // The decoys at the project root are never among them.
-      expect(entries.some((entry) => entry.name === 'impostor')).toBe(false)
+      expect(entries.some((entry) => entry.id.endsWith(':impostor'))).toBe(false)
     }
 
     const claudeDir = path.join(workdir, '.claude')
@@ -142,9 +167,10 @@ describe('privacy boundary (ADR-0002)', () => {
       // The single ADR-0002 amendment: project-scope MCP servers.
       target === path.join(workdir, '.mcp.json')
 
-    const touched = spies
-      .flatMap((spy) => spy.mock.calls)
-      .map((call) => call[0])
+    expect(reads).toHaveBeenCalled()
+    expectNoProtectedReads(reads.mock.calls)
+    const touched = [...spies, reads]
+      .flatMap((spy) => spy.mock.calls.map((call) => call[0]))
       .filter((argument): argument is string => typeof argument === 'string')
     expect(touched.length).toBeGreaterThan(0)
     for (const target of touched) {
@@ -165,6 +191,20 @@ describe('privacy boundary (ADR-0002)', () => {
     expect(outside).toEqual(
       [workdir, path.join(workdir, '.mcp.json'), world.locator.userConfigFile].sort()
     )
+  })
+
+  it.for(READ_NEVER_FILES)('detects an attempted read of %s even when the adapter catches the failure', async (name) => {
+    const target = protectedFiles.find((file) => path.basename(file) === name)!
+    const original = fsp.readFile
+    const reads = vi.spyOn(fsp, 'readFile').mockImplementation((file, options) => {
+      if (file === target) return Promise.reject(Object.assign(new Error('synthetic denial'), { code: 'EACCES' }))
+      return original(file, options)
+    })
+    const c = collector()
+    expect(await safeReadJson(target, name, c)).toBeNull()
+    expect(c.errors).toEqual([expect.objectContaining({ code: 'read-failed', path: name })])
+    expect(reads).toHaveBeenCalledWith(target, 'utf8')
+    expect(() => expectNoProtectedReads(reads.mock.calls)).toThrow(`protected readFile attempt: ${target}`)
   })
 
   it('appearance selections read and write only Kondo data and preserve every Claude and project byte', async () => {

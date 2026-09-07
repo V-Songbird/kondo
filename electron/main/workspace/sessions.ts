@@ -350,7 +350,6 @@ export function toSessionProjects(
     kind: 'project' as const,
     capabilities,
     dirName: project.dirName,
-    guessedPath: project.guessedPath,
     sources: project.sources,
     location: project.location,
     hasStore: project.hasStore,

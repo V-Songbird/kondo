@@ -54,7 +54,26 @@ describe('workspace (KondoApi)', () => {
     const projects = await api.sessionProjects()
     expect(projects.data).toHaveLength(1)
     const project = projects.data[0]!
-    expect(project.guessedPath).toBe(workdir)
+    expect(projects.errors).toEqual([])
+    expect(project).not.toHaveProperty('guessedPath')
+    expect(project).toMatchObject({
+      id: `project:code:${flattenPath(workdir)}`,
+      sources: ['registry', 'transcripts'],
+      location: 'here',
+      hasStore: true
+    })
+    const entities = await api.entityList('project')
+    expect(entities.errors).toEqual([])
+    expect(entities.data).toEqual(projects.data)
+    for (const entity of entities.data) expect(entity).not.toHaveProperty('guessedPath')
+    const row = (await api.projectsList()).data.find((candidate) => candidate.id === project.id)
+    expect(row).toMatchObject({ name: 'proj', location: 'here', hasStore: true })
+    const projectDetail = await api.projectDetail(project.id)
+    expect(projectDetail.errors).toEqual([])
+    expect(projectDetail.data?.row).toMatchObject({
+      name: row!.name, parent: row!.parent, label: row!.label,
+      location: 'here', hasStore: true, throwaway: row!.throwaway
+    })
 
     const sessions = await api.sessionList(project.id)
     expect(sessions.errors).toEqual([])

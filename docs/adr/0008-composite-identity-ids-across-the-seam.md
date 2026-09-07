@@ -90,8 +90,13 @@ Decision, two halves:
   `tildify` in `display.ts`, which uses forward slashes on every OS whether
   or not the path sits under home — so a `/child` segment an adapter appends
   can never mix separators, and the renderer never splits one. The real OS
-  path stays main-side (`SessionProject.guessedPath`, `ProjectRecord.absPath`)
-  and is what a mutation resolves against.
+  path stays main-side (`ProjectRecord.guessedPath`, `ProjectRecord.absPath`)
+  and is what a mutation resolves against. `SessionProject` omits
+  `guessedPath` from both its type and runtime projection (entry 094);
+  `location`, `hasStore` and `sources` carry the facts its consumers need.
+  Existing IDs, channel names and parameters are unchanged; no ID migration
+  is required. Workspace tests pin the actual `sessionProjects` and generic
+  project-list payloads, while boundary tests verify the internal record.
 - Evidence a DTO cannot produce is `null`, never a default (entry 048).
   `SkillInfo.neverUsed` is `boolean | null`: `true`/`false` when Claude's
   `skillUsage` record was read, `null` when there was no record — the same

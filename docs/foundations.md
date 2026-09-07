@@ -41,6 +41,9 @@ Rules the structure enforces:
   opaque ids; mutating or drilling into an entity means sending an id back,
   which main resolves against its own last scan. A renderer bug — or a
   compromised renderer — cannot name an arbitrary file.
+  Session-project responses omit the internal `ProjectRecord.guessedPath`;
+  main retains it for verified project-store resolution. The public
+  `SessionProject` carries location and store availability instead (094).
 - Main and splash window hardening: `contextIsolation: true`, `sandbox: true`,
   `nodeIntegration: false`, a restrictive CSP injected as a response header
   (`connect-src 'none'` when packaged — the no-network promise is enforced,

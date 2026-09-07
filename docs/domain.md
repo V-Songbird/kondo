@@ -403,6 +403,13 @@ are:
 Cloud sessions (claude.ai) have no local files unless mirrored here; kondo
 only sees what is on disk.
 
+The read-never policy is pinned by synthetic fixtures (094): `.credentials.json`
+under the user root and `ant-did`, `ant-device-registry.json`,
+`bridge-state.json`, `buddy-tokens.json` under the desktop root. These fixtures
+verify Kondo's `fs/promises.readFile` call policy, including failed attempts;
+they do not add a new observation about Claude's formats or cover other read
+mechanisms. Names and sizes remain available to store reports.
+
 ## Cross-store facts
 
 - A session id is a UUID and appears in: its transcript filename, the
@@ -423,6 +430,9 @@ only sees what is on disk.
   stays with `hasStore: false`. Only a member with `hasStore` is a store, so
   only one of those can take a skill — a move into any other is refused as a
   `bad-request` naming the `.claude` directory that would have to exist.
+  The exact registry path (or verified fallback guess) stays in main's
+  `ProjectRecord.guessedPath`; `SessionProject` exposes only the resulting
+  location/store facts, attribution, IDs and aggregate counts (094).
 - Because the set is a union, its size is not the same figure as "projects
   with transcripts", and the wider one must never be shown wearing the
   narrower one's label. `StoresOverview.sessions` carries both:

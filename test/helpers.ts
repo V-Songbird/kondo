@@ -66,6 +66,25 @@ export function writeJson(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
 
+/** Invented identity/token contents; opt in only for protected-read fixtures. */
+export const READ_NEVER_FILES = [
+  '.credentials.json',
+  'ant-did',
+  'ant-device-registry.json',
+  'bridge-state.json',
+  'buddy-tokens.json'
+] as const
+
+export async function writeReadNeverFiles(world: FixtureWorld): Promise<string[]> {
+  const targets: string[] = []
+  for (const name of READ_NEVER_FILES) {
+    const root = name === '.credentials.json' ? world.userRoot : world.desktopRoot
+    await writeFileTree(root, { [name]: writeJson({ sentinel: `invented-${name}` }) })
+    targets.push(path.join(root, name))
+  }
+  return targets
+}
+
 /** Flatten an absolute path the way Claude Code names project directories. */
 export function flattenPath(absPath: string): string {
   return flattenProjectPath(absPath)

@@ -265,18 +265,12 @@ export interface SessionProject extends EntityIdentity {
   /** `project:code:<dirName>` */
   id: string
   dirName: string
-  /**
-   * The project's real directory: exact when the registry names it
-   * (ADR-0009), otherwise the un-flattening guess, which is kept only when
-   * it verified. Null when neither names one.
-   */
-  guessedPath: string | null
   /** Which sources named this project; never empty. */
   sources: ProjectSource[]
   /**
-   * Whether `guessedPath` is on disk, could not be resolved, or resolved and
-   * is gone. A `gone` project is still a member of the set, with nothing
-   * behind it; an `unlocated` one may well be alive under a name kondo
+   * Whether the main-side project path is on disk, could not be resolved,
+   * is unreadable, or is gone. A `gone` project is still a member of the set,
+   * with nothing behind it; an `unlocated` one may well be alive under a name kondo
    * cannot reverse.
    */
   location: ProjectLocation
