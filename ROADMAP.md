@@ -3,9 +3,11 @@
 Direction, not promise. Ordered by intent; dates on purpose absent.
 Each item links to a plan in [docs/plans/](docs/plans/) once it is being built.
 
-Tracked task by task in `ROADMAP.jsonl`, which `/foreman:roadmap` reads. This
-file is the shape of the thing; that one is the work queue. Entry numbers in
-parentheses are its ids.
+This file is the public direction. Maintainers track work locally in the ignored
+`ROADMAP.jsonl` queue through Foreman; it and `.foreman/` are not included in
+clones. Entry numbers in parentheses are references to that local history;
+public plans and ADRs carry the reusable context. See the
+[publication policy](docs/adr/0013-keep-working-records-local.md).
 
 ## The shape kondo is heading for
 
@@ -163,8 +165,8 @@ entry and shipped the same day:
 
 The release-readiness work comes from a six-dimension audit on 2026-09-05:
 mutation safety, the release pipeline, public-repo readiness, first-run
-experience, cross-platform correctness and quality gates. `ROADMAP.jsonl`
-records the current status of each entry; the list below preserves the release
+experience, cross-platform correctness and quality gates. The local, ignored
+`ROADMAP.jsonl` records each entry's status; the list below preserves the release
 sequence rather than implying that every item is still unimplemented.
 
 On 2026-09-06, code review confirmed 072, 073, 075 and 076 already implemented.

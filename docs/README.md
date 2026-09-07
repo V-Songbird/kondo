@@ -26,6 +26,32 @@ and its home is not obvious from the table below, fix the table in the same PR.
 | [docs/testing.md](testing.md) | Test strategy and safety invariants | The strategy changes |
 | [docs/release.md](release.md) | Versioning, packaging, shipping | The release process changes |
 
+## Public documentation and local working records
+
+Commit reusable project knowledge here: plans, ADRs, domain facts, contributor
+instructions, and the public direction in `ROADMAP.md`. Agent memory and
+workstation setup are local working records, not documentation for a clone.
+Promote useful lessons into the appropriate public document after removing
+private paths and context.
+
+| Shared in Git | Kept locally and ignored |
+|---|---|
+| `ROADMAP.md`, plans, ADRs, and contributor documentation | `ROADMAP.jsonl`, its migration backups, and all of `.foreman/` (settings, lessons, archives, and runtime state) |
+| `.claude/settings.json`, portable rules, and `.claude/skills/run-kondo/` | `.claude/memory/`, `.claude/rules/jetbrains-mcp.md`, and local overrides |
+| Jig config, manifest, activation instructions, checks, and hooks | `.jig/plan*.json`, `.jig/plan.md`, authored/backlog/discarded JSON, and runtime records covered by `.jig/.gitignore` |
+| Source code and portable build configuration | `.idea/` workstation project state |
+
+Fresh clones receive the public documents and shared checks, but no Foreman
+queue, settings, or lesson history. Foreman is optional: initialize local records
+only if using it, and keep reusable decisions in the public documents. Existing
+local queues continue to work through the Foreman CLI. See
+[ADR-0013](adr/0013-keep-working-records-local.md) for the publication decision.
+
+Ignore rules do not untrack existing files. For an already tracked local record,
+use `git rm --cached -- <path>` and confirm that its local copy still exists.
+This changes future snapshots only; earlier Git history still contains files
+that were previously committed.
+
 ## Routing rule
 
 - Made a **decision** that was hard, is hard to reverse, or keeps being

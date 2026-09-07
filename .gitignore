@@ -11,19 +11,34 @@ coverage/
 .env
 .env.*
 
+# Workstation-specific IDE project state.
+/.idea/
+
+# Private Foreman work queue, settings, lessons, and migration backups.
+/ROADMAP.jsonl
+/ROADMAP.jsonl.backup-*
+/.foreman/
+
+# Generated Jig planning records; shared checks, hooks and config stay tracked.
+/.jig/plan*.json
+/.jig/plan.md
+/.jig/authored.json
+/.jig/backlog.json
+/.jig/discarded.json
+
 # Claude Code: settings.json is shared and committed — it registers the jig
 # session guards, and those have to run for everyone rather than only for
 # whoever installed the plugin. rules/ is shared too, and so is any skill that
 # carries project knowledge rather than machine setup. Everything else under
 # .claude/ is per-machine — IDE-bundled skills that depend on a running IDE,
-# local overrides.
+# local overrides and private agent memory.
 # git will not look inside an excluded directory, so skills/ is re-included
 # before its contents are excluded again.
 .claude/*
 !.claude/settings.json
 !.claude/rules/
-# memory/ is the shared auto memory (colony): one fact per file, index in MEMORY.md
-!.claude/memory/
+/.claude/memory/
+/.claude/rules/jetbrains-mcp.md
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/run-kondo/

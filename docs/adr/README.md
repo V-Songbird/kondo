@@ -18,6 +18,7 @@ re-asked. Numbered, never renumbered; a superseded ADR stays and gains a
 - [0010 — Splice configuration files; never write one whole](0010-splice-config-files-never-whole-file-writes.md)
 - [0011 — Unsigned releases for now](0011-unsigned-releases-for-now.md)
 - [0012 — Organize navigation around user tasks](0012-organize-navigation-around-user-tasks.md)
+- [0013 — Keep private working records local](0013-keep-working-records-local.md)
 
 ## Template
 
