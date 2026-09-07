@@ -30,13 +30,24 @@ primary risk:
 ## Data handling
 
 Kondo writes only inside the user store, a verified project's `.claude`
-directory, and its own data directory (see foundations.md, "Kondo's own
-footprint"), and every write is journaled before a store byte moves
-(ADR-0001). What it keeps of its own is the mutation journal and the kondo
-trash. Trashed data — which can include full session transcripts and whole
-settings files — persists **until the user empties the trash**; there is no
+directory, and its own data directory (see
+[Kondo's own footprint](docs/foundations.md#kondos-own-footprint)); Claude-store
+mutations are journaled before a store byte moves (ADR-0001). Its own data
+includes the mutation journal, kondo trash, appearance preferences, scan
+caches and Electron profile files. Trashed data — which can include full
+session transcripts and whole settings files — persists **until the user
+empties the trash**; there is no
 automatic expiry, the UI shows the trash size, and emptying is the only
-permanent deletion kondo can perform. Kondo never copies store content
+permanent deletion kondo can perform. Normal uninstall leaves Kondo's data,
+including the trash, behind: the configured Windows NSIS uninstaller retains
+app data by default (unless explicitly invoked with `--delete-app-data`),
+and removing the macOS `.app` or Linux `.AppImage` leaves the separate data
+directory. macOS/Linux uninstall behavior has not been manually validated.
+See [data locations and removal](README.md#kondo-data-and-uninstalling) for
+the per-OS paths and custom `KONDO_DATA_ROOT`. Restore anything needed before
+quitting Kondo and removing that exact directory; removing retained trash
+permanently loses those contents and their undo, without reverting earlier
+Claude-store changes. Kondo never copies store content
 anywhere else. Identity and token files — `.credentials.json` in the user
 store, the desktop store's device and token files, and the account and
 machine keys of `~/.claude.json` — are statted for size but never opened or

@@ -18,6 +18,9 @@ All notable changes to kondo are documented here. The format follows
 
 ### Added
 
+- Install documentation now lists Kondo's data locations, uninstall retention
+  and removal, and all three root overrides for disposable-store rehearsals.
+
 - Packaged applications include the original IBM Plex OFL license and a
   third-party notice identifying IBM Plex and Electron, linked from README.
 

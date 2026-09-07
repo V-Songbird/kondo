@@ -140,6 +140,108 @@ downloaded and compare it against that file's line for it:
 Kondo makes no network request of any kind, so nothing checks in after
 install; updates are a new download.
 
+### Kondo data and uninstalling
+
+Kondo's own data directory, called `<kondo-data>` in the docs, is separate
+from your Claude stores. With no override, it uses Electron's
+[`userData` location](https://www.electronjs.org/docs/latest/api/app#appgetpathname)
+with the app name **Kondo** (capital K):
+
+| Platform | Default `<kondo-data>` |
+|---|---|
+| Windows | `%APPDATA%\Kondo` (normally `%USERPROFILE%\AppData\Roaming\Kondo`) |
+| macOS | `~/Library/Application Support/Kondo` |
+| Linux | `$XDG_CONFIG_HOME/Kondo` when set; otherwise `~/.config/Kondo` |
+
+`~` means your home directory. `KONDO_DATA_ROOT` selects a custom directory
+instead, including the Electron profile and single-instance lock. It does
+not move data from an earlier location. See the launch examples below.
+
+This directory holds `journal.jsonl` (mutation history and undo records),
+`trash/` (removed files and undo backups, potentially full transcripts or
+settings), `appearance.json`, `scan-cache/`, and Electron profile files.
+Trash has no automatic expiry. Moving files to Kondo's trash does not free
+their disk space; **History → Empty the trash → Empty it permanently** removes
+those bytes.
+
+**Normal uninstall leaves this data, including the trash, behind.** The
+configured Windows NSIS uninstaller retains app data by default (its explicit
+`--delete-app-data` option is an exception). Removing the macOS `.app` or
+Linux `.AppImage` removes that application, not the separate data directory.
+These statements follow the installer configuration and application layout;
+macOS/Linux uninstall behavior has not been manually validated.
+
+To remove retained Kondo data, restore anything you want through History
+first, then fully quit Kondo (on macOS, use Quit, not just close the window).
+Open the exact directory above in your file manager, or your custom
+`KONDO_DATA_ROOT`, verify it is Kondo's directory, and delete only that
+directory. Empty the operating system's Recycle Bin/Trash too if you moved
+it there and want its contents permanently removed. This loses Kondo's
+history, preferences, caches and **all undo data in its trash**; it does not
+undo earlier changes to Claude. Check separately for any older custom data
+directories you used. Do not delete `.claude`, `.claude.json`, the Claude
+desktop store, or the parent application-data directory as part of removing
+Kondo's footprint.
+
+### First run against disposable copies
+
+Set all three overrides together, using **absolute, non-empty paths** to
+separate disposable directories. They select roots; they do not copy stores,
+rewrite embedded paths, or enforce isolation between the chosen directories.
+Keep Kondo data outside both Claude stores, and keep the stores separate:
+
+| Variable | Points to |
+|---|---|
+| `KONDO_STORE_ROOT` | Copied Claude Code `.claude` directory; its `.claude.json` registry belongs beside it, not inside it |
+| `KONDO_DESKTOP_STORE_ROOT` | Copied Claude desktop data directory, or a deliberately empty directory if you are only trying Claude Code data |
+| `KONDO_DATA_ROOT` | Fresh Kondo data directory for this rehearsal; do not reuse your normal journal/trash |
+
+For example, prepare `home/.claude`, `home/.claude.json`, `desktop`, and
+`kondo-data` under one disposable rehearsal directory. Before launching a
+copy, remap registry project keys and matching `projects/<flattened-path>`
+directory names to disposable project directories. Review other embedded
+project paths and symbolic links/junctions too: none may lead back to live
+stores or live projects' `.claude` directories. Merely copying `.claude`
+and clearing its registry is insufficient, because project resolution can
+fall back to paths reconstructed from those directory names.
+
+For a ready-made synthetic example from a source checkout, run
+`node .claude/skills/run-kondo/fixture.mjs <absolute-new-rehearsal-directory>`
+with a new destination substituted. It creates the layout above, including
+disposable projects, and prints the three root values. Use synthetic fixtures
+for development and automated tests; never use personal stores in tests.
+
+After the [source setup](#getting-started-from-source), launch from the repo
+root. Substitute your prepared directory below. Use a fresh terminal and
+quit any Kondo instance using that same data directory first.
+
+**Windows PowerShell** (initialize Node through fnm if you use it):
+
+```powershell
+fnm env --use-on-cd | Out-String | Invoke-Expression
+$env:KONDO_STORE_ROOT = 'C:\kondo-rehearsal\home\.claude'
+$env:KONDO_DESKTOP_STORE_ROOT = 'C:\kondo-rehearsal\desktop'
+$env:KONDO_DATA_ROOT = 'C:\kondo-rehearsal\kondo-data'
+npm run dev
+```
+
+**macOS/Linux Terminal** (bash/zsh):
+
+```bash
+KONDO_STORE_ROOT="/absolute/path/kondo-rehearsal/home/.claude" \
+KONDO_DESKTOP_STORE_ROOT="/absolute/path/kondo-rehearsal/desktop" \
+KONDO_DATA_ROOT="/absolute/path/kondo-rehearsal/kondo-data" \
+  npm run dev
+```
+
+For a packaged build, replace only `npm run dev` with the executable launch:
+PowerShell `& 'C:\path\to\Kondo.exe'`, macOS
+`"/Applications/Kondo.app/Contents/MacOS/Kondo"`, or Linux
+`"/absolute/path/Kondo-<version>.AppImage"`. Keep the three assignments;
+launching from a desktop shortcut does not apply this shell recipe. Quit
+Kondo and close the rehearsal terminal when finished (PowerShell assignments
+remain in that terminal for subsequent launches).
+
 ## Getting started from source
 
 Requires Node 22+ (an `.nvmrc` is provided; `fnm use` or `nvm use` picks it up).
