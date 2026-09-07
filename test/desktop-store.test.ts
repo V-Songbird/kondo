@@ -61,6 +61,7 @@ describe('desktop store adapter', () => {
       home: world.home,
       appData: null,
       userData: world.kondoDataRoot,
+      tmpRoot: world.base,
       platform: 'linux',
       env: { KONDO_DESKTOP_STORE_ROOT: `${world.base}/nope` }
     })

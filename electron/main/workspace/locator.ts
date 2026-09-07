@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 /**
@@ -14,6 +16,10 @@ export interface LocatorEnvironment {
   userData: string
   platform: NodeJS.Platform
   env: Record<string, string | undefined>
+  /** Synthetic root in tests; otherwise discovered once by the locator. */
+  tmpRoot?: string
+  /** Resolves only the temporary root, never project or store contents. */
+  realpath?: (root: string) => string
 }
 
 export interface StoreLocator {
@@ -39,6 +45,9 @@ export interface StoreLocator {
    */
   userConfigRoot: string
   home: string
+  /** Classification hints only; neither spelling grants filesystem access. */
+  tmpRoot: string
+  tmpRootRealpath: string | null
 }
 
 export function createLocator(environment: LocatorEnvironment): StoreLocator {
@@ -55,7 +64,9 @@ export function createLocator(environment: LocatorEnvironment): StoreLocator {
   } else if (platform === 'darwin') {
     desktopRoot = path.join(home, 'Library', 'Application Support', 'Claude')
   } else {
-    desktopRoot = path.join(home, '.config', 'Claude')
+    const xdg = env['XDG_CONFIG_HOME']
+    const configHome = xdg && path.posix.isAbsolute(xdg) ? xdg : path.join(home, '.config')
+    desktopRoot = path.join(configHome, 'Claude')
   }
 
   const kondoDataRoot = env['KONDO_DATA_ROOT'] ?? userData
@@ -63,12 +74,22 @@ export function createLocator(environment: LocatorEnvironment): StoreLocator {
   // Beside the user store, so a fixture root brings its own registry along.
   const userConfigFile = path.join(path.dirname(userRoot), '.claude.json')
 
+  const tmpRoot = environment.tmpRoot ?? os.tmpdir()
+  let tmpRootRealpath: string | null = null
+  try {
+    tmpRootRealpath = (environment.realpath ?? fs.realpathSync)(tmpRoot)
+  } catch {
+    // An unavailable alias must not prevent store discovery or lexical matching.
+  }
+
   return {
     userRoot,
     desktopRoot,
     kondoDataRoot,
     userConfigFile,
     userConfigRoot: path.dirname(userConfigFile),
-    home
+    home,
+    tmpRoot,
+    tmpRootRealpath
   }
 }

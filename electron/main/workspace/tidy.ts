@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import {
   tidyCategories,
@@ -229,14 +228,14 @@ export async function scanTidyCandidates(
   //
   // Name and inventory only — no project tree is walked to decide a category
   // (ADR-0007), which is what lets this answer for 9,171 directories.
-  const tmpRoot = os.tmpdir()
+  const tmpRoots = [locator.tmpRoot, locator.tmpRootRealpath]
   const trees = new Map<string, TidyCategory>()
   for (const project of inventory.projects) {
     // Only a directory under `projects/` can be trashed as a tree. A project
     // the registry names and `projects/` does not has nothing here to move,
     // however dead its path is.
     if (!project.sources.includes('transcripts')) continue
-    if (isScratchProjectName(project.dirName, tmpRoot)) {
+    if (isScratchProjectName(project.dirName, tmpRoots, project.guessedPath)) {
       // A temp root, a worktree or a job: scratch by name, whatever it holds
       // and wherever its path is now.
       trees.set(project.dirName, 'scratch-projects')

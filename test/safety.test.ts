@@ -9,6 +9,9 @@ import path from 'node:path'
  */
 
 const repoRoot = path.resolve(import.meta.dirname, '..')
+const locatorFile = path.join(repoRoot, 'electron', 'main', 'workspace', 'locator.ts')
+const misplacedTmpdir = (file: string, content: string): boolean =>
+  file !== locatorFile && /\btmpdir\s*\(/.test(content)
 
 async function sourceFiles(dir: string): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true, recursive: true })
@@ -260,6 +263,16 @@ describe('ADR-0004 entry-module security and lifecycle (mocked Electron)', () =>
 })
 
 describe('safety invariants', () => {
+  it.each([
+    ['electron/main/workspace/tidy.ts', 'os.tmpdir()', true],
+    ['electron/main/workspace/workspace.ts', 'tmpdir ()', true],
+    ['electron/main/index.ts', 'os.tmpdir()', true],
+    ['electron/main/workspace/locator.ts', 'os.tmpdir()', false],
+    ['electron/main/workspace/tidy.ts', 'locator.tmpRoot', false]
+  ])('confines temporary-root discovery: %s / %s', (file, content, rejected) => {
+    expect(misplacedTmpdir(path.join(repoRoot, file), content)).toBe(rejected)
+  })
+
   it('the renderer never imports Node or Electron modules', async () => {
     for (const file of await sourceFiles(path.join(repoRoot, 'src'))) {
       const content = await fs.readFile(file, 'utf8')
@@ -291,6 +304,7 @@ describe('safety invariants', () => {
       const content = await fs.readFile(file, 'utf8')
       const allowed =
         file.endsWith(`${path.sep}locator.ts`) || file.endsWith(`main${path.sep}index.ts`)
+      expect(misplacedTmpdir(file, content), file).toBe(false)
       if (allowed) continue
       expect(content, file).not.toMatch(/homedir\s*\(/)
       expect(content, file).not.toMatch(/APPDATA/)

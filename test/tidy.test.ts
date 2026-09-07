@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import type {
   KondoApi,
@@ -9,7 +8,7 @@ import type {
   TidyPreview
 } from '../shared/contract'
 import { tidyCategories } from '../shared/contract'
-import { STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
+import { isScratchProjectName, STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   desktopReleased,
@@ -41,6 +40,108 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const NOW = Date.UTC(2026, 5, 1)
 const FRESH = new Date(NOW - DAY_MS)
 const LONG_AGO = new Date(NOW - (STALE_AFTER_DAYS + 70) * DAY_MS)
+
+describe('temporary-root classification', () => {
+  const roots = ['/var/folders/fixture/T/', '/private/var/folders/fixture/T/']
+
+  it('does not infer temporary origin from ambiguous unlocated names', () => {
+    const child = '/var/folders/fixture/T/project'
+    const sibling = '/var/folders/fixture/T-project'
+    expect(flattenPath(child)).toBe(flattenPath(sibling))
+    expect(isScratchProjectName(flattenPath(child), roots, null)).toBe(false)
+    expect(isScratchProjectName(flattenPath('/private/var/folders/fixture/T/project'), roots, null)).toBe(false)
+    expect(isScratchProjectName('D--Projects-app--claude-worktrees-run', roots, null)).toBe(true)
+    expect(isScratchProjectName('D--Projects-app--claude-jobs-run', roots, null)).toBe(true)
+  })
+
+  it.each([
+    '/var/folders/fixture/T', '/var/folders/fixture/T/run',
+    '/private/var/folders/fixture/T', '/private/var/folders/fixture/T/run'
+  ])('recognizes either spelling and the root itself: %s', (project) => {
+    expect(isScratchProjectName(flattenPath(project), roots, project)).toBe(true)
+  })
+
+  it.each([
+    '/var/folders/fixture/T2/run', '/var/folders/fixture/T-other/run',
+    '/var/folders/fixture/T_other/run', '/var/folders/fixture/T.other/run',
+    '/private/var/folders/fixture/T2/run', '/private/var/folders/fixture/T-other/run',
+    '/private/var/folders/fixture/T_other/run', '/private/var/folders/fixture/T.other/run',
+    '/var/folders/fixture/T/../T-other/run', 'var/folders/fixture/T/run', '/work/project'
+  ])('rejects known siblings and escapes: %s', (project) => {
+    expect(isScratchProjectName(flattenPath(project), roots, project)).toBe(false)
+  })
+
+  it.each([
+    ['C:\\Temp\\run', true], ['c:/temp/run', true], ['C:\\Temp', true],
+    ['C:\\Temp-work\\run', false], ['C:\\Temp2\\run', false],
+    ['C:\\Temp\\..\\Temp-work\\run', false], ['D:\\Temp\\run', false],
+    ['C:Temp\\run', false]
+  ])('uses Windows path semantics for %s', (project, expected) => {
+    expect(isScratchProjectName(flattenPath(project), ['C:\\Temp\\', null], project)).toBe(expected)
+  })
+
+  it('checks UNC shares, absent aliases and invalid roots without consulting disk', () => {
+    expect(isScratchProjectName('unused', ['\\\\server\\share\\Temp'], '\\\\server\\share\\Temp\\run')).toBe(true)
+    expect(isScratchProjectName('unused', ['\\\\server\\share\\Temp'], '\\\\server\\other\\Temp\\run')).toBe(false)
+    expect(isScratchProjectName('unused', ['//server/share/Temp', null], '\\\\SERVER\\share\\temp\\run')).toBe(true)
+    expect(isScratchProjectName('unused', ['//server/share/Temp', null], '\\\\server\\other\\Temp\\run')).toBe(false)
+    expect(isScratchProjectName('-tmp-run', ['', null, 'tmp'], '/tmp/run')).toBe(false)
+    expect(isScratchProjectName('-tmp-run', ['/tmp', null], '/tmp/run')).toBe(true)
+  })
+})
+
+describe('temporary aliases across workspace and cleanup', () => {
+  it('keeps list/detail/preview in agreement and sweeps only store trees, with undo', async () => {
+    const world = await makeWorld()
+    try {
+      const lexical = path.join(world.base, 'var', 'T')
+      const canonical = path.join(world.base, 'private', 'var', 'T')
+      world.locator.tmpRoot = lexical
+      world.locator.tmpRootRealpath = canonical
+      const temporary = [path.join(lexical, 'run-a'), path.join(canonical, 'run-b')]
+      const siblings = [path.join(`${lexical}-other`, 'run-c'), path.join(`${canonical}2`, 'run-d')]
+      const unlocated = flattenPath(path.join(canonical, 'unlocated'))
+      await registerProjects(world, [...temporary, ...siblings])
+      await writeFileTree(world.userRoot, {
+        [`projects/${unlocated}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A)
+      })
+      for (const project of [...temporary, ...siblings]) {
+        await writeFileTree(world.userRoot, {
+          [`projects/${flattenPath(project)}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A)
+        })
+      }
+      const before = await hashTree(world.userRoot)
+      const api = createWorkspace({ locator: world.locator, platform: process.platform, guessExists: async () => 'absent' })
+      const list = await api.projectsList()
+      expect(list.errors).toEqual([])
+      const unknownId = `project:code:${unlocated}`
+      expect(list.data.find((row) => row.id === unknownId)?.throwaway).toBe(false)
+      expect((await api.projectDetail(unknownId)).data?.row.throwaway).toBe(false)
+      for (const project of [...temporary, ...siblings]) {
+        const id = `project:code:${flattenPath(project)}`
+        expect(list.data.find((row) => row.id === id)?.throwaway).toBe(temporary.includes(project))
+        const detail = await api.projectDetail(id)
+        expect(detail.errors).toEqual([])
+        expect(detail.data?.row.throwaway).toBe(temporary.includes(project))
+      }
+      const preview = await api.tidyPreview()
+      expect(preview.errors).toEqual([])
+      expect(byCategory(preview.data)['scratch-projects'].count).toBe(2)
+      const swept = await api.tidySweep(['scratch-projects'])
+      expect(swept.errors).toEqual([])
+      expect(swept.data?.stepCount).toBe(2)
+      expect(await exists(path.join(world.userRoot, 'projects', unlocated))).toBe(true)
+      for (const project of [...temporary, ...siblings]) {
+        expect(await exists(path.join(world.userRoot, 'projects', flattenPath(project))))
+          .toBe(siblings.includes(project))
+      }
+      expect((await api.journalUndo(swept.data!.id)).errors).toEqual([])
+      expect(await hashTree(world.userRoot)).toBe(before)
+    } finally {
+      await world.cleanup()
+    }
+  })
+})
 
 const DIR = 'D--Projects-app'
 const ALL = [...tidyCategories]
@@ -365,7 +466,9 @@ describe('dead and scratch project directories', () => {
   let api: KondoApi
 
   /** Named the way Claude Code names a run it did inside the OS temp root. */
-  const SCRATCH_TMP = flattenPath(path.join(os.tmpdir(), 'kondo-run-a1b2'))
+  const TMP_ROOT = path.join(path.parse(process.cwd()).root, 'fixtures', 'temporary')
+  const SCRATCH_PATH = path.join(TMP_ROOT, 'kondo-run-a1b2')
+  const SCRATCH_TMP = flattenPath(SCRATCH_PATH)
   /** A worktree and a job Claude checked out for itself. */
   const SCRATCH_WORKTREE = 'D--Projects-app--claude-worktrees-feature'
   const SCRATCH_JOBS = 'D--Projects-app--claude-jobs-run7'
@@ -396,7 +499,9 @@ describe('dead and scratch project directories', () => {
 
   beforeEach(async () => {
     world = await makeWorld()
-    await registerProjects(world, [DEAD_PATH, DEAD_NO_TREE, MEMORY_LIVE_PATH, MEMORY_GONE_PATH])
+    world.locator.tmpRoot = TMP_ROOT
+    world.locator.tmpRootRealpath = null
+    await registerProjects(world, [SCRATCH_PATH, DEAD_PATH, DEAD_NO_TREE, MEMORY_LIVE_PATH, MEMORY_GONE_PATH])
     await writeFileTree(world.userRoot, {
       [`projects/${MEMORY_LIVE}/memory/MEMORY.md`]: '# what this project remembers',
       [`projects/${MEMORY_GONE}/memory/MEMORY.md`]: '# remembered for a project now gone',

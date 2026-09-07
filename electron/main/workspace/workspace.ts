@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import type {
   ConfigOrphan,
@@ -132,6 +131,7 @@ async function inventoryFingerprint(locator: StoreLocator): Promise<string> {
 
 export function createWorkspace(options: WorkspaceOptions): KondoApi {
   const { locator, platform } = options
+  const tmpRoots = [locator.tmpRoot, locator.tmpRootRealpath]
   const now = options.now ?? Date.now
   const appearance = createAppearance(locator)
 
@@ -445,7 +445,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
           ...naming(project),
           global: false,
           location: project.location,
-          throwaway: isScratchProjectName(project.dirName, os.tmpdir()),
+          throwaway: isScratchProjectName(project.dirName, tmpRoots, project.guessedPath),
           hasStore: project.hasStore,
           sessionCount: project.sessionCount,
           lastActivityMs: project.lastActivityMs,
@@ -487,7 +487,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
           ...naming(project ?? { guessedPath: null, dirName }),
           global: false,
           location: project?.location ?? 'unlocated',
-          throwaway: isScratchProjectName(dirName, os.tmpdir()),
+          throwaway: isScratchProjectName(dirName, tmpRoots, record.guessedPath),
           hasStore: project?.hasStore ?? false,
           sessionCount: project?.sessionCount ?? 0,
           lastActivityMs: project?.lastActivityMs ?? 0,

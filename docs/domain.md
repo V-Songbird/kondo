@@ -28,7 +28,15 @@ spelling here; the screen never shows it.
 | User store | `~/.claude` ✅ | Claude Code CLI |
 | User registry | `~/.claude.json` ✅ — one file beside the user store, see below | Claude Code CLI |
 | Project store | `<project>/.claude` ✅ | Claude Code CLI, per project |
-| Desktop store | Windows: `%APPDATA%\Claude` ✅ · macOS: `~/Library/Application Support/Claude` ◇ · Linux: `~/.config/Claude` ◇ | Claude desktop app (Electron `userData`) |
+| Desktop store | Windows: `%APPDATA%\Claude` ✅ · macOS: `~/Library/Application Support/Claude` ◇ · Linux: `$XDG_CONFIG_HOME/Claude`, falling back to `~/.config/Claude` ◇ | Claude desktop app (Electron `userData`) |
+
+On Linux, the locator accepts only an absolute `XDG_CONFIG_HOME`; unset,
+empty and relative values use `~/.config`, following the
+[XDG specification](https://specifications.freedesktop.org/basedir/latest/).
+The Claude Linux location remains expected ◇; fixture tests establish Kondo's
+resolution, not a live Claude installation. `KONDO_DESKTOP_STORE_ROOT` takes
+precedence. Kondo's own app data still comes from Electron's `userData` or
+`KONDO_DATA_ROOT`; this lookup does not move either application's data.
 
 The privacy boundary (ADR-0002): inside a project, kondo opens **only** the
 `.claude` directory. Everything else in the project is off-limits, with one
@@ -261,6 +269,16 @@ scan and a mutation can never disagree about where an entry lives.
   last path segment with the parent beneath (`ProjectRow.name` / `parent`,
   built in `workspace.ts`), folds throwaway and gone rows behind a count
   (`ProjectRow.throwaway` / `location`), and pages the rest (entry 060).
+- Temporary-project classification (entry 091) uses the locator's lexical and
+  canonical temporary roots. MacOS `/var` and `/private/var` aliases are expected
+  ◇; Windows fixture junctions and simulated macOS spellings cover Kondo's
+  implementation, not a live macOS installation. Existing inventory paths are
+  compared by segment without additional project I/O. A missing realpath alias
+  leaves the lexical root usable. A flattened unlocated name alone cannot prove
+  temporary origin: `/tmp/project` and `/tmp-project` have the same name. Kondo
+  therefore leaves those ambiguous names out of temporary-root classification;
+  the independent worktree/job markers and empty-unlocated-directory rule remain.
+  These roots grant no new store access or mutation targets.
 - Inside a project directory ✅:
   - `<session-uuid>.jsonl` — the transcript, append-only JSONL.
   - `<session-uuid>/` — optional sibling directory (subagent transcripts,

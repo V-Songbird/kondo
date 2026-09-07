@@ -13,6 +13,7 @@ between the two is the part a later reader needs.
 
 ## Index
 
+- [091 — Store config and temporary roots](091-store-root-resolution.md) — **done; awaiting acceptance**
 - [088 — Render failure recovery](088-render-error-boundary.md) — **done**
 - [085 — Renderer evidence in the CDP smoke](085-cdp-smoke-events.md) — **done**
 - [084 — Single-instance startup and window security](084-single-instance-security.md) — **done**

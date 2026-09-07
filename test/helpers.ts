@@ -36,6 +36,7 @@ export async function makeWorld(): Promise<FixtureWorld> {
     home,
     appData: null,
     userData: kondoDataRoot,
+    tmpRoot: base,
     platform: process.platform,
     env: { KONDO_STORE_ROOT: userRoot, KONDO_DESKTOP_STORE_ROOT: desktopRoot }
   })

@@ -63,6 +63,11 @@ entity through the kind registry. Structure:
   `KONDO_DESKTOP_STORE_ROOT` and `KONDO_DATA_ROOT` overrides (tests and
   fixture runs use these). Names `~/.claude.json` beside the user store
   (`userConfigFile`, ADR-0009).
+  Linux desktop config honors absolute `XDG_CONFIG_HOME` with a `~/.config`
+  fallback. The locator also discovers `os.tmpdir()` once and resolves its
+  realpath spelling, both injectable for fixtures. A realpath failure retains
+  the lexical root. `tmpRoot` and `tmpRootRealpath` are classification inputs
+  only: they do not become stores or broaden any read/write allowlist.
 - **`kinds.ts`** — the kind registry. Every entity kind kondo manages
   (`skill`, `plugin`, `hook`, `settings`, `session`, `project`, `store` —
   the first segment of every id, ADR-0008) is described by one or more

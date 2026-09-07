@@ -8,6 +8,13 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Linux desktop-store discovery honors absolute `XDG_CONFIG_HOME`, with the
+  standard `~/.config` fallback. Temporary-project classification shares the
+  locator's lexical and canonical temporary roots across cleanup and project
+  views, and checks known project paths by directory segment. Unlocated names
+  with ambiguous flattened temporary prefixes are no longer marked temporary
+  on that prefix alone.
+
 - Render failures now show the error message, application version and a
   keyboard-accessible Reload Kondo button instead of an empty window.
 

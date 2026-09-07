@@ -157,7 +157,12 @@ with the app name **Kondo** (capital K):
 instead, including the Electron profile and single-instance lock. It does
 not move data from an earlier location. See the launch examples below.
 
-This directory holds `journal.jsonl` (mutation history and undo records),
+Claude's desktop data is separate: on Linux, Kondo looks in
+`$XDG_CONFIG_HOME/Claude` when that variable is absolute, otherwise
+`~/.config/Claude` (including unset, empty or relative values).
+`KONDO_DESKTOP_STORE_ROOT` overrides that lookup.
+
+Kondo's data directory holds `journal.jsonl` (mutation history and undo records),
 `trash/` (removed files and undo backups, potentially full transcripts or
 settings), `appearance.json`, `scan-cache/`, and Electron profile files.
 Trash has no automatic expiry. Moving files to Kondo's trash does not free

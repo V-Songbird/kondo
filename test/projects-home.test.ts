@@ -1,9 +1,8 @@
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { slashed } from '../electron/main/workspace/display'
-import { isScratchProjectName, STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
+import { STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
 import type { KondoApi } from '../shared/contract'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
@@ -188,10 +187,8 @@ describe('the projects home', () => {
     expect(row?.name).toBe(path.basename(workdir))
     expect(row?.parent).toBe(slashed(path.dirname(workdir)))
     expect(row?.location).toBe('here')
-    // The fixture lives under the OS temp root, so the sweep's name rule calls
-    // it throwaway — the row must say what the rule says, not what a test
-    // would like: the two surfaces fold and sweep the same directories.
-    expect(row?.throwaway).toBe(isScratchProjectName(flattenPath(workdir), os.tmpdir()))
+    // The known fixture project lives inside its injected temporary root.
+    expect(row?.throwaway).toBe(true)
     const global = list.data.find((entry) => entry.global)
     expect(global?.name).toBe('Global')
     expect(global?.parent).toBeNull()

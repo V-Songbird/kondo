@@ -1,4 +1,4 @@
-import { flattenProjectPath } from './projects'
+import path from 'node:path'
 
 /** Pure session analysis; thresholds live here so tests and UI copy agree. */
 
@@ -19,16 +19,26 @@ export function isStale(mtimeMs: number, nowMs: number): boolean {
 const SCRATCH_MARKERS = ['--claude-worktrees', '--claude-jobs'] as const
 
 /**
- * Was this project directory only ever scratch? Judged from the flattened
- * name and the temp root alone — no stat, because the directories worth
- * asking about are exactly the ones whose real path is long gone (ADR-0007),
- * and on the owner's machine that is 9,031 of 9,171.
- *
- * `tmpRoot` is flattened the same way Claude Code named the directory, so the
- * test is a prefix on the one spelling both sides share.
+ * Scratch markers or containment in either temporary-root spelling, using
+ * existing inventory paths only (ADR-0007). Registry paths survive deletion,
+ * so no new stat is needed. A flattened name alone cannot distinguish
+ * `/tmp/project` from `/tmp-project`; unknown paths cannot prove temp origin.
  */
-export function isScratchProjectName(dirName: string, tmpRoot: string): boolean {
+export function isScratchProjectName(
+  dirName: string,
+  tmpRoots: readonly (string | null)[],
+  projectPath: string | null
+): boolean {
   if (SCRATCH_MARKERS.some((marker) => dirName.includes(marker))) return true
-  const flat = flattenProjectPath(tmpRoot)
-  return dirName === flat || dirName.startsWith(`${flat}-`)
+  if (projectPath === null) return false
+  return tmpRoots.some((root) => {
+    if (!root) return false
+    const paths = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(root) ? path.win32 : path.posix
+    if (!paths.isAbsolute(root)) return false
+    if (!paths.isAbsolute(projectPath)) return false
+    const relative = paths.relative(root, projectPath)
+    return relative === '' || (
+      relative !== '..' && !relative.startsWith(`..${paths.sep}`) && !paths.isAbsolute(relative)
+    )
+  })
 }
