@@ -14,6 +14,7 @@ and its home is not obvious from the table below, fix the table in the same PR.
 | [ROADMAP.md](../ROADMAP.md) | Direction and non-goals | Priorities shift; an item ships or dies |
 | [CHANGELOG.md](../CHANGELOG.md) | User-visible changes per release | Every user-visible PR |
 | [SECURITY.md](../SECURITY.md) | Threat model, reporting channel | The security posture changes |
+| [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | Bundled font and Electron attribution; packaged license locations | Those components or their licensing change |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Dev setup, workflow, conventions, review bar | Tooling or process changes |
 | [AGENTS.md](../AGENTS.md) | Operating manual for AI agents and humans working here | Working rules change |
 | [CLAUDE.md](../CLAUDE.md) | Claude Code entry point; defers to AGENTS.md | Rarely |

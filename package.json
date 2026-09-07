@@ -51,6 +51,16 @@
       "out/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "src/assets/fonts/OFL.txt",
+        "to": "licenses/IBM-Plex/OFL.txt"
+      },
+      {
+        "from": "THIRD-PARTY-NOTICES.md",
+        "to": "THIRD-PARTY-NOTICES.md"
+      }
+    ],
     "win": {
       "target": [
         {

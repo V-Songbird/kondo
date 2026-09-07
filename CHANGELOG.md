@@ -8,6 +8,9 @@ All notable changes to kondo are documented here. The format follows
 
 ### Added
 
+- Packaged applications include the original IBM Plex OFL license and a
+  third-party notice identifying IBM Plex and Electron, linked from README.
+
 - Themes lets you choose Chalk (the default), Parchment, Sage, Slate, Carbon,
   or the original vivid Signal design. Kondo remembers the choice locally and
   applies it to the app and native window controls.

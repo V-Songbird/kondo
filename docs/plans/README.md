@@ -13,6 +13,7 @@ between the two is the part a later reader needs.
 
 ## Index
 
+- [083 — Bundle third-party notices](083-bundled-third-party-notices.md) — **done**
 - [081 — Platform and installation guidance](081-platform-release-guidance.md) — **done**
 - [080 — Smoke the release artifacts](080-release-artifact-smoke.md) — **done**
 - [074 — Durable and confined splice replacement](074-safe-splice.md) — **in progress**

@@ -21,6 +21,14 @@ Every release gets a CHANGELOG section and a git tag `v<version>`.
   machine.
 - The app must run fully offline; a release build making any network request
   is a release blocker (SECURITY.md).
+- `build.extraResources` ships `THIRD-PARTY-NOTICES.md` and the unchanged
+  IBM Plex OFL at `licenses/IBM-Plex/OFL.txt` inside app resources. After
+  packaging, run `node scripts/verify-packaged-notices.mjs <resources-directory>`:
+  use `release/win-unpacked/resources` on Windows,
+  `release/mac-arm64/Kondo.app/Contents/Resources` on macOS, or
+  `release/linux-unpacked/resources` on Linux. The verifier compares both
+  shipped files byte-for-byte with their repository originals and fails on
+  missing or changed content. Repeat for each platform's build.
 
 ## Signing — decided
 

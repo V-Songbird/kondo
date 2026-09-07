@@ -175,3 +175,5 @@ AI agents. Kondo generalizes the idea to the whole Claude surface.
 ## License
 
 [MIT](LICENSE)
+
+Bundled fonts and runtime: [third-party notices](THIRD-PARTY-NOTICES.md).
