@@ -270,7 +270,9 @@ scan and a mutation can never disagree about where an entry lives.
   built in `workspace.ts`), folds throwaway and gone rows behind a count
   (`ProjectRow.throwaway` / `location`), and pages the rest (entry 060).
 - Temporary-project classification (entry 091) uses the locator's lexical and
-  canonical temporary roots. MacOS `/var` and `/private/var` aliases are expected
+  canonical temporary roots. Native realpath expands Windows 8.3 short names
+  (verified locally and covered by an injected classification regression) ✅.
+  MacOS `/var` and `/private/var` aliases are expected
   ◇; Windows fixture junctions and simulated macOS spellings cover Kondo's
   implementation, not a live macOS installation. Existing inventory paths are
   compared by segment without additional project I/O. A missing realpath alias

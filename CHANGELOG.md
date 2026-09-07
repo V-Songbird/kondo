@@ -8,6 +8,9 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Temporary-project classification expands Windows short directory names in the
+  OS temporary root, so registered paths using long names are recognized.
+
 - Linux desktop-store discovery honors absolute `XDG_CONFIG_HOME`, with the
   standard `~/.config` fallback. Temporary-project classification shares the
   locator's lexical and canonical temporary roots across cleanup and project

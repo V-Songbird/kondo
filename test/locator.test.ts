@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createLocator } from '../electron/main/workspace/locator'
 import { makeWorld } from './helpers'
+import { isScratchProjectName } from '../electron/main/workspace/analysis'
 
 const KONDO_DATA = path.join('/fixtures', 'kondo-data')
 const TEMP = { tmpRoot: '/fixtures/tmp', realpath: (root: string) => root }
@@ -50,13 +51,25 @@ describe('createLocator', () => {
 
   it('discovers and canonicalizes the default temporary root once (mocked OS)', () => {
     const discover = vi.spyOn(os, 'tmpdir').mockReturnValue('/fixtures/tmp')
-    const resolve = vi.spyOn(fs, 'realpathSync').mockReturnValue('/fixtures/canonical-tmp')
+    const resolve = vi.spyOn(fs.realpathSync, 'native').mockReturnValue('/fixtures/canonical-tmp')
     const locator = createLocator({ ...linux, env: {}, tmpRoot: undefined, realpath: undefined })
     expect(discover).toHaveBeenCalledTimes(1)
     expect(resolve).toHaveBeenCalledExactlyOnceWith('/fixtures/tmp')
     expect(locator.tmpRootRealpath).toBe('/fixtures/canonical-tmp')
   })
 
+  it('expands Windows short temp names without classifying neighboring directories', () => {
+    const alias = 'C:/Users/FIXTUR~1/AppData/Local/Temp'
+    const canonical = 'C:/Users/Fixture User/AppData/Local/Temp'
+    vi.spyOn(fs, 'realpathSync').mockReturnValue(alias)
+    const resolve = vi.spyOn(fs.realpathSync, 'native').mockReturnValue(canonical)
+    const locator = createLocator({ ...linux, platform: 'win32', env: {}, tmpRoot: alias, realpath: undefined })
+    expect(resolve).toHaveBeenCalledExactlyOnceWith(alias)
+    expect(locator.tmpRootRealpath).toBe(canonical)
+    const roots = [locator.tmpRoot, locator.tmpRootRealpath]
+    expect(isScratchProjectName('fixture', roots, `${canonical}/project`)).toBe(true)
+    expect(isScratchProjectName('fixture', roots, `${canonical}-neighbor/project`)).toBe(false)
+  })
   it.each(['ENOENT', 'EACCES', 'ELOOP'])('retains lexical matching when realpath fails (%s)', (code) => {
     const locator = createLocator({ ...linux, env: {}, realpath: () => { throw Object.assign(new Error(code), { code }) } })
     expect(locator.tmpRoot).toBe(TEMP.tmpRoot)

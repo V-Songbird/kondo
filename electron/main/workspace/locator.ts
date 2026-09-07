@@ -77,7 +77,7 @@ export function createLocator(environment: LocatorEnvironment): StoreLocator {
   const tmpRoot = environment.tmpRoot ?? os.tmpdir()
   let tmpRootRealpath: string | null = null
   try {
-    tmpRootRealpath = (environment.realpath ?? fs.realpathSync)(tmpRoot)
+    tmpRootRealpath = (environment.realpath ?? fs.realpathSync.native)(tmpRoot)
   } catch {
     // An unavailable alias must not prevent store discovery or lexical matching.
   }

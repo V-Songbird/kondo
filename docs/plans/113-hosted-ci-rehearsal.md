@@ -37,3 +37,11 @@ all three platforms; inspect installer artifacts and packaged smoke results.
   smoke also observed duplicate fixture projects and a locked shutdown file.
 - Release rehearsal 34169817791: Linux AppImage passed; Windows and macOS
   stopped at the same unit-test path comparisons.
+
+## Windows follow-up
+
+Run 34170285540 passed every unit-test platform but still missed temporary
+projects in the Windows smoke. `fs.realpathSync` retains Windows 8.3 names;
+`fs.realpathSync.native` expands them. Use the native resolver for the one
+OS temporary root and test short-name classification plus neighboring-path
+rejection. No extra project reads or mutation permissions are introduced.
