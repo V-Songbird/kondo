@@ -1,6 +1,6 @@
 # Plan: Store config and temporary roots
 
-Status: **done — implementation verified; awaiting acceptance (Foreman 091)**
+Status: **done — shipped in 805108d; accepted by the user**
 
 Task 091 centralizes Linux desktop config and temporary-root discovery in
 the locator. Cleanup and project badges must use the same temporary spellings.
