@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, nativeTheme, session } from 'electron'
+import { mkdirSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { rendererReadyChannel, type ThemeId } from '../../shared/contract'
@@ -14,6 +15,15 @@ import { registerIpc } from './ipc'
  */
 
 app.setName('Kondo')
+
+// Electron keys its lock by userData. The journal override must select that
+// same identity, even when two launches use different --user-data-dir flags.
+const dataRoot = process.env['KONDO_DATA_ROOT']
+if (dataRoot !== undefined) {
+  const root = path.resolve(dataRoot)
+  mkdirSync(root, { recursive: true })
+  app.setPath('userData', realpathSync(root))
+}
 
 function applyContentSecurityPolicy(): void {
   // Injected as a response header (a meta tag can't differ between dev and
@@ -62,8 +72,9 @@ function createSplashWindow(): BrowserWindow {
     skipTaskbar: true,
     show: false,
     backgroundColor: '#1a1714',
-    webPreferences: { sandbox: true }
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
   })
+  hardenWindow(splash)
   loadRendererPage(splash, 'splash.html')
   splash.once('ready-to-show', () => splash.show())
   return splash
@@ -76,6 +87,31 @@ function loadRendererPage(window: BrowserWindow, page: string): void {
 }
 
 const mainWindows = new Set<BrowserWindow>()
+const readyMainWindows = new WeakSet<BrowserWindow>()
+let focusPending = false
+let reopenMainWindow: (() => void) | undefined
+
+function focusMainWindow(): void {
+  const window = [...mainWindows].find((candidate) => !candidate.isDestroyed())
+  // Startup handover consumes an early request. Visibility is not readiness:
+  // a window hidden later (for example by macOS Hide) must still be shown.
+  if (!window || !readyMainWindows.has(window)) return
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+  focusPending = false
+}
+
+function requestMainWindow(): void {
+  focusPending = true
+  if (mainWindows.size === 0) reopenMainWindow?.()
+  focusMainWindow()
+}
+
+function hardenWindow(window: BrowserWindow): void {
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.on('will-navigate', (event) => event.preventDefault())
+}
 
 function applyWindowTheme(window: BrowserWindow, theme: ThemeId): void {
   if (window.isDestroyed()) return
@@ -126,7 +162,11 @@ function createMainWindow(theme: ThemeId): void {
     setTimeout(
       () => {
         if (!splash.isDestroyed()) splash.destroy()
-        if (!window.isDestroyed()) window.show()
+        if (!window.isDestroyed()) {
+          readyMainWindows.add(window)
+          window.show()
+          if (focusPending) focusMainWindow()
+        }
       },
       Math.max(0, SPLASH_MIN_MS - (Date.now() - openedAt))
     )
@@ -135,13 +175,13 @@ function createMainWindow(theme: ThemeId): void {
   // the first one's signal.
   window.webContents.ipc.once(rendererReadyChannel, handOver)
   window.once('ready-to-show', () => setTimeout(handOver, SPLASH_MAX_MS))
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  window.webContents.on('will-navigate', (event) => event.preventDefault())
+  hardenWindow(window)
 
   loadRendererPage(window, 'index.html')
 }
 
-void app.whenReady().then(async () => {
+async function startPrimaryInstance(): Promise<void> {
+  await app.whenReady()
   applyContentSecurityPolicy()
   // Windows and Linux draw the app menu inside the window, and kondo has no
   // menu items of its own. macOS keeps it: there the system menu bar owns the
@@ -168,12 +208,19 @@ void app.whenReady().then(async () => {
     for (const window of mainWindows) applyWindowTheme(window, theme)
   })
 
-  createMainWindow(theme)
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow(theme)
-  })
-})
+  reopenMainWindow = () => createMainWindow(theme)
+  reopenMainWindow()
+  app.on('activate', requestMainWindow)
+}
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
+if (!app.requestSingleInstanceLock()) {
+  // quit() does not stop JavaScript execution. Keep every startup side effect
+  // in the owning branch so a refused instance cannot create a workspace.
+  app.quit()
+} else {
+  app.on('second-instance', requestMainWindow)
+  void startPrimaryInstance()
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit()
+  })
+}

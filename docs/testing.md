@@ -33,6 +33,13 @@ in temp directories by the builders in `test/helpers.ts`.
    - The renderer has no filesystem or Electron access, the contract stays
      platform-free, and only the locator and composition root resolve
      machine locations — `test/safety.test.ts` (structural).
+   - Both windows enforce isolation, sandboxing and navigation denial, and the
+     session injects the exact packaged/development CSPs — `test/safety.test.ts`
+     executes the actual main entry against mocked Electron. It also verifies
+     lock refusal never starts a workspace, lock ordering/data-root selection,
+     queued startup focus, minimized-window restoration and window reopening
+     with one workspace/IPC registration. These are mocked lifecycle checks,
+     not evidence of native window-manager behavior on every platform.
    - Every mutation journals before it touches the store, its undo restores
      the fixture byte-for-byte, nothing is unlinked, and no write lands
      outside a known store root or `<kondo-data>` —
@@ -130,6 +137,18 @@ button disappears and reappears, including repeated failure and successful
 recovery after the collision is removed. Claude files and journal bytes stay
 unchanged. Optional screenshots also capture Signal Original and the save
 error/recovery states.
+
+`node --test test/e2e/single-instance.mjs` is a separate built-app desktop
+regression. It creates synthetic stores and disposable app data, uses different
+Chromium profile flags with the same Kondo data override, and discovers an
+unused debugging port from its own child's output. It checks that the second
+process exits cleanly and that the first window restores and receives focus.
+Run after `npm run build` with a display. When Electron omits CDP's native
+window-bounds methods, the test uses its own primary process's inspector to
+minimize the window and verify native restoration/focus. Both debugging ports
+are allocated by the OS and only endpoints emitted by the fixture child are
+used; no test-only API is added to the production bridge. A local pass
+establishes behavior only on the tested desktop.
 
 ## Rules
 

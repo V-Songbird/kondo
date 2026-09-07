@@ -6,6 +6,13 @@ All notable changes to kondo are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A second launch using the same Kondo app data exits and brings the existing
+  window forward, preventing competing workspace owners of the journal and
+  trash. The splash now has the same explicit isolation and navigation guards
+  as the main window.
+
 ### Added
 
 - Packaged applications include the original IBM Plex OFL license and a

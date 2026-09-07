@@ -24,6 +24,13 @@ Rules the structure enforces:
   `createWorkspace`. Nothing under `workspace/` imports `electron`, which is
   what lets the whole domain run under vitest with fixture roots and no
   Electron in sight.
+- Startup acquires Electron's single-instance lock before readiness or
+  workspace creation. A refused launch quits without initializing the workspace.
+  `KONDO_DATA_ROOT`, when set, also selects Electron's canonical `userData`
+  directory before locking, so different profile flags cannot share a journal
+  through that override. Another launch restores and focuses the original main
+  window; requests during startup wait for its splash handover. Reopening a
+  window reuses the existing workspace and IPC handlers.
 - The **contract is written once**. `shared/contract.ts` holds every seam
   type, the `KondoApi` interface, and the channel-name map. Preload and main
   both import it; drift between "what main handles" and "what the renderer
@@ -34,7 +41,7 @@ Rules the structure enforces:
   opaque ids; mutating or drilling into an entity means sending an id back,
   which main resolves against its own last scan. A renderer bug — or a
   compromised renderer — cannot name an arbitrary file.
-- Window hardening: `contextIsolation: true`, `sandbox: true`,
+- Main and splash window hardening: `contextIsolation: true`, `sandbox: true`,
   `nodeIntegration: false`, a restrictive CSP injected as a response header
   (`connect-src 'none'` when packaged — the no-network promise is enforced,
   not just intended), and navigation handlers that refuse to leave the app.

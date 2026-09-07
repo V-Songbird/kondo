@@ -114,6 +114,27 @@ choice before mounting. This keeps persistence, native colors and the page on
 one catalog without introducing renderer filesystem access or a second local
 storage mechanism.
 
+## Amendment: one workspace owner per app data directory
+
+The main entry acquires `app.requestSingleInstanceLock()` before readiness,
+workspace construction, IPC registration or window creation. A refused process
+quits and cannot enter startup. A second launch restores and focuses the
+existing window; a request arriving before its first read settles waits for
+the splash handover. Reopening on activation reuses the workspace and handlers.
+
+When `KONDO_DATA_ROOT` overrides the journal/trash root, startup creates and
+canonicalizes that directory and selects it as Electron's `userData` before
+locking. Otherwise separate Chromium profile flags could bypass exclusion
+while sharing that override. This is a local application lock, not coordination
+between different OS users or machines. The override also relocates Electron's
+profile data; ordinary launches retain Electron's existing path selection.
+
+Both main and splash explicitly disable Node integration, enable context
+isolation and sandboxing, deny window opens and prevent navigation. The shared
+session installs the existing mode-specific CSP before either window loads.
+`test/safety.test.ts` runs the real entry module with mocked Electron and
+workspace boundaries to pin these controls and the refused-lock startup path.
+
 ## Consequences
 
 - Electron's disk/memory footprint; accepted for a tool whose job is
