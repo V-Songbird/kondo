@@ -69,6 +69,21 @@ and need a migration note in the PR.
   changes, test plan. Land the plan, then the code.
 - A bug fix lands with the test that would have caught it.
 
+## Merge checks and remote enforcement
+
+Before integration, review successful `verify` and `smoke` results for Windows,
+macOS and Linux on the exact candidate commit, as well as the change itself.
+Record the reviewed commit and run links. A new commit needs new check evidence.
+Local hooks and green checks do not establish server-enforced protection.
+
+On 2026-09-08, GitHub denied reads of `main` protection and repository rulesets
+with an explicit plan/visibility restriction. Until the owner enables and
+verifies a supported protection configuration, maintainers must perform this
+review manually; GitHub enforcement is not established. Do not change repository
+visibility or buy a plan as part of routine contribution work. See the
+[release gate](docs/release.md#security-maintenance-and-publication-gate) and
+[capability record](docs/plans/112-security-reporting-maintenance.md#observed-capabilities).
+
 ## Review checklist
 
 - [ ] Tests cover the change; suite green on your OS.

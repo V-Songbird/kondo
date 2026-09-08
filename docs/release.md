@@ -8,6 +8,75 @@ decisions did not accrete by accident. The first tag is the owner's to push.
 Semantic versioning. Pre-1.0: minor bumps may break, patch bumps never do.
 Every release gets a CHANGELOG section and a git tag `v<version>`.
 
+## Security maintenance and publication gate
+
+Before the first publication, the owner must approve a private reporting
+channel and the supported-version policy in [SECURITY.md](../SECURITY.md).
+These are publication gates even when packaging and CI pass. An unavailable
+reporting form, a source package version, or a draft release does not satisfy
+this gate. No published releases or tags were returned by the authenticated
+API on 2026-09-08.
+
+**Proposed maintenance policy — pending owner approval:** maintain only the
+latest published non-draft, non-prerelease version. Security fixes target that
+release line or its successor; older versions receive no guaranteed backports,
+and development builds and prereleases are unsupported. Users of older builds
+would need to upgrade. There is no response or fix deadline. On each publication,
+update SECURITY.md with the exact supported version and the superseded range;
+record security fixes and affected/fixed versions in the changelog and release
+notes when disclosure is approved. Until approved, this proposal is not a
+maintenance commitment.
+
+The owner must also choose how to handle unavailable remote protection: keep
+manual review with its enforcement limitation, or authorize a compatible GitHub
+plan and a separately reviewed ruleset/protection configuration. Making the
+repository public is a separate publication decision. Neither plan changes nor
+visibility changes happen as an implicit release step.
+
+### Recheck GitHub capabilities
+
+Use authenticated read-only requests in the repository owner's authorized
+checkout. Record the date, commit, response status and relevant fields without
+credentials or private report contents:
+
+```sh
+gh api repos/V-Songbird/kondo
+gh api repos/V-Songbird/kondo/private-vulnerability-reporting
+gh api repos/V-Songbird/kondo/actions/permissions/workflow
+gh api repos/V-Songbird/kondo/branches/main/protection
+gh api repos/V-Songbird/kondo/rulesets
+gh api repos/V-Songbird/kondo/releases --paginate
+gh api repos/V-Songbird/kondo/tags --paginate
+```
+
+A 403 with a plan restriction is different from a token-permission failure;
+a 404 is not proof that a feature is disabled. Resolve access/availability before
+claiming a control is enabled. If the owner later authorizes GitHub private
+reporting on an eligible public repository, verify `enabled: true` and that the
+private form opens from a reporter's account without submitting a report.
+Verify the designated recipient's access and notifications. For another approved
+private contact, verify its ownership, access and receipt using a harmless test
+only after the owner authorizes sending it. Then update SECURITY.md and the issue
+chooser together. A reachable form alone does not prove delivery or monitoring.
+
+Workflow permissions already follow least privilege: `ci.yml` and `release.yml`
+default to `contents: read`; only `release.yml`'s `publish` job requests
+`contents: write` to create the draft and upload assets. The repository returned
+`default_workflow_permissions: read` and
+`can_approve_pull_request_reviews: false` on 2026-09-08. The read default is not
+a blanket prohibition on an explicit job grant. Keep the write grant scoped to
+publication; do not broaden the repository default or enable bot PR approvals.
+See [GitHub's permissions reference](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions).
+
+Check runs and classic commit statuses are separate API surfaces. For the exact
+candidate SHA, inspect `repos/V-Songbird/kondo/commits/<sha>/check-runs` and
+`repos/V-Songbird/kondo/commits/<sha>/status`. Require the six `verify` / `smoke`
+OS results, not a previous commit's results. An empty classic status list does
+not mean Actions checks are absent. If protection becomes available, configure
+and re-read the six exact observed check names from GitHub Actions, the target
+branch, enforcement/bypass behavior and force-push/deletion restrictions before
+claiming them enforced. The owner must approve that remote configuration first.
+
 ## Packaging
 
 - `package.json` explicitly selects one architecture per target using

@@ -67,24 +67,35 @@ no additional concurrency guarantee for them.
 
 ## Supported versions
 
-No supported release range or backport window is currently declared. The source
-package identifies itself as 0.5.0, but a package version and changelog are not
-proof of a published release. Consult [GitHub Releases](https://github.com/V-Songbird/kondo/releases)
-for published artifacts and [the release process](docs/release.md).
-Development builds and older versions carry no security-maintenance commitment.
-The repository owner must declare the supported versions and update this policy
-when publishing releases; no response or fix deadline is promised.
+No published releases or tags were returned by the repository's authenticated
+GitHub API on 2026-09-08. There is currently **no supported release range**.
+The source package version, 0.5.0, is not evidence of a published release.
+Development builds, prereleases and older versions have no security-maintenance
+commitment. No response deadline, fix deadline or backport window is promised.
+
+Before publishing the first release, the owner must approve a maintenance
+policy and identify supported versions here. The
+[release maintenance proposal](docs/release.md#security-maintenance-and-publication-gate)
+is pending approval; it is not a current support promise. Recheck
+[GitHub Releases](https://github.com/V-Songbird/kondo/releases) when assessing
+artifacts, and include the exact version or source commit in a report.
 
 ## Reporting a vulnerability
 
-Use the repository's existing private route:
-[Report a vulnerability](https://github.com/V-Songbird/kondo/security/advisories/new)
-(Security tab). Do not open public issues for exploitable problems.
-Private reporting availability depends on the repository's GitHub settings and
-has not been verified here. If the option is unavailable, do not publish exploit
-details; the owner needs to confirm that channel or designate a private fallback.
-No alternate address is currently documented.
+**No verified private reporting channel is currently documented.** Do not put
+vulnerability details in public issues, pull requests or discussions. Retain
+sensitive details privately until an approved contact is published here; the
+issue forms are not a security-reporting fallback.
 
-Include the Kondo version or source commit, OS, impact, and a minimal synthetic
-reproduction. Do not attach real transcripts, settings, credentials, tokens,
-personal paths, or copied private store data, even in a private report.
+The repository was verified as private on 2026-09-08. GitHub documents
+[private vulnerability reporting for public repositories](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository).
+The authenticated reporting-status request returned HTTP 404, so the former
+advisory-form link is not advertised as an available channel. A 404 alone does
+not establish whether a feature is disabled or whether the caller can inspect it.
+The owner must designate a private contact while the repository remains private.
+No alternate address has been approved; do not infer one from Git history.
+
+Once an approved private channel is available, include the Kondo version or
+source commit, OS, impact, and a minimal synthetic reproduction. Do not attach
+real transcripts, settings, credentials, tokens, personal paths, or copied
+private store data, even in a private report.
