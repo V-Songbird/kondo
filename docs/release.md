@@ -11,7 +11,7 @@ Every release gets a CHANGELOG section and a git tag `v<version>`.
 ## Security maintenance and publication gate
 
 Before the first publication, confirm the approved private reporting contact
-and obtain owner approval of the supported-version policy in
+and identify the exact supported version under the owner-approved policy in
 [SECURITY.md](../SECURITY.md).
 These are publication gates even when packaging and CI pass. An unavailable
 reporting form, a source package version, or a draft release does not satisfy
@@ -22,21 +22,22 @@ The approved contact is [songbird@tuta.com](mailto:songbird@tuta.com). The owner
 confirmed control and monitoring on 2026-09-08; this is an owner attestation, not
 a delivery test. No test email was sent or authorized.
 
-**Proposed maintenance policy — pending owner approval:** maintain only the
+**Maintenance policy — approved by the owner on 2026-09-08:** maintain only the
 latest published non-draft, non-prerelease version. Security fixes target that
 release line or its successor; older versions receive no guaranteed backports,
 and development builds and prereleases are unsupported. Users of older builds
 would need to upgrade. There is no response or fix deadline. On each publication,
 update SECURITY.md with the exact supported version and the superseded range;
 record security fixes and affected/fixed versions in the changelog and release
-notes when disclosure is approved. Until approved, this proposal is not a
-maintenance commitment.
+notes when disclosure is approved. The policy applies when a stable release is
+published; no supported release range is active today.
 
-The owner must also choose how to handle unavailable remote protection: keep
-manual review with its enforcement limitation, or authorize a compatible GitHub
-plan and a separately reviewed ruleset/protection configuration. Making the
-repository public is a separate publication decision. Neither plan changes nor
-visibility changes happen as an implicit release step.
+On 2026-09-08, the owner chose manual review with the documented remote
+enforcement limitation, keeping the repository private without purchasing a
+plan. A later compatible plan or ruleset/protection configuration requires
+separate authorization and review. Making the repository public is a separate
+publication decision. Neither plan changes nor visibility changes happen as an
+implicit release step.
 
 ### Recheck GitHub capabilities
 

@@ -1,10 +1,11 @@
 # Plan: private security reporting and maintenance
 
-Status: **awaiting acceptance**
+Status: **accepted on 2026-09-08 — local integration by the coordinating session**
 
 Make the security policy match the repository's actual reporting and release
-capabilities. The owner has approved the private email contact; the proposed
-maintenance commitment and documentation are ready for owner review.
+capabilities. On 2026-09-08 the owner approved the private email contact, the
+maintenance policy, manual review and this documentation package for local
+integration into main by the coordinating session.
 
 ## Scope
 
@@ -12,7 +13,7 @@ maintenance commitment and documentation are ready for owner review.
   Actions permissions, releases, tags and branch-rule availability with
   authenticated read-only API requests and current GitHub documentation.
 - Correct security reporting instructions and define a reviewable maintenance
-  proposal without inventing a contact, release, response deadline or backport.
+  policy without inventing a contact, release, response deadline or backport.
 - Document release gates and how to recheck remote capabilities.
 
 ## Out of scope
@@ -26,7 +27,7 @@ No general audit or application privacy changes. No real-store access.
 |---|---|
 | Treat HTTP 404 as an unavailable answer, not proof that reporting is disabled | Repository access alone does not prove every endpoint's token permissions |
 | Publish the owner-approved email with its evidence limit | The owner confirmed control and monitoring; delivery was not tested |
-| Separate proposed support from current support | A source version does not establish a published, maintained release |
+| Separate the approved policy from an active supported release | A source version does not establish a published, maintained release |
 | Separate check results from enforcement | Green Actions checks do not prove branch protection exists |
 
 ## Seam changes
@@ -70,7 +71,7 @@ Primary references: GitHub's
 [ruleset availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets),
 and [workflow permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions).
 
-## Owner-approved contact and pending review
+## Owner acceptance
 
 The owner supplied [songbird@tuta.com](mailto:songbird@tuta.com) in response to
 the request for a private contact they control, monitor and authorize publishing.
@@ -79,11 +80,15 @@ SECURITY.md now directs private reports there; the issue chooser links to that
 policy. No test email was sent or authorized, and independent receipt remains
 unverified. The previous missing-contact decision is resolved.
 
-The owner still reviews the latest-published-stable-only maintenance proposal
-in `docs/release.md` and the documentation package. No SLA or backport commitment
-is inferred. Manual review and the remote enforcement limitation remain explicit;
-a compatible plan or remote protection configuration requires separate approval.
-Changing repository visibility is a separate decision.
+On 2026-09-08, the owner approved the latest-published-stable-only maintenance
+policy in `docs/release.md`, with no SLA or guaranteed backports, and accepted
+the documentation package for local integration into main. No published version
+or active supported release range is implied. The owner chose manual review
+under GitHub's documented limitation, retaining private visibility without a
+plan purchase. Future remote protection changes require separate approval.
+
+The coordinating session performs local integration and closes the central
+Foreman record. This worktree records acceptance, not a completed main merge.
 
 No remote configuration was changed and no report or test message was sent.
 
@@ -119,3 +124,9 @@ integration does not satisfy the packaging or publication gates. CONTRIBUTING.md
 and docs/release.md now state this distinction explicitly. For this documentation
 adjustment, guards ran with the three owned files staged and diff whitespace
 checks passed. No application or workflow behavior changed.
+
+## Acceptance update verification
+
+The acceptance-only documentation update was checked with guards against its
+four staged files and with working-tree, staged and cumulative diff whitespace
+checks. No code suite was repeated for these policy-status edits.

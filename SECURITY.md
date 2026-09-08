@@ -73,11 +73,13 @@ The source package version, 0.5.0, is not evidence of a published release.
 Development builds, prereleases and older versions have no security-maintenance
 commitment. No response deadline, fix deadline or backport window is promised.
 
-Before publishing the first release, the owner must approve a maintenance
-policy and identify supported versions here. The
-[release maintenance proposal](docs/release.md#security-maintenance-and-publication-gate)
-is pending approval; it is not a current support promise. Recheck
-[GitHub Releases](https://github.com/V-Songbird/kondo/releases) when assessing
+The owner approved this maintenance policy on 2026-09-08: only the latest
+published stable release receives security maintenance, with no guaranteed
+backports to older versions and no response or fix deadline. This policy becomes
+applicable when a release is published; there is no active supported range today.
+Before publication, identify the exact supported version here. See the
+[approved release maintenance policy](docs/release.md#security-maintenance-and-publication-gate)
+and [GitHub Releases](https://github.com/V-Songbird/kondo/releases) when assessing
 artifacts, and include the exact version or source commit in a report.
 
 ## Reporting a vulnerability
