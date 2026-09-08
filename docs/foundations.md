@@ -88,10 +88,17 @@ entity through the kind registry. Structure:
   lookup on **kind × scope × operation** (`enable`, `disable`, `move`),
   never a single flag: a user skill can be disabled, a plugin-shipped one
   cannot, and the same kind is writable in one scope and read-only in
-  another. A row records what Claude's own conventions permit (ADR-0006),
-  which is not the same as what kondo implements — a row saying `allowed` is
-  the precondition for a plan builder, not proof one exists. An unrecognized
+  another. Rows combine Claude's native conventions (ADR-0006) with Kondo's
+  implementation limits. A row saying `allowed` is a precondition for a plan
+  builder, not proof one exists. An unrecognized
   scope refuses every operation rather than throwing (ADR-0005).
+  Hook rows deny enable, disable, move and trash in user/project/local layers;
+  `kinds.hook.plan` returns that refusal without building mutation steps.
+  The hook display projection flattens groups and truncates commands, so it
+  cannot be used to reconstruct a settings edit. The read-only hook boundary
+  and the proposed conditions for reconsideration are recorded in
+  [decision 109](plans/109-hook-layer-boundary.md) and
+  [ADR-0017](adr/0017-hook-layer-boundary.md). Script-file cleanup is separate.
 - **Adapters** — `user-store.ts`, `sessions.ts`, `projects.ts`,
   `desktop-store.ts`, `tidy.ts`. Every public adapter function returns
   `Scan<T> = { data, errors, unknown }` (ADR-0005): partial data, itemized

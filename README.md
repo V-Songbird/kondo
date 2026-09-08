@@ -43,8 +43,10 @@ machine; nothing is ever sent anywhere.
   another as a single undoable edit.
 - **Agents, commands, rules, output styles** — listed per scope, movable
   between scopes the way a skill is.
-- **Hooks** — every hook that will fire, which settings file arms it, and
-  whether the script it names is still there.
+- **Hooks** — read-only declarations from user settings and verified projects'
+  project/local settings, with source attribution and limited script checks.
+  Kondo does not move, toggle or remove hook declarations, or prove which hooks
+  execute. See the [hook boundary decision](docs/plans/109-hook-layer-boundary.md).
 - **MCP servers** — locally configured connections and the on/off controls
   their scope supports. Kondo does not test live connectivity or approval.
 - **Settings** — the layered view: user, project, local. See what wins and why.

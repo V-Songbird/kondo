@@ -8,6 +8,10 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Corrected the shipped hook-move claim: hook declarations remain read-only.
+  Inventory covers the settings layers Kondo reads, with limited script
+  diagnostics; it does not establish which hooks execute. No behavior changed.
+
 - Cleanup, selected conversation removal and duplicate-skill removal retain
   the reviewed candidates. Changed files, resumed conversations or changed
   duplicate groups require another review before anything moves.
@@ -158,7 +162,7 @@ All notable changes to kondo are documented here. The format follows
 
 The first version stamped as such. It collects everything since the
 scaffold, in the roadmap's own lines: v0.1 the read-only core, v0.2 safe
-mutations, v0.3 the project view, v0.4 move everything, v0.5 clean my
+mutations, v0.3 the project view, v0.4 moves for supported kinds, v0.5 clean my
 `~/.claude`. No packaged build has been published; the version is
 `package.json`'s and the footer reads it from there.
 

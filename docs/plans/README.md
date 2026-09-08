@@ -13,6 +13,8 @@ between the two is the part a later reader needs.
 
 ## Index
 
+- [109 — Hook layer boundary and accurate claims](109-hook-layer-boundary.md) — **awaiting acceptance**
+
 - [108 — Desktop session boundary and removal scope](108-desktop-session-boundary.md) — **accepted decision**
 
 - [102 — Reviewed cleanup](102-reviewed-cleanup.md) — **awaiting acceptance**

@@ -13,15 +13,16 @@ public plans and ADRs carry the reusable context. See the
 
 Open kondo and see your **projects** — each with the skills, plugins, hooks,
 agents and MCP servers attached to it, and the global scope beside them.
-From there, move a thing between projects or up to global, switch it off
-for one project or for all, and let kondo point at what can go: projects
+From there, move or switch off supported kinds in the scopes their capabilities
+allow, and let kondo point at what can go: projects
 whose folder is gone, scratch directories, declarations for things that no
 longer exist, the same skill kept twice. Every change stays undoable.
 
 v0.1 and v0.2 built the machinery for that — reversible writes, the kind
 registry, native conventions — with the screens organised by kind rather
-than by project. v0.3 turned the screens around, v0.4 made everything movable, and v0.5
-put the clean-up categories behind reversible steps.
+than by project. v0.3 turned the screens around, v0.4 expanded moves for
+supported kinds, and v0.5 put the clean-up categories behind reversible steps.
+Hook declarations remain read-only; their layer moves have not shipped.
 
 ## Shipped — v0.1, the read-only core
 
@@ -76,7 +77,7 @@ In dependency order. The first is the foundation everything else keys on.
   collapses to Projects · Clean up · History; undo offered where the change
   was made (026).
 
-## Shipped — v0.4, move everything
+## Shipped — v0.4, moves for supported kinds
 
 - Plugin move between projects as one two-layer settings edit (027).
 - One `plan(entity, request)` seat in the registry and a generic mutate
@@ -87,8 +88,10 @@ In dependency order. The first is the foundation everything else keys on.
 - Read `skillOverrides`, resolve a skill's effective state per layer, and
   decide which disable convention each scope writes (029, ADR-0006
   amendment).
-- Hooks attributed to their project, with missing-script and unarmed-script
-  signals; hook move between layers (036).
+- Hooks attributed to their project, with limited script-health signals and a
+  separate user-store script cleanup category (036). Hook declarations remain
+  read-only: no layer move, enable/disable or declaration removal has shipped
+  ([decision 109](docs/plans/109-hook-layer-boundary.md)).
 - Agents, commands and rules get the move picker on the project page, and
   output styles say why they have none (044).
 - The skill toggle writes `skillOverrides` — Claude's own per-skill switch —
@@ -148,8 +151,8 @@ entry and shipped the same day:
 - **Library**, a fifth destination and the other lens on the same set: the
   named object is the row, a project is one filter over it, and `Needs a
   look` collects the findings and says why each one is a finding (067). It
-  answers where a skill lives and which hooks fire on this machine without
-  opening 11,517 project pages, and needed no main-process work — five bridge
+  answers where a skill lives and which hook declarations the scanned settings
+  hold without opening 11,517 project pages, and needed no main-process work — five bridge
   channels were already wired and never called.
 - The **Flat File** look applied: dark only, mono, sigils instead of
   containers, a `k_` mark drawn once for the icon, the rail and the splash,
@@ -249,6 +252,16 @@ promised. The existing Desktop cache allowlist remains separate.
 - **Retain the recovery limits:** concurrent writes (098) and failed/partial
   Undo outcomes (099) remain separate release-safety work. A session scope
   decision does not establish those guarantees.
+
+### Hook declaration boundary
+
+The [109 decision package](docs/plans/109-hook-layer-boundary.md) and proposed
+[ADR-0017](docs/adr/0017-hook-layer-boundary.md) retain read-only hook declarations
+and correct the earlier shipped-move claim, **awaiting owner acceptance**.
+Inventory is limited to the settings layers Kondo reads; script diagnostics do
+not prove which hooks execute or that a layer move preserves behavior. No move
+implementation is commissioned. Product-copy reconciliation (110) and
+conservative script cleanup (101) remain separate tracked work.
 
 ## Later
 
