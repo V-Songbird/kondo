@@ -144,9 +144,9 @@ describe("a plugin's own skills", () => {
     expect(manifests()).toEqual([])
 
     await api.pluginSkills('plugin:alpha@acme')
-    // Three, not two: a directory is probed for a SKILL.md before it is known
-    // not to be a skill, and `not-a-skill` answers ENOENT.
-    expect(manifests().length).toBe(3)
+    // Resolution rejects the absent not-a-skill/SKILL.md before a content
+    // open. Only the two manifests that exist are read, still lazily.
+    expect(manifests().length).toBe(2)
     for (const call of manifests()) {
       expect(String(call[0])).toContain(path.join('acme', 'alpha', '1.0.0'))
     }

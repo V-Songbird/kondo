@@ -29,7 +29,7 @@ import type {
   ToggleOperation
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
-import { collector, describe, finish, mapPool, type Collector } from './scan'
+import { collector, describe, finish, mapPool, isEnoent, resolveAllowedPath, type Collector, type ReadBoundary } from './scan'
 import {
   configOrphans,
   configOrphansPlan,
@@ -114,17 +114,18 @@ interface InventoryState {
  * A file that is not there is a state too, and differs from one that is.
  */
 async function inventoryFingerprint(locator: StoreLocator): Promise<string> {
-  const mark = async (target: string): Promise<string> => {
+  const mark = async (target: string, boundary: ReadBoundary): Promise<string> => {
     try {
-      const stat = await fs.stat(target)
-      return `${stat.mtimeMs}:${stat.size}`
-    } catch {
-      return 'absent'
+      const resolved = await resolveAllowedPath(target, boundary)
+      const stat = await fs.stat(resolved)
+      return `${resolved}:${stat.mtimeMs}:${stat.size}`
+    } catch (cause) {
+      return isEnoent(cause) ? 'absent' : `unreadable:${describe(cause)}`
     }
   }
   const [registry, projects] = await Promise.all([
-    mark(locator.userConfigFile),
-    mark(path.join(locator.userRoot, 'projects'))
+    mark(locator.userConfigFile, { file: locator.userConfigFile }),
+    mark(path.join(locator.userRoot, 'projects'), locator.userRoot)
   ])
   return `${registry}|${projects}`
 }

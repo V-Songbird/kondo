@@ -23,19 +23,19 @@ export async function desktopStoreReport(
   const root = locator.desktopRoot
   if (!root) return { root: '(unresolved)', exists: false, entries: [], totalBytes: 0 }
   const display = tildify(root, locator.home)
-  const info = await safeStat(root, display, c)
+  const info = await safeStat(root, display, c, root)
   if (!info) return { root: display, exists: false, entries: [], totalBytes: 0 }
 
   const entries: StoreEntry[] = []
-  for (const entry of await safeReaddir(root, display, c)) {
+  for (const entry of await safeReaddir(root, display, c, root)) {
     const child = path.join(root, entry.name)
     const childDisplay = `${display}/${entry.name}`
-    const stat = await safeStat(child, childDisplay, c)
+    const stat = await safeStat(child, childDisplay, c, root)
     if (!stat) continue
     entries.push({
       name: entry.name,
       type: entry.isDirectory() ? 'dir' : 'file',
-      bytes: entry.isDirectory() ? await directorySize(child, childDisplay, c) : stat.size,
+      bytes: entry.isDirectory() ? await directorySize(child, childDisplay, c, root) : stat.size,
       mtimeMs: stat.mtimeMs
     })
   }
@@ -66,13 +66,13 @@ export async function desktopSessionStems(
   const base = path.join(root, SESSIONS_DIR)
   const baseDisplay = tildify(base, locator.home)
 
-  for (const top of await safeReaddir(base, baseDisplay, c)) {
+  for (const top of await safeReaddir(base, baseDisplay, c, root)) {
     if (!top.isDirectory()) continue
     const topDir = path.join(base, top.name)
-    for (const account of await safeReaddir(topDir, `${baseDisplay}/${top.name}`, c)) {
+    for (const account of await safeReaddir(topDir, `${baseDisplay}/${top.name}`, c, root)) {
       if (!account.isDirectory()) continue
       const accountDisplay = `${baseDisplay}/${top.name}/${account.name}`
-      for (const entry of await safeReaddir(path.join(topDir, account.name), accountDisplay, c)) {
+      for (const entry of await safeReaddir(path.join(topDir, account.name), accountDisplay, c, root)) {
         const match = entry.isFile() ? SESSION_FILE.exec(entry.name) : null
         if (match?.[1] !== undefined) stems.add(match[1].toLowerCase())
       }
@@ -91,14 +91,14 @@ export async function desktopSessions(
   const baseDisplay = tildify(base, locator.home)
   const sessions: DesktopSession[] = []
 
-  for (const top of await safeReaddir(base, baseDisplay, c)) {
+  for (const top of await safeReaddir(base, baseDisplay, c, root)) {
     if (!top.isDirectory()) continue
     const topDir = path.join(base, top.name)
-    for (const account of await safeReaddir(topDir, `${baseDisplay}/${top.name}`, c)) {
+    for (const account of await safeReaddir(topDir, `${baseDisplay}/${top.name}`, c, root)) {
       if (!account.isDirectory()) continue
       const accountDir = path.join(topDir, account.name)
       const accountDisplay = `${baseDisplay}/${top.name}/${account.name}`
-      const entries = await safeReaddir(accountDir, accountDisplay, c)
+      const entries = await safeReaddir(accountDir, accountDisplay, c, root)
       const dirNames = new Set(
         entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
       )
@@ -112,7 +112,7 @@ export async function desktopSessions(
           continue
         }
         const file = path.join(accountDir, entry.name)
-        const stat = await safeStat(file, `${accountDisplay}/${entry.name}`, c)
+        const stat = await safeStat(file, `${accountDisplay}/${entry.name}`, c, root)
         if (!stat) continue
         let bytes = stat.size
         const sidecar = entry.name.replace(/\.json$/, '')
@@ -120,7 +120,8 @@ export async function desktopSessions(
           bytes += await directorySize(
             path.join(accountDir, sidecar),
             `${accountDisplay}/${sidecar}`,
-            c
+            c,
+            root
           )
         }
         sessions.push({

@@ -256,13 +256,19 @@ describe('skill move between scopes (ADR-0001)', () => {
 
   it('leaves the source in place and unmodified when the copy does not verify', async () => {
     const before = await hashTree(world.userRoot)
-    const original = fs.cp
-    // A copy that lands incomplete. Nothing else in the operation changes;
-    // verification is the only thing standing between this and a lost skill.
-    Object.defineProperty(fs, 'cp', {
-      value: async (from: string, to: string, options: unknown) => {
-        await original(from, to, options as Parameters<typeof original>[2])
-        await fs.rm(path.join(to, 'reference'), { recursive: true, force: true })
+    const original = fs.copyFile
+    const corrupted = 'fixture: the copied reference lost its original bytes\n'
+    let intercepted = false
+    // The explicit walker copies one validated file at a time. Damage only
+    // the destination reference; verification must refuse to release the source.
+    Object.defineProperty(fs, 'copyFile', {
+      value: async (...args: Parameters<typeof original>) => {
+        await original(...args)
+        const [from, to] = args
+        if (String(from) === path.join(world.userRoot, 'skills', 'alpha-skill', 'reference', 'notes.md')) {
+          intercepted = true
+          await fs.writeFile(to, corrupted)
+        }
       },
       configurable: true,
       writable: true
@@ -272,9 +278,10 @@ describe('skill move between scopes (ADR-0001)', () => {
     try {
       result = await api.skillMove('skill:user:alpha-skill', projectId(workdir))
     } finally {
-      Object.defineProperty(fs, 'cp', { value: original, configurable: true, writable: true })
+      Object.defineProperty(fs, 'copyFile', { value: original, configurable: true, writable: true })
     }
 
+    expect(intercepted, 'the per-file copy corruption probe did not run').toBe(true)
     expect(result.data).toBeNull()
     expect(result.errors[0]?.message).toContain('does not match its source')
     expect(result.errors[0]?.message).toContain('nothing was removed')
@@ -285,6 +292,23 @@ describe('skill move between scopes (ADR-0001)', () => {
       .toBe(true)
     // And no half-copy is left sitting at the destination.
     expect(await exists(path.join(claudeDir, 'skills', 'alpha-skill'))).toBe(false)
+    // The failed copy remains recoverable in this journal entry's trash.
+    const history = await api.journalList()
+    expect(history.errors).toEqual([])
+    const failed = history.data.find((entry) => entry.failed)
+    expect(failed).toBeDefined()
+    const kept = path.join(
+      world.kondoDataRoot,
+      'trash',
+      failed!.id.slice('journal:'.length),
+      `project-${flattenPath(workdir)}`,
+      'skills',
+      'alpha-skill'
+    )
+    expect(await fs.readFile(path.join(kept, 'reference', 'notes.md'), 'utf8')).toBe(corrupted)
+    expect(await fs.readFile(path.join(kept, 'SKILL.md'), 'utf8')).toBe(
+      skillManifest('alpha-skill', 'First skill')
+    )
   })
 
   it('appends the journal entry before the destination is written', async () => {

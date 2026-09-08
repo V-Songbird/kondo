@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs'
 import readline from 'node:readline'
 import { truncate } from './display'
+import { resolveAllowedPath, type ReadBoundary } from './scan'
 
 /** Contract: SessionDetail.firstUserPrompt is truncated for display. */
 const MAX_PROMPT_CHARS = 280
@@ -19,7 +20,7 @@ export interface TranscriptSummary {
   firstUserPrompt: string | null
 }
 
-export async function summarizeTranscript(file: string): Promise<TranscriptSummary> {
+export async function summarizeTranscript(file: string, boundary: ReadBoundary): Promise<TranscriptSummary> {
   const summary: TranscriptSummary = {
     lineCount: 0,
     messageCount: 0,
@@ -29,7 +30,7 @@ export async function summarizeTranscript(file: string): Promise<TranscriptSumma
     firstUserPrompt: null
   }
 
-  const stream = createReadStream(file, { encoding: 'utf8' })
+  const stream = createReadStream(await resolveAllowedPath(file, boundary), { encoding: 'utf8' })
   const lines = readline.createInterface({ input: stream, crlfDelay: Infinity })
   try {
     for await (const line of lines) {
@@ -77,8 +78,8 @@ export async function summarizeTranscript(file: string): Promise<TranscriptSumma
  * A malformed line is skipped rather than fatal, and a transcript with no
  * readable user message answers null (ADR-0005).
  */
-export async function readFirstUserPrompt(file: string): Promise<string | null> {
-  const stream = createReadStream(file, { encoding: 'utf8' })
+export async function readFirstUserPrompt(file: string, boundary: ReadBoundary): Promise<string | null> {
+  const stream = createReadStream(await resolveAllowedPath(file, boundary), { encoding: 'utf8' })
   const lines = readline.createInterface({ input: stream, crlfDelay: Infinity })
   try {
     for await (const line of lines) {

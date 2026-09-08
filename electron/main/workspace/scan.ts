@@ -4,11 +4,7 @@ import path from 'node:path'
 import type { Dirent, Stats } from 'node:fs'
 import type { Scan, ScanError, ScanErrorCode } from '../../../shared/contract'
 
-/**
- * Scan plumbing (ADR-0005): fs wrappers that turn exceptions into itemized
- * errors so adapters return partial data instead of throwing.
- */
-
+/** Scan plumbing: failures are itemized so healthy siblings remain available. */
 export interface Collector {
   errors: ScanError[]
   unknown: string[]
@@ -37,72 +33,30 @@ export function describe(cause: unknown): string {
 }
 
 export function isEnoent(cause: unknown): boolean {
-  return (
-    typeof cause === 'object' &&
-    cause !== null &&
+  return typeof cause === 'object' && cause !== null &&
     (cause as NodeJS.ErrnoException).code === 'ENOENT'
-  )
 }
 
-/** readdir that reports failure to the collector; ENOENT is a plain empty. */
-export async function safeReaddir(
-  dir: string,
-  display: string,
-  c: Collector
-): Promise<Dirent[]> {
-  try {
-    return await fs.readdir(dir, { withFileTypes: true })
-  } catch (cause) {
-    if (!isEnoent(cause)) c.fail('read-failed', display, cause)
-    return []
+/** A directory authority, or one of ADR-0002's exact-file exceptions. */
+export type ReadBoundary = string | { file: string }
+
+export class BoundaryError extends Error {
+  constructor(readonly code: 'out-of-store' | 'read-failed', message: string) {
+    super(message)
   }
 }
 
-export async function safeStat(
-  target: string,
-  display: string,
-  c: Collector
-): Promise<Stats | null> {
-  try {
-    return await fs.stat(target)
-  } catch (cause) {
-    if (!isEnoent(cause)) c.fail('stat-failed', display, cause)
-    return null
-  }
-}
+const samePath = (a: string, b: string): boolean => path.relative(a, b) === ''
 
-export async function safeReadJson(
-  file: string,
-  display: string,
-  c: Collector
-): Promise<unknown> {
-  let raw: string
-  try {
-    raw = await fs.readFile(file, 'utf8')
-  } catch (cause) {
-    if (!isEnoent(cause)) c.fail('read-failed', display, cause)
-    return null
-  }
-  try {
-    return JSON.parse(raw)
-  } catch (cause) {
-    c.fail('parse-failed', display, cause)
-    return null
-  }
-}
-
-/**
- * A path under a store root, as a step names it: relative, and always with
- * forward slashes so a plan reads the same on every platform (ADR-0003).
- */
-export const relativeTo = (root: string, target: string): string =>
-  path.relative(root, target).split(path.sep).join('/')
-
-/** Lexical containment only; resolve filesystem links before using as a write boundary. */
+/** Lexical containment only; resolve links before using as an I/O boundary. */
 export function pathWithin(target: string, root: string): boolean {
   const rel = path.relative(root, target)
-  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+  return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)
 }
+
+/** Store-relative display/plan path, with portable forward slashes. */
+export const relativeTo = (root: string, target: string): string =>
+  path.relative(root, target).split(path.sep).join('/')
 
 /** Resolve missing destinations through their nearest existing ancestor. */
 export async function realpathWithMissing(target: string): Promise<string> {
@@ -110,16 +64,120 @@ export async function realpathWithMissing(target: string): Promise<string> {
     return await fs.realpath(target)
   } catch (cause) {
     if (!isEnoent(cause)) throw cause
-    // ENOENT can also mean a dangling link. Never turn that into a new file
-    // or directory at its unchecked referent.
     const entry = await fs.lstat(target).catch((error: unknown) => {
       if (!isEnoent(error)) throw error
       return null
     })
-    if (entry !== null) throw cause
+    if (entry !== null) {
+      throw new BoundaryError('read-failed', 'Cannot resolve a dangling filesystem link.')
+    }
     const parent = path.dirname(target)
     if (parent === target) throw cause
     return path.join(await realpathWithMissing(parent), path.basename(target))
+  }
+}
+
+/**
+ * Resolve against the owning store, never against a nested scan directory.
+ * A configured root may itself be an alias. Exact-file exceptions authorize
+ * only their basename under the resolved parent, never a redirected sibling.
+ * These checks guard stable links, not every concurrent replacement race.
+ */
+export async function resolveAllowedPath(
+  target: string,
+  boundary: ReadBoundary,
+  allowMissing = false
+): Promise<string> {
+  const exact = typeof boundary !== 'string'
+  const root = path.resolve(exact ? path.dirname(boundary.file) : boundary)
+  const absolute = path.resolve(target)
+  if (exact ? !samePath(absolute, path.resolve(boundary.file)) :
+    !samePath(absolute, root) && !pathWithin(absolute, root)) {
+    throw new BoundaryError('out-of-store', 'The path leaves its allowed store boundary.')
+  }
+  const resolvedRoot = await realpathWithMissing(root)
+  const resolved = await realpathWithMissing(absolute)
+  const allowed = exact
+    ? samePath(resolved, path.join(resolvedRoot, path.basename(boundary.file)))
+    : samePath(resolved, resolvedRoot) || pathWithin(resolved, resolvedRoot)
+  if (!allowed) {
+    throw new BoundaryError('out-of-store', 'The resolved path leaves its allowed store boundary.')
+  }
+  return allowMissing ? resolved : await fs.realpath(resolved)
+}
+
+function failRead(c: Collector, display: string, cause: unknown, code: ScanErrorCode = 'read-failed'): void {
+  if (!isEnoent(cause)) c.fail(cause instanceof BoundaryError ? cause.code : code, display, cause)
+}
+
+/** Validate directory entries too, so unsafe links never become cleanup candidates. */
+export async function safeReaddir(
+  dir: string,
+  display: string,
+  c: Collector,
+  boundary: ReadBoundary
+): Promise<Dirent[]> {
+  try {
+    const resolved = await resolveAllowedPath(dir, boundary)
+    const entries = await fs.readdir(resolved, { withFileTypes: true })
+    const checked = await mapPool(entries, 32, async (entry) => {
+      try {
+        const child = await resolveAllowedPath(path.join(dir, entry.name), boundary)
+        if (entry.isSymbolicLink()) {
+          const info = await fs.stat(child)
+          if (info.isDirectory() && (samePath(child, resolved) || pathWithin(resolved, child))) {
+            throw new BoundaryError('read-failed', 'A directory link loops into its ancestors.')
+          }
+          Object.assign(entry, {
+            isDirectory: () => info.isDirectory(),
+            isFile: () => info.isFile()
+          })
+        }
+        return entry
+      } catch (cause) {
+        failRead(c, `${display}/${entry.name}`, cause)
+        return null
+      }
+    })
+    return checked.filter((entry): entry is Dirent => entry !== null)
+  } catch (cause) {
+    failRead(c, display, cause)
+    return []
+  }
+}
+
+export async function safeStat(
+  target: string,
+  display: string,
+  c: Collector,
+  boundary: ReadBoundary
+): Promise<Stats | null> {
+  try {
+    return await fs.stat(await resolveAllowedPath(target, boundary))
+  } catch (cause) {
+    failRead(c, display, cause, 'stat-failed')
+    return null
+  }
+}
+
+export async function safeReadJson(
+  file: string,
+  display: string,
+  c: Collector,
+  boundary: ReadBoundary
+): Promise<unknown> {
+  let raw: string
+  try {
+    raw = await fs.readFile(await resolveAllowedPath(file, boundary), 'utf8')
+  } catch (cause) {
+    failRead(c, display, cause)
+    return null
+  }
+  try {
+    return JSON.parse(raw)
+  } catch (cause) {
+    c.fail('parse-failed', display, cause)
+    return null
   }
 }
 
@@ -141,79 +199,107 @@ export async function mapPool<T, R>(
   return results
 }
 
+export interface TreeEntry {
+  relative: string
+  directory: boolean
+}
+
 /**
- * A tree reduced to one hash: every relative name in sorted order, and the
- * bytes of every file. Two trees with the same digest hold the same skill.
- *
- * The one read here that throws rather than reporting (ADR-0005's exception,
- * and the reason it takes no collector): its callers ask a yes/no question
- * about bytes, and a tree half-read has no honest answer. The copy verifier
- * turns the throw into "nothing was removed"; the duplicate listing turns it
- * into a member with no digest, which is never called a match.
+ * Strict preflight for hashes/copies: a partial tree cannot prove equality.
+ * Detect cycles per ancestry, allowing two independent aliases of safe data.
  */
-export async function digestTree(root: string): Promise<string> {
-  const hash = createHash('sha256')
-  if (!(await fs.stat(root)).isDirectory()) {
-    hash.update(await fs.readFile(root))
-    return hash.digest('hex')
+export async function inspectTree(target: string, boundary: ReadBoundary): Promise<TreeEntry[]> {
+  const entries: TreeEntry[] = []
+  const walk = async (at: string, relative: string, ancestors: Set<string>): Promise<void> => {
+    const resolved = await resolveAllowedPath(at, boundary)
+    const info = await fs.stat(resolved)
+    const directory = info.isDirectory()
+    if (!directory && !info.isFile()) {
+      throw new BoundaryError('read-failed', 'Only regular files and directories can be copied or hashed.')
+    }
+    entries.push({ relative, directory })
+    if (!directory) return
+    const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved
+    if (ancestors.has(key)) throw new BoundaryError('read-failed', 'A directory link creates a recursive cycle.')
+    const next = new Set(ancestors).add(key)
+    for (const entry of await fs.readdir(resolved, { withFileTypes: true })) {
+      await walk(path.join(at, entry.name), relative ? `${relative}/${entry.name}` : entry.name, next)
+    }
   }
-  const names = (await fs.readdir(root, { withFileTypes: true, recursive: true }))
-    .map((entry) => {
-      const relative = path
-        .relative(root, path.join(entry.parentPath, entry.name))
-        .split(path.sep)
-        .join('/')
-      return entry.isDirectory() ? `${relative}/` : relative
-    })
-    .sort()
-  for (const relative of names) {
-    hash.update(relative)
-    if (relative.endsWith('/')) continue
-    hash.update(await fs.readFile(path.join(root, ...relative.split('/'))))
+  await walk(target, '', new Set())
+  return entries
+}
+
+/** Hash every logical relative name and file's bytes, after tree preflight. */
+export async function digestTree(target: string, boundary: ReadBoundary): Promise<string> {
+  const entries = await inspectTree(target, boundary)
+  const hash = createHash('sha256')
+  for (const entry of entries.map((entry) => ({
+    ...entry,
+    name: entry.directory && entry.relative ? `${entry.relative}/` : entry.relative
+  })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
+    hash.update(entry.name)
+    if (!entry.directory) {
+      hash.update(await fs.readFile(await resolveAllowedPath(path.join(target, entry.relative), boundary)))
+    }
   }
   return hash.digest('hex')
 }
 
-/** Recursive size of a directory tree; errors reported, never thrown. */
+/** Copy a preflighted logical tree, validating each destination before I/O. */
+export async function copyTree(
+  from: string,
+  to: string,
+  sourceBoundary: ReadBoundary,
+  destinationBoundary: ReadBoundary
+): Promise<void> {
+  const entries = await inspectTree(from, sourceBoundary)
+  // Validate every destination before creating even the first directory.
+  for (const entry of entries) {
+    await resolveAllowedPath(path.join(to, entry.relative), destinationBoundary, true)
+  }
+  for (const entry of entries) {
+    const source = await resolveAllowedPath(path.join(from, entry.relative), sourceBoundary)
+    const destination = await resolveAllowedPath(path.join(to, entry.relative), destinationBoundary, true)
+    if (entry.directory) {
+      await fs.mkdir(destination, { recursive: true })
+    } else {
+      // Resolve its ancestor separately: mkdir must not follow an unchecked link.
+      if (typeof destinationBoundary === 'string') {
+        const parent = await resolveAllowedPath(path.dirname(path.join(to, entry.relative)), destinationBoundary, true)
+        await fs.mkdir(parent, { recursive: true })
+      }
+      await fs.copyFile(source, await resolveAllowedPath(path.join(to, entry.relative), destinationBoundary, true))
+    }
+  }
+}
+
+/** Recursive size with partial results and per-directory cycle detection. */
 export async function directorySize(
   dir: string,
   display: string,
-  c: Collector
+  c: Collector,
+  boundary: ReadBoundary
 ): Promise<number> {
-  // One recursive readdir for the whole tree, then the stats in parallel: a
-  // Chromium cache of 19,000 files measured in 0.75 s this way against 2.5 s
-  // one stat at a time (entry 063). Symbolic links are listed, never followed.
-  let entries: Dirent[]
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true, recursive: true })
-  } catch {
-    // A tree the one call cannot list whole is walked the slow way, so the
-    // directory that refuses is the one reported and the rest still counts.
-    return directorySizeStepwise(dir, display, c)
-  }
-  const files = entries.filter((entry) => entry.isFile())
-  const sizes = await mapPool(files, 64, async (entry) => {
-    const parent = entry.parentPath
-    const child = path.join(parent, entry.name)
-    const info = await safeStat(child, `${display}/${path.relative(dir, child).split(path.sep).join('/')}`, c)
-    return info?.size ?? 0
-  })
-  return sizes.reduce((sum, size) => sum + size, 0)
-}
-
-async function directorySizeStepwise(dir: string, display: string, c: Collector): Promise<number> {
-  let total = 0
-  const entries = await safeReaddir(dir, display, c)
-  for (const entry of entries) {
-    const child = path.join(dir, entry.name)
-    const childDisplay = `${display}/${entry.name}`
-    if (entry.isSymbolicLink()) continue
-    if (entry.isDirectory()) {
-      total += await directorySizeStepwise(child, childDisplay, c)
-    } else if (entry.isFile()) {
-      const info = await safeStat(child, childDisplay, c)
-      if (info) total += info.size
+  const walk = async (at: string, shown: string, ancestors: Set<string>): Promise<number> => {
+    try {
+      const resolved = await resolveAllowedPath(at, boundary)
+      const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved
+      if (ancestors.has(key)) throw new BoundaryError('read-failed', 'A directory link creates a recursive cycle.')
+      const next = new Set(ancestors).add(key)
+      const entries = await safeReaddir(at, shown, c, boundary)
+      const sizes = await mapPool(entries, 32, async (entry) => {
+        const child = path.join(at, entry.name)
+        const childDisplay = `${shown}/${entry.name}`
+        if (entry.isDirectory()) return await walk(child, childDisplay, next)
+        if (!entry.isFile()) return 0
+        return (await safeStat(child, childDisplay, c, boundary))?.size ?? 0
+      })
+      return sizes.reduce((sum, size) => sum + size, 0)
+    } catch (cause) {
+      failRead(c, shown, cause)
+      return 0
     }
   }
-  return total
+  return await walk(dir, display, new Set())
 }

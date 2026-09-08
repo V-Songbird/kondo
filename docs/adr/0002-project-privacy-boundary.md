@@ -78,3 +78,41 @@ buys no fourth path. It records that a *reported* path and a *statted* path
 are different things, and that `unverifiable` is the honest answer rather
 than a reach. `test/hooks.test.ts` spies on `fs.stat` and asserts neither
 unverifiable row was ever probed.
+
+## Amendment (097): resolved boundaries and recursive operations
+
+A lexical child path does not establish permission to open its bytes. Each
+scanner passes its owning user, desktop or verified project `.claude` root to
+the shared boundary helper. The helper checks lexical containment, resolves the
+root and target, and checks containment again before listing, statting or
+opening the target. An in-store alias is supported; an alias into another
+allowed store is still an escape from this operation's root. The configured
+root itself may be an alias and remains the locator's explicit authority.
+
+The two exact-file exceptions grant only the original filename beneath its
+resolved parent. Neither exception can redirect a read to a sibling file.
+Project existence checks remain metadata-only; Chromium Singleton markers are
+examined with `lstat` without following their conventional link targets.
+
+Missing optional entries remain ordinary absence. Dangling links and cycles
+are failures, including a broken ancestor of a missing destination. Scanner
+walks skip the failed entry and return itemized errors with healthy siblings.
+Recursive hashes and copies need a complete tree, so they fail on any unsafe
+member. Every copy source and destination is checked per entry; a single
+top-level check cannot authorize hidden recursive I/O. Transcript streams,
+lock handles and cache hits also revalidate their path before use.
+
+Trash preserves link metadata so undo can restore the original directory
+entries. That metadata is not a read exception: physical inventory and
+cross-volume verification hash stored regular files and link text without
+following archived links. Undo validates the future tree and every restore
+endpoint before writing its journal entry or displacing an existing occupant.
+Live-store copies materialize safe linked contents rather than introducing
+cross-store aliases at the destination.
+
+The tests use only synthetic roots and sentinels. They intercept promise reads,
+streams and file-handle entry points and resolve observed paths, in addition
+to the lexical allowlist. This is evidence for the mechanisms tested on the
+host, not a kernel-enforced sandbox. Node pathname resolution and subsequent
+I/O are separate operations: these checks do not eliminate every TOCTOU race
+against another process replacing directories concurrently.

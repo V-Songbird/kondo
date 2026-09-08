@@ -12,15 +12,20 @@ import type {
 import type { StoreLocator } from './locator'
 import {
   collector,
+  BoundaryError,
+  copyTree,
   describe,
   digestTree,
-  directorySize,
   finish,
   isEnoent,
+  inspectTree,
   pathWithin,
-  realpathWithMissing
+  realpathWithMissing,
+  resolveAllowedPath,
+  type ReadBoundary
 } from './scan'
 import { tildify } from './display'
+import { inspectPhysicalTree, preflightRelocation, relocateTree } from './relocation'
 
 /**
  * The write path (ADR-0001): every mutation is journaled durably before the
@@ -309,6 +314,7 @@ export function createMutations(
   const trashRoot = path.join(kondoData, 'trash')
 
   const roots = new Map<string, string>([['user', locator.userRoot]])
+  const discoveredRoots = new Set<string>()
   if (locator.desktopRoot) roots.set('desktop', locator.desktopRoot)
 
   // The one file the `user-config` store may name (ADR-0010). Its root is a
@@ -342,7 +348,55 @@ export function createMutations(
         `Kondo's data directory sits inside "${store}" — refusing to write (ADR-0001).`
       )
     }
+    discoveredRoots.add(dynamic)
     return dynamic
+  }
+
+  // Operations retain the precise lexical authority of each endpoint, including
+  // Kondo's separate journal/trash footprint. Resolving into another allowed
+  // store never changes an endpoint's authority.
+  const boundaryOf = (target: string): ReadBoundary => {
+    if (path.relative(target, locator.userConfigFile) === '') return { file: locator.userConfigFile }
+    const root = [...roots.values(), ...discoveredRoots, kondoData]
+      .filter((candidate) => path.relative(candidate, target) === '' || pathWithin(target, candidate))
+      .sort((a, b) => b.length - a.length)[0]
+    if (root === undefined) throw new Refused('out-of-store', target, 'Unknown filesystem authority.')
+    return root
+  }
+
+  const checked = async (target: string, missing = false): Promise<string> => {
+    try {
+      return await resolveAllowedPath(target, boundaryOf(target), missing)
+    } catch (cause) {
+      if (cause instanceof BoundaryError) throw new Refused(cause.code, target, cause.message)
+      throw cause
+    }
+  }
+
+  const checkTree = async (target: string): Promise<void> => {
+    try {
+      await inspectTree(target, boundaryOf(target))
+    } catch (cause) {
+      if (cause instanceof BoundaryError) throw new Refused(cause.code, target, cause.message)
+      throw cause
+    }
+  }
+
+  const copy = async (from: string, to: string): Promise<void> => {
+    try {
+      await copyTree(from, to, boundaryOf(from), boundaryOf(to))
+    } catch (cause) {
+      if (cause instanceof BoundaryError) throw new Refused(cause.code, to, cause.message)
+      throw cause
+    }
+  }
+
+  const prepareParent = async (target: string): Promise<void> => {
+    await checked(target, true)
+    // Exact-file exceptions never grant directory creation outside the store.
+    if (typeof boundaryOf(target) === 'string') {
+      await fs.mkdir(await checked(path.dirname(target), true), { recursive: true })
+    }
   }
 
   const resolveIn = async (store: string, relative: string, dereference = false): Promise<string> => {
@@ -389,7 +443,18 @@ export function createMutations(
 
   const exists = async (target: string): Promise<boolean> => {
     try {
-      await fs.stat(target)
+      await fs.stat(await checked(target))
+      return true
+    } catch (cause) {
+      if (isEnoent(cause)) return false
+      throw cause
+    }
+  }
+
+  const entryExists = async (target: string): Promise<boolean> => {
+    const parent = await checked(path.dirname(target), true)
+    try {
+      await fs.lstat(path.join(parent, path.basename(target)))
       return true
     } catch (cause) {
       if (isEnoent(cause)) return false
@@ -415,8 +480,14 @@ export function createMutations(
    */
   const readForSplice = async (target: string, at: string): Promise<string> => {
     try {
+      // resolveIn returned the canonical referent. Refuse a changed path before
+      // reading as well as before replacement; a splice must preserve its link.
+      if (path.relative(target, await fs.realpath(target)) !== '') {
+        throw new Refused('out-of-store', at, 'The splice target changed its resolved path.')
+      }
       return await fs.readFile(target, 'utf8')
     } catch (cause) {
+      if (cause instanceof Refused) throw cause
       if (isEnoent(cause)) {
         throw new Refused('read-failed', at, 'Nothing to splice at that path.')
       }
@@ -490,7 +561,9 @@ export function createMutations(
    */
   const verifyCopy = async (from: string, to: string): Promise<string | null> => {
     try {
-      const [source, destination] = await Promise.all([digestTree(from), digestTree(to)])
+      const [source, destination] = await Promise.all([
+        digestTree(from, boundaryOf(from)), digestTree(to, boundaryOf(to))
+      ])
       if (source === destination) return null
       return `The copy at ${path.basename(to)} does not match its source; nothing was removed.`
     } catch (cause) {
@@ -498,22 +571,18 @@ export function createMutations(
     }
   }
 
-  /** Move that survives a store and `<kondo-data>` on different volumes. */
-  const relocate = async (from: string, to: string): Promise<void> => {
-    await fs.mkdir(path.dirname(to), { recursive: true })
+  /** Preserve directory entries in trash, then validate their future restore. */
+  const relocation = async (from: string, to: string, execute: boolean): Promise<void> => {
     try {
-      await fs.rename(from, to)
+      const restore = !pathWithin(to, trashRoot)
+      const action = execute ? relocateTree : preflightRelocation
+      await action(from, to, boundaryOf(from), boundaryOf(to), restore)
     } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code !== 'EXDEV') throw cause
-      // Copy, verify, then release the source — ADR-0001's move recipe. A
-      // project on one volume and `<kondo-data>` on another is ordinary, so
-      // this path carries the same proof the `copy` step does.
-      await fs.cp(from, to, { recursive: true })
-      const unverified = await verifyCopy(from, to)
-      if (unverified !== null) throw new Refused('read-failed', to, unverified)
-      await fs.rm(from, { recursive: true })
+      if (cause instanceof BoundaryError) throw new Refused(cause.code, to, cause.message)
+      throw cause
     }
   }
+  const relocate = async (from: string, to: string): Promise<void> => relocation(from, to, true)
 
   /** Remove directories a step created, only while they are still empty. */
   const dropCreated = async (created: string[] | undefined, store: string): Promise<void> => {
@@ -530,8 +599,9 @@ export function createMutations(
   // Journal file
 
   const appendJournal = async (record: JournalRecord): Promise<void> => {
-    await fs.mkdir(kondoData, { recursive: true })
-    const handle = await fs.open(journalFile, 'a')
+    await checked(journalFile, true)
+    await fs.mkdir(await checked(kondoData, true), { recursive: true })
+    const handle = await fs.open(await checked(journalFile, true), 'a')
     try {
       await handle.write(`${JSON.stringify(record)}\n`)
       // The invariant is ordering, not best effort: the entry is on the
@@ -551,7 +621,7 @@ export function createMutations(
     const blockedUndoIds = new Set<string>()
     let raw: string
     try {
-      raw = await fs.readFile(journalFile, 'utf8')
+      raw = await fs.readFile(await checked(journalFile), 'utf8')
     } catch (cause) {
       if (!isEnoent(cause)) c.fail('read-failed', 'journal.jsonl', cause)
       return { records: [], blockedUndoIds, scan: finish(null, c) }
@@ -636,12 +706,19 @@ export function createMutations(
     const display = trashDisplay()
     let entryCount = 0
     try {
-      const entries = await fs.readdir(trashRoot, { withFileTypes: true })
+      const entries = await fs.readdir(await checked(trashRoot), { withFileTypes: true })
       entryCount = entries.filter((entry) => entry.isDirectory()).length
     } catch (cause) {
       if (!isEnoent(cause)) c.fail('read-failed', display, cause)
     }
-    const bytes = await directorySize(trashRoot, display, c)
+    // Archived links are stored metadata, not permission to follow their
+    // referents back into a live store. Count only bytes physically retained.
+    const held = await inspectPhysicalTree(trashRoot, kondoData, (at, cause) => {
+      if (!isEnoent(cause)) {
+        c.fail(cause instanceof BoundaryError ? cause.code : 'read-failed', tildify(at, locator.home), cause)
+      }
+    })
+    const bytes = held.reduce((total, entry) => total + entry.bytes, 0)
     return finish({ root: display, bytes, entryCount }, c)
   }
 
@@ -656,14 +733,12 @@ export function createMutations(
     for (const [index, step] of steps.entries()) {
       if (step.type === 'move') {
         const destination = await resolveIn(step.store, step.to as string)
-        await fs.mkdir(path.dirname(destination), { recursive: true })
         await relocate(await resolveIn(step.store, step.from), destination)
       } else if (step.type === 'copy') {
         const toStore = step.toStore as string
         const source = await resolveIn(step.store, step.from)
         const destination = await resolveIn(toStore, step.to as string)
-        await fs.mkdir(path.dirname(destination), { recursive: true })
-        await fs.cp(source, destination, { recursive: true })
+        await copy(source, destination)
         const unverified = await verifyCopy(source, destination)
         if (unverified !== null) {
           // The half-copy is kondo's own doing and the source has not been
@@ -687,11 +762,10 @@ export function createMutations(
       } else {
         const target = await resolveIn(step.store, step.from)
         if (step.displaced) {
-          await fs.mkdir(path.dirname(trashPath(journalId, step.displaced)), { recursive: true })
-          await fs.cp(target, trashPath(journalId, step.displaced), { recursive: true })
+          await copy(target, trashPath(journalId, step.displaced))
         }
-        await fs.mkdir(path.dirname(target), { recursive: true })
-        await fs.writeFile(target, (planned[index] as { content: string }).content, 'utf8')
+        await prepareParent(target)
+        await fs.writeFile(await checked(target, true), (planned[index] as { content: string }).content, 'utf8')
       }
     }
   }
@@ -727,6 +801,10 @@ export function createMutations(
       const root = await rootOf(step.store)
       const displaced = `${step.store}/${relative}`
 
+      // Refuse a bad nested source or trash destination before journaling.
+      if (await exists(target)) await checkTree(target)
+      await checked(trashPath(journalId, displaced), true)
+
       if (step.type === 'move') {
         const destination = await resolveIn(step.store, step.to)
         if (!(await exists(target))) {
@@ -735,6 +813,7 @@ export function createMutations(
         if (await exists(destination)) {
           throw new Refused('bad-request', step.to, 'The destination already exists.')
         }
+        await relocation(target, destination, false)
         steps.push({
           type: 'move',
           store: step.store,
@@ -762,6 +841,7 @@ export function createMutations(
         if (!(await exists(target))) {
           throw new Refused('read-failed', relative, 'Nothing to trash at that path.')
         }
+        await relocation(target, trashPath(journalId, displaced), false)
         steps.push({ type: 'trash', store: step.store, from: relative, displaced })
       } else {
         const had = await exists(target)
@@ -873,6 +953,35 @@ export function createMutations(
       const steps: JournalStep[] = []
       try {
         for (const step of original.steps) {
+          // Preflight every tree and endpoint before appending an undo entry
+          // or displacing a healthy occupant. Trash links are metadata until
+          // validated against their future location in the restored store.
+          const target = await resolveIn(step.store, step.from)
+          const targetExists = await exists(target)
+          if (targetExists) await checkTree(target)
+          if (step.type === 'move') {
+            const destination = await resolveIn(step.store, step.to as string)
+            if (await exists(destination)) await relocation(destination, target, false)
+          } else if (step.type === 'copy') {
+            const destination = await resolveIn(step.toStore as string, step.to as string)
+            if (await exists(destination)) {
+              await relocation(destination, trashPath(id, `${step.toStore}/${step.to}`), false)
+            }
+          } else if ((step.type === 'trash' || step.type === 'write') && step.displaced) {
+            const kept = trashPath(original.id, step.displaced)
+            // A saved link can deliberately point back at its original store.
+            // Test the entry itself without following it out of Kondo's trash.
+            if (await entryExists(kept)) {
+              if (step.type === 'trash' && targetExists && failedIds(records).has(key)) {
+                throw new Refused('read-failed', step.from,
+                  'The failed move retains both a source and saved bytes. Their completeness is uncertain; nothing was changed.')
+              }
+              await relocation(kept, target, false)
+            }
+          }
+          if (targetExists && step.type !== 'splice' && step.type !== 'copy') {
+            await relocation(target, trashPath(id, `${step.store}/${step.from}`), false)
+          }
           if (step.type === 'write') {
             steps.push({
               type: 'trash' as const,
@@ -955,7 +1064,7 @@ export function createMutations(
             // Nothing in the trash and the source still in place means this
             // step never ran. Nothing in the trash and no source is the
             // emptied trash, which still throws and is still reported below.
-            if ((await exists(kept)) || !(await exists(source))) {
+            if ((await entryExists(kept)) || !(await exists(source))) {
               // Claude writing a transcript at the same uuid is the ordinary
               // way this happens, and it is exactly what must not be lost.
               if (await exists(source)) {
@@ -976,15 +1085,14 @@ export function createMutations(
             // silent skip would report an undo that succeeded and put nothing
             // back, which is the worse of the two half-truths, and the store
             // is untouched either way.
-            if (kept !== null) await fs.stat(kept)
+            if (kept !== null) await fs.stat(await checked(kept))
             // Nothing is destroyed: the current bytes go to the undo's trash
             // before whatever they displaced comes back.
             if (await exists(target)) {
               await relocate(target, trashPath(id, `${step.store}/${step.from}`))
             }
             if (kept !== null) {
-              await fs.mkdir(path.dirname(target), { recursive: true })
-              await fs.cp(kept, target, { recursive: true })
+              await copy(kept, target)
             }
           }
           await dropCreated(step.created, createdIn(step))
@@ -1050,7 +1158,10 @@ export function createMutations(
       const before = await readTrash()
       const c = collector()
       try {
-        await fs.rm(trashRoot, { recursive: true, force: true })
+        if (await exists(trashRoot)) {
+          await inspectPhysicalTree(trashRoot, kondoData)
+          await fs.rm(trashRoot, { recursive: true, force: true })
+        }
       } catch (cause) {
         c.fail('read-failed', before.data.root, cause)
       }

@@ -25,7 +25,7 @@ import type {
   ToggleOperation
 } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
-import { digestTree, mapPool, relativeTo, type Collector } from './scan'
+import { digestTree, mapPool, relativeTo, resolveAllowedPath, type Collector } from './scan'
 import {
   applyEdits,
   digestSource,
@@ -761,7 +761,7 @@ const session: EntityKindDefinition<SessionSummary, SessionDetail> = {
       .get(key.slice(0, slash))
       ?.sessions.find((candidate) => candidate.uuid === uuid)
     if (!record) return null
-    return { id, ...(await summarizeTranscript(record.file)) }
+    return { id, ...(await summarizeTranscript(record.file, context.locator.userRoot)) }
   },
   // The one entry whose `read` answers a detail rather than the entity its
   // `plan` takes — which costs nothing, because nothing about a session is
@@ -833,7 +833,7 @@ async function mcpTogglePlan(
   const display = tildify(locator.userConfigFile, locator.home)
   let text: string
   try {
-    text = await fs.readFile(locator.userConfigFile, 'utf8')
+    text = await fs.readFile(await resolveAllowedPath(locator.userConfigFile, { file: locator.userConfigFile }), 'utf8')
   } catch (cause) {
     return refused('read-failed', `${display} could not be read: ${describeCause(cause)}`)
   }
@@ -1465,17 +1465,17 @@ const PROJECT_STORE = 'project:'
 async function absolutePathOf(
   placement: Placement,
   context: KindContext
-): Promise<string | null> {
+): Promise<{ target: string; root: string } | null> {
   const segments = placement.at.split('/')
   if (placement.store === USER_DESTINATION) {
-    return path.join(context.locator.userRoot, ...segments)
+    return { target: path.join(context.locator.userRoot, ...segments), root: context.locator.userRoot }
   }
   if (!placement.store.startsWith(PROJECT_STORE)) return null
   const dirName = placement.store.slice(PROJECT_STORE.length)
   const project = (await context.projects()).find((candidate) => candidate.dirName === dirName)
   return project === undefined
     ? null
-    : path.join(project.absPath, '.claude', ...segments)
+    : { target: path.join(project.absPath, '.claude', ...segments), root: path.join(project.absPath, '.claude') }
 }
 
 /**
@@ -1515,7 +1515,7 @@ export async function skillDuplicates(
       const target = placement === null ? null : await absolutePathOf(placement, context)
       if (target === null) return { skill: entity, digest: null }
       try {
-        return { skill: entity, digest: await digestTree(target) }
+        return { skill: entity, digest: await digestTree(target.target, target.root) }
       } catch (cause) {
         // ADR-0005: an unreadable tree costs this member its digest and the
         // group its verdict, and costs the listing nothing else.
@@ -1596,11 +1596,12 @@ export async function sessionNearDuplicates(
   )
 
   const openings = await mapPool(record.sessions, 8, async (session) => {
-    const hit = cache.get(session.file, session.bytes, session.mtimeMs)
-    if (hit !== null) return hit.prompt
     try {
-      const prompt = await readFirstUserPrompt(session.file)
-      cache.set(session.file, session.bytes, session.mtimeMs, { prompt })
+      const resolved = await resolveAllowedPath(session.file, context.locator.userRoot)
+      const hit = cache.get(resolved, session.bytes, session.mtimeMs)
+      if (hit !== null) return hit.prompt
+      const prompt = await readFirstUserPrompt(session.file, context.locator.userRoot)
+      cache.set(resolved, session.bytes, session.mtimeMs, { prompt })
       return prompt
     } catch (cause) {
       context.c.fail('read-failed', tildify(session.file, context.locator.home), cause)

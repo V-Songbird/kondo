@@ -109,8 +109,13 @@ entity through the kind registry. Structure:
   `desktop` from the locator, plus any `project:<flat>` root the workspace
   resolves to a verified project's `.claude` through the `extraRoot`
   callback — never the project itself (ADR-0002).
-- **Helpers** — `scan.ts` (safe fs wrappers that convert exceptions into
-  scan errors), `jsonl.ts` (streaming transcript reads — never `readFile` a
+  `relocation.ts` preserves physical link entries through trash and undo;
+  archived links are metadata and are validated against the future restored
+  tree before that tree becomes a live store again. Logical copies and digests
+  remain in `scan.ts`, where every content read stays in its owning root.
+- **Helpers** — `scan.ts` (explicit owning-root checks, resolved paths, bounded
+  tree walks and safe fs wrappers that convert exceptions into scan errors),
+  `jsonl.ts` (streaming transcript reads — never `readFile` a
   transcript whole, ADR-0007), `frontmatter.ts` (dependency-free `SKILL.md`
   name/description extraction), `display.ts` (tildify and other
   display-string building — done in main so the renderer never sees or

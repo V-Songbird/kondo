@@ -15,6 +15,7 @@ import {
   isEnoent,
   mapPool,
   relativeTo,
+  resolveAllowedPath,
   safeReaddir,
   safeStat,
   type Collector
@@ -93,18 +94,27 @@ const DESKTOP_APP_RUNNING =
  * `SingletonCookie` behind while running (and after a crash — the honest
  * error is refusing a sweep that would have worked, not the reverse).
  */
-export async function desktopAppBusy(locator: StoreLocator): Promise<string | null> {
+export async function desktopAppBusy(locator: StoreLocator, c: Collector): Promise<string | null> {
   const root = locator.desktopRoot
   if (root === null) return null
+  let lockfile: string
+  let resolvedRoot: string
   try {
-    const handle = await fs.open(path.join(root, 'lockfile'), 'r+')
+    resolvedRoot = await resolveAllowedPath(root, root, true)
+    lockfile = await resolveAllowedPath(path.join(root, 'lockfile'), root, true)
+  } catch (cause) {
+    c.fail('read-failed', tildify(path.join(root, 'lockfile'), locator.home), cause)
+    return 'The desktop app lock could not be checked safely.'
+  }
+  try {
+    const handle = await fs.open(lockfile, 'r+')
     await handle.close()
   } catch (cause) {
     if (!isEnoent(cause)) return DESKTOP_APP_RUNNING
   }
   for (const marker of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
     try {
-      await fs.lstat(path.join(root, marker))
+      await fs.lstat(path.join(resolvedRoot, marker))
       return DESKTOP_APP_RUNNING
     } catch {
       // not there: keep looking
@@ -128,7 +138,7 @@ async function scanDesktopCaches(
   const rootDisplay = tildify(root, locator.home)
   const homes: Array<{ relative: string; display: string }> = [{ relative: '', display: rootDisplay }]
   const partitionsDisplay = `${rootDisplay}/${PARTITIONS}`
-  for (const entry of await safeReaddir(path.join(root, PARTITIONS), partitionsDisplay, c)) {
+  for (const entry of await safeReaddir(path.join(root, PARTITIONS), partitionsDisplay, c, root)) {
     if (!entry.isDirectory()) continue
     homes.push({
       relative: `${PARTITIONS}/${entry.name}`,
@@ -138,14 +148,14 @@ async function scanDesktopCaches(
   for (const home of homes) {
     const dir = home.relative === '' ? root : path.join(root, ...home.relative.split('/'))
     const present = new Set(
-      (await safeReaddir(dir, home.display, c))
+      (await safeReaddir(dir, home.display, c, root))
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
     )
     for (const name of CHROMIUM_CACHES) {
       if (!present.has(name)) continue
       const display = `${home.display}/${name}`
-      const bytes = await directorySize(path.join(dir, name), display, c)
+      const bytes = await directorySize(path.join(dir, name), display, c, root)
       if (bytes === 0) continue
       candidates['desktop-caches'].push({
         store: 'desktop',
@@ -300,7 +310,7 @@ export async function scanTidyCandidates(
       // and one file — its size is the stat the inventory did not keep.
       const absPath = path.join(project.absPath, name)
       const display = tildify(absPath, locator.home)
-      const info = await safeStat(absPath, display, c)
+      const info = await safeStat(absPath, display, c, locator.userRoot)
       candidates['orphan-sidecars'].push({
         paths: [relativeTo(root, absPath)],
         bytes: info?.size ?? 0,
@@ -317,7 +327,7 @@ export async function scanTidyCandidates(
       const display = tildify(absPath, locator.home)
       return {
         paths: [relativeTo(root, absPath)],
-        bytes: await directorySize(absPath, display, c),
+        bytes: await directorySize(absPath, display, c, locator.userRoot),
         display
       }
     }))
@@ -333,7 +343,7 @@ export async function scanTidyCandidates(
       category: trees.get(project.dirName) as TidyCategory,
       candidate: {
         paths: [relativeTo(root, project.absPath)],
-        bytes: await directorySize(project.absPath, display, c),
+        bytes: await directorySize(project.absPath, display, c, locator.userRoot),
         display
       }
     }
@@ -342,14 +352,14 @@ export async function scanTidyCandidates(
 
   const rootDisplay = tildify(root, locator.home)
   const present = new Set(
-    (await safeReaddir(root, rootDisplay, c))
+    (await safeReaddir(root, rootDisplay, c, locator.userRoot))
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
   )
   for (const name of RECLAIMABLE) {
     if (!present.has(name)) continue
     const display = `${rootDisplay}/${name}`
-    const bytes = await directorySize(path.join(root, name), display, c)
+    const bytes = await directorySize(path.join(root, name), display, c, locator.userRoot)
     // An empty cache directory reclaims nothing, and moving one would be
     // journal noise for a directory Claude recreates on its next run.
     if (bytes > 0) candidates['reclaimable-caches'].push({ paths: [name], bytes, display })
@@ -361,7 +371,7 @@ export async function scanTidyCandidates(
   await scanDesktopCaches(locator, candidates, c)
 
   const blocked: TidyBlocks = {}
-  const busy = candidates['desktop-caches'].length > 0 ? await desktopAppBusy(locator) : null
+  const busy = candidates['desktop-caches'].length > 0 ? await desktopAppBusy(locator, c) : null
   if (busy !== null) blocked['desktop-caches'] = busy
   return { candidates, blocked }
 }
@@ -387,12 +397,12 @@ async function scanUnarmedHookScripts(
 ): Promise<void> {
   const root = path.join(locator.userRoot, HOOKS_DIR)
   const rootDisplay = tildify(root, locator.home)
-  for (const entry of await safeReaddir(root, rootDisplay, c)) {
+  for (const entry of await safeReaddir(root, rootDisplay, c, locator.userRoot)) {
     if (!entry.isFile()) continue
     const absPath = path.join(root, entry.name)
     if (armed.has(installKey(absPath))) continue
     const display = `${rootDisplay}/${entry.name}`
-    const info = await safeStat(absPath, display, c)
+    const info = await safeStat(absPath, display, c, locator.userRoot)
     candidates['unarmed-hook-scripts'].push({
       paths: [`${HOOKS_DIR}/${entry.name}`],
       bytes: info?.size ?? 0,
@@ -425,7 +435,7 @@ async function scanSessionEnv(
 
   const root = path.join(locator.userRoot, SESSION_ENV)
   const rootDisplay = tildify(root, locator.home)
-  const orphans = (await safeReaddir(root, rootDisplay, c)).filter(
+  const orphans = (await safeReaddir(root, rootDisplay, c, locator.userRoot)).filter(
     (entry) =>
       entry.isDirectory() &&
       SESSION_UUID.test(entry.name) &&
@@ -436,7 +446,7 @@ async function scanSessionEnv(
     const display = `${rootDisplay}/${entry.name}`
     return {
       paths: [`${SESSION_ENV}/${entry.name}`],
-      bytes: await directorySize(path.join(root, entry.name), display, c),
+      bytes: await directorySize(path.join(root, entry.name), display, c, locator.userRoot),
       display
     }
   })
@@ -469,7 +479,7 @@ async function scanPluginResidue(
     const display = `${rootDisplay}/${relative}`
     return {
       paths: [`${rootRelative}/${relative}`],
-      bytes: await directorySize(absPath, display, c),
+      bytes: await directorySize(absPath, display, c, locator.userRoot),
       display
     }
   }
@@ -482,7 +492,7 @@ async function scanPluginResidue(
     if (at <= 0) continue
     const relative = `${PLUGIN_CACHE_DIR}/${key.slice(at + 1)}/${key.slice(0, at)}`
     const versionsDir = path.join(root, ...relative.split('/'))
-    const versions = await safeReaddir(versionsDir, `${rootDisplay}/${relative}`, c)
+    const versions = await safeReaddir(versionsDir, `${rootDisplay}/${relative}`, c, locator.userRoot)
     for (const version of versions) {
       if (!version.isDirectory()) continue
       const absPath = path.join(versionsDir, version.name)
@@ -499,7 +509,7 @@ async function scanPluginResidue(
   // holds a dash.
   const slugs = new Set([...installed.keys].map((key) => key.replaceAll('@', '-')))
   const dataDir = path.join(root, PLUGIN_DATA_DIR)
-  const data = await safeReaddir(dataDir, `${rootDisplay}/${PLUGIN_DATA_DIR}`, c)
+  const data = await safeReaddir(dataDir, `${rootDisplay}/${PLUGIN_DATA_DIR}`, c, locator.userRoot)
   for (const entry of data) {
     if (!entry.isDirectory() || slugs.has(entry.name)) continue
     candidates['orphan-plugin-residue'].push(
@@ -512,14 +522,15 @@ async function scanPluginResidue(
   const manifests = await safeReaddir(
     manifestDir,
     `${rootDisplay}/${PLUGIN_MANIFEST_DIR}`,
-    c
+    c,
+    locator.userRoot
   )
   for (const entry of manifests) {
     if (!entry.isFile() || !entry.name.endsWith('.json')) continue
     if (installed.keys.has(entry.name.slice(0, -'.json'.length))) continue
     const relative = `${PLUGIN_MANIFEST_DIR}/${entry.name}`
     const display = `${rootDisplay}/${relative}`
-    const info = await safeStat(path.join(manifestDir, entry.name), display, c)
+    const info = await safeStat(path.join(manifestDir, entry.name), display, c, locator.userRoot)
     candidates['orphan-plugin-residue'].push({
       paths: [`${rootRelative}/${relative}`],
       bytes: info?.size ?? 0,

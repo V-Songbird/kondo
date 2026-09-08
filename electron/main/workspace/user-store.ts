@@ -27,9 +27,11 @@ import type {
 import type { StoreLocator } from './locator'
 import { applyEdits, USER_CONFIG_STORE, type SpliceEdit } from './mutations'
 import {
+  BoundaryError,
   directorySize,
   isEnoent,
   pathWithin,
+  resolveAllowedPath,
   safeReaddir,
   safeReadJson,
   safeStat,
@@ -62,21 +64,21 @@ export async function userStoreReport(
 ): Promise<StoreReport> {
   const root = locator.userRoot
   const display = tildify(root, locator.home)
-  const info = await safeStat(root, display, c)
+  const info = await safeStat(root, display, c, root)
   if (!info) return { root: display, exists: false, entries: [], totalBytes: 0 }
 
   const entries: StoreEntry[] = []
-  for (const entry of await safeReaddir(root, display, c)) {
+  for (const entry of await safeReaddir(root, display, c, root)) {
     const child = path.join(root, entry.name)
     const childDisplay = `${display}/${entry.name}`
-    const stat = await safeStat(child, childDisplay, c)
+    const stat = await safeStat(child, childDisplay, c, root)
     if (!stat) continue
     if (entry.isDirectory()) {
       // projects/ bytes come from the session inventory — one walk, not two
       // (ADR-0007). Sidecar bytes are therefore not counted; the sessions
       // view says "transcript bytes" for the same reason.
       const bytes =
-        entry.name === 'projects' ? transcriptBytes : await directorySize(child, childDisplay, c)
+        entry.name === 'projects' ? transcriptBytes : await directorySize(child, childDisplay, c, root)
       entries.push({ name: entry.name, type: 'dir', bytes, mtimeMs: stat.mtimeMs })
     } else {
       entries.push({ name: entry.name, type: 'file', bytes: stat.size, mtimeMs: stat.mtimeMs })
@@ -128,7 +130,7 @@ export async function readSettingsLayers(
   ): Promise<void> => {
     const file = path.join(root, relative)
     const display = tildify(file, locator.home)
-    const stat = await safeStat(file, display, c)
+    const stat = await safeStat(file, display, c, root)
     const base = {
       id,
       kind: 'settings' as const,
@@ -154,9 +156,9 @@ export async function readSettingsLayers(
     // the text the parse describes.
     let source: string | null = null
     try {
-      source = await fs.readFile(file, 'utf8')
+      source = await fs.readFile(await resolveAllowedPath(file, root), 'utf8')
     } catch (cause) {
-      c.fail('read-failed', display, cause)
+      c.fail(cause instanceof BoundaryError ? cause.code : 'read-failed', display, cause)
     }
     let parsed: Record<string, unknown> | null = null
     if (source !== null) {
@@ -354,7 +356,10 @@ async function hookScript(
   // A stat and never a read (ADR-0007) — whether the file is there is the
   // whole question. One that cannot be statted is reported and reads as
   // missing rather than failing the listing (ADR-0005).
-  const stat = await safeStat(abs, display, c)
+  const boundary = [locator.userRoot, ...projects.map((project) => path.join(project.absPath, '.claude'))]
+    .find((root) => pathWithin(abs, root))
+  if (boundary === undefined) return { path: truncate(token, 200), status: 'unverifiable' }
+  const stat = await safeStat(abs, display, c, boundary)
   return { path: display, status: stat === null ? 'missing' : 'present' }
 }
 
@@ -467,7 +472,7 @@ export async function readPluginManifest(
   c: Collector
 ): Promise<Record<string, unknown> | null> {
   const file = path.join(locator.userRoot, PLUGINS_DIR, 'installed_plugins.json')
-  const json = await safeReadJson(file, tildify(file, locator.home), c)
+  const json = await safeReadJson(file, tildify(file, locator.home), c, locator.userRoot)
   if (typeof json !== 'object' || json === null) return null
   const plugins = (json as Record<string, unknown>)['plugins']
   if (typeof plugins !== 'object' || plugins === null) return null
@@ -1070,7 +1075,9 @@ export async function scanMcpServers(
   c: Collector
 ): Promise<McpServerInfo[]> {
   const configDisplay = tildify(locator.userConfigFile, locator.home)
-  const config = asObject(await safeReadJson(locator.userConfigFile, configDisplay, c))
+  const config = asObject(await safeReadJson(locator.userConfigFile, configDisplay, c, {
+    file: locator.userConfigFile
+  }))
   const servers: McpServerInfo[] = []
   const nothingDisabled: ReadonlySet<string> = new Set()
 
@@ -1107,7 +1114,13 @@ export async function scanMcpServers(
     const disabled = stringSet(entry['disabledMcpServers'])
     // ADR-0002 allows exactly this — an existence check on the project root,
     // never a listing and never a read of what is inside it.
-    const orphan = (await safeStat(absPath, tildify(absPath, locator.home), c)) === null
+    let orphan = false
+    try {
+      await fs.stat(absPath)
+    } catch (cause) {
+      orphan = true
+      if (!isEnoent(cause)) c.fail('stat-failed', tildify(absPath, locator.home), cause)
+    }
     for (const [name, declaration] of declarations) {
       servers.push(
         toMcpServer({
@@ -1130,7 +1143,7 @@ export async function scanMcpServers(
     // Claude gates a committed server through the registry, not through the
     // file it is declared in, so the disable list is the project's own.
     const disabled = stringSet(registry.get(project.dirName)?.entry['disabledMcpjsonServers'])
-    for (const [name, declaration] of mcpDeclarations(await safeReadJson(file, display, c))) {
+    for (const [name, declaration] of mcpDeclarations(await safeReadJson(file, display, c, { file }))) {
       servers.push(
         toMcpServer({
           scope: 'project',
@@ -1348,10 +1361,14 @@ export async function scanConfigOrphans(
   const display = tildify(locator.userConfigFile, locator.home)
   let text: string | null = null
   try {
-    text = await fs.readFile(locator.userConfigFile, 'utf8')
+    text = await fs.readFile(await resolveAllowedPath(locator.userConfigFile, {
+      file: locator.userConfigFile
+    }), 'utf8')
   } catch (cause) {
     // ADR-0005: no registry is no orphans, not a failure.
-    if (!isEnoent(cause)) c.fail('read-failed', display, cause)
+    if (!isEnoent(cause)) {
+      c.fail(cause instanceof BoundaryError ? cause.code : 'read-failed', display, cause)
+    }
   }
   let config: Record<string, unknown> | null = null
   if (text !== null) {
@@ -1512,26 +1529,24 @@ async function readPlacedDir(
   locator: StoreLocator,
   root: string,
   shape: PlacedShape,
-  c: Collector
+  c: Collector,
+  boundary: string
 ): Promise<PlacedRecord[]> {
   const records: PlacedRecord[] = []
   const display = tildify(root, locator.home)
-  for (const entry of await safeReaddir(root, display, c)) {
-    // A symlink is admitted in either shape; the read below is what decides
-    // whether what it points at is the shape this directory claims to hold.
-    const link = entry.isSymbolicLink()
+  for (const entry of await safeReaddir(root, display, c, boundary)) {
     let name: string
     let target: string
     let manifest: string
     let manifestDisplay: string
     if (shape === 'skill-dir') {
-      if (!entry.isDirectory() && !link) continue
+      if (!entry.isDirectory()) continue
       name = entry.name
       target = path.join(root, entry.name)
       manifest = path.join(target, SKILL_MANIFEST)
       manifestDisplay = `${display}/${entry.name}/${SKILL_MANIFEST}`
     } else {
-      if (!entry.isFile() && !link) continue
+      if (!entry.isFile()) continue
       if (!entry.name.toLowerCase().endsWith(MARKDOWN)) continue
       name = entry.name.slice(0, -MARKDOWN.length)
       // A file called exactly `.md` names nothing and cannot key an id.
@@ -1543,13 +1558,13 @@ async function readPlacedDir(
 
     let content: string
     try {
-      content = await fs.readFile(manifest, 'utf8')
+      content = await fs.readFile(await resolveAllowedPath(manifest, boundary), 'utf8')
     } catch (cause) {
       // A directory with no `SKILL.md` is not a skill, and a file that went
       // away between the listing and the read is simply gone — neither is
       // worth reporting. Anything else is.
       if ((cause as NodeJS.ErrnoException).code === 'ENOENT') continue
-      c.fail('read-failed', manifestDisplay, cause)
+      c.fail(cause instanceof BoundaryError ? cause.code : 'read-failed', manifestDisplay, cause)
       continue
     }
     records.push({
@@ -1582,7 +1597,8 @@ export async function scanSkillUsage(
   const raw = await safeReadJson(
     locator.userConfigFile,
     tildify(locator.userConfigFile, locator.home),
-    c
+    c,
+    { file: locator.userConfigFile }
   )
   const usage = asObject(asObject(raw)?.[SKILL_USAGE] ?? null)
   // No record is not an empty record: the first says kondo cannot tell, the
@@ -1601,6 +1617,8 @@ export async function scanSkillUsage(
 /** One skill directory to read, and everything its entries resolve against. */
 interface SkillDirRead {
   root: string
+  /** The owning user or project store, including aliases elsewhere inside it. */
+  boundary: string
   scope: SkillInfo['scope']
   keyPrefix: string
   /** Whether this is the live directory rather than the bench. */
@@ -1626,7 +1644,7 @@ async function readSkillDir(
   read: SkillDirRead,
   c: Collector
 ): Promise<SkillInfo[]> {
-  return (await readPlacedDir(locator, read.root, 'skill-dir', c)).map((record) => {
+  return (await readPlacedDir(locator, read.root, 'skill-dir', c, read.boundary)).map((record) => {
     const override = resolveSkillOverride(read.chain, record.name)
     return {
       id: `skill:${read.keyPrefix}:${record.name}`,
@@ -1664,8 +1682,8 @@ export async function scanPlacedEntries(
   c: Collector
 ): Promise<PlacedEntryInfo[]> {
   const { dir, inProject } = PLACEMENTS[kind]
-  const roots: Array<[string, PlacedScope, string, string | null]> = [
-    [path.join(locator.userRoot, dir), 'user', 'user', null]
+  const roots: Array<[string, PlacedScope, string, string | null, string]> = [
+    [path.join(locator.userRoot, dir), 'user', 'user', null, locator.userRoot]
   ]
   if (inProject) {
     for (const project of projects) {
@@ -1675,14 +1693,15 @@ export async function scanPlacedEntries(
         path.join(project.absPath, '.claude', dir),
         'project',
         `project/${project.dirName}`,
-        projectId(project.dirName)
+        projectId(project.dirName),
+        path.join(project.absPath, '.claude')
       ])
     }
   }
 
   const entries: PlacedEntryInfo[] = []
-  for (const [root, scope, keyPrefix, owner] of roots) {
-    for (const record of await readPlacedDir(locator, root, 'markdown', c)) {
+  for (const [root, scope, keyPrefix, owner, boundary] of roots) {
+    for (const record of await readPlacedDir(locator, root, 'markdown', c, boundary)) {
       entries.push({
         id: `${kind}:${keyPrefix}:${record.name}`,
         kind,
@@ -1702,9 +1721,9 @@ export async function scanPlacedEntries(
 /** The two settings files any scope may hold, by name. */
 const SETTINGS_NAMES = [SETTINGS_FILE, SETTINGS_LOCAL_FILE] as const
 
-/** Directory names count as entries in either shape; so do symlinks to them. */
-function isDirLike(entry: { isDirectory(): boolean; isSymbolicLink(): boolean }): boolean {
-  return entry.isDirectory() || entry.isSymbolicLink()
+/** Safe listings expose a validated alias's target shape. */
+function isDirLike(entry: { isDirectory(): boolean }): boolean {
+  return entry.isDirectory()
 }
 
 function isMarkdownLike(entry: {
@@ -1713,7 +1732,7 @@ function isMarkdownLike(entry: {
   isSymbolicLink(): boolean
 }): boolean {
   return (
-    (entry.isFile() || entry.isSymbolicLink()) &&
+    entry.isFile() &&
     entry.name.length > MARKDOWN.length &&
     entry.name.toLowerCase().endsWith(MARKDOWN)
   )
@@ -1736,7 +1755,7 @@ export async function countStoreEntries(
   c: Collector
 ): Promise<ProjectRowCounts> {
   const display = tildify(root, locator.home)
-  const listing = await safeReaddir(root, display, c)
+  const listing = await safeReaddir(root, display, c, root)
   const present = new Set(listing.filter((entry) => entry.isFile()).map((entry) => entry.name))
   const held = new Set(listing.filter(isDirLike).map((entry) => entry.name))
 
@@ -1747,7 +1766,7 @@ export async function countStoreEntries(
     // The root listing already says which directories exist, so a store
     // holding none of them costs exactly one readdir in total.
     if (!held.has(dir)) return 0
-    return (await safeReaddir(path.join(root, dir), `${display}/${dir}`, c)).filter(admits).length
+    return (await safeReaddir(path.join(root, dir), `${display}/${dir}`, c, root)).filter(admits).length
   }
 
   return {
@@ -1790,6 +1809,7 @@ export async function scanSkills(
   const reads: SkillDirRead[] = [
     {
       root: path.join(locator.userRoot, dir),
+      boundary: locator.userRoot,
       scope: 'user',
       keyPrefix: 'user',
       live: true,
@@ -1802,6 +1822,7 @@ export async function scanSkills(
   if (benched !== null) {
     reads.push({
       root: path.join(locator.userRoot, benched),
+      boundary: locator.userRoot,
       scope: 'user-disabled',
       keyPrefix: 'user-disabled',
       live: false,
@@ -1820,6 +1841,7 @@ export async function scanSkills(
     const chain = overrideChain(layers, owner)
     reads.push({
       root: path.join(claudeDir, dir),
+      boundary: claudeDir,
       scope: 'project',
       keyPrefix: `project/${project.dirName}`,
       live: true,
@@ -1831,6 +1853,7 @@ export async function scanSkills(
     if (benched !== null) {
       reads.push({
         root: path.join(claudeDir, benched),
+        boundary: claudeDir,
         scope: 'project-disabled',
         keyPrefix: `project-disabled/${project.dirName}`,
         live: false,
@@ -1880,6 +1903,7 @@ export async function scanPluginSkills(
     locator,
     {
       root: path.join(record.installAbs, 'skills'),
+      boundary: locator.userRoot,
       scope: 'plugin',
       keyPrefix: `plugin/${key}`,
       // A plugin-shipped skill has no bench of its own: it is live exactly

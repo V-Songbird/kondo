@@ -138,7 +138,7 @@ export async function scanSessionInventory(
   const root = path.join(locator.userRoot, 'projects')
   const rootDisplay = tildify(root, locator.home)
 
-  const entries = await safeReaddir(root, rootDisplay, c)
+  const entries = await safeReaddir(root, rootDisplay, c, locator.userRoot)
   const projectDirs = entries.filter((entry) => entry.isDirectory())
 
   // Claude's own reverse map (ADR-0009): one parse, and only the keys of
@@ -147,7 +147,8 @@ export async function scanSessionInventory(
   const config = await safeReadJson(
     locator.userConfigFile,
     tildify(locator.userConfigFile, locator.home),
-    c
+    c,
+    { file: locator.userConfigFile }
   )
   const registered = projectIndex(registeredProjectPaths(config))
 
@@ -160,7 +161,7 @@ export async function scanSessionInventory(
 
   const projects = [
     ...(await mapPool(projectDirs, 16, async (dir) =>
-      scanProject(root, dir.name, rootDisplay, locator.home, platform, exists, registered, c)
+      scanProject(root, dir.name, rootDisplay, locator.home, platform, exists, registered, c, locator.userRoot)
     )),
     ...(await mapPool(registryOnly, 16, async (flat) =>
       registryProject(root, flat, registered.get(flat) as string, locator.home, exists, c)
@@ -180,11 +181,12 @@ async function scanProject(
   platform: NodeJS.Platform,
   exists: ExistsFn,
   registered: ReadonlyMap<string, string>,
-  c: Collector
+  c: Collector,
+  storeRoot: string
 ): Promise<ProjectRecord> {
   const absPath = path.join(root, dirName)
   const display = `${rootDisplay}/${dirName}`
-  const entries = await safeReaddir(absPath, display, c)
+  const entries = await safeReaddir(absPath, display, c, storeRoot)
 
   const sessions: SessionRecord[] = []
   const sidecars = new Map<string, string>()
@@ -215,7 +217,7 @@ async function scanProject(
       continue
     }
     const file = path.join(absPath, entry.name)
-    const info = await safeStat(file, `${display}/${entry.name}`, c)
+    const info = await safeStat(file, `${display}/${entry.name}`, c, storeRoot)
     if (!info) continue
     sessions.push({
       uuid: match[1].toLowerCase(),
@@ -326,7 +328,7 @@ async function locate(
  */
 async function hasClaudeDir(absPath: string, home: string, c: Collector): Promise<boolean> {
   const dir = path.join(absPath, '.claude')
-  return (await safeStat(dir, tildify(dir, home), c))?.isDirectory() === true
+  return (await safeStat(dir, tildify(dir, home), c, dir))?.isDirectory() === true
 }
 
 // ---------------------------------------------------------------------------

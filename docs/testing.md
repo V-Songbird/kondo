@@ -50,10 +50,17 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      sentinels: a separate assertion rejects any `readFile` attempt naming
      one, even when an adapter catches its failure. Five negative cases
      inject EACCES and prove that assertion fails. Spies forward ordinary
-     calls and restore before fixture cleanup. This does not intercept
-     transcript `createReadStream`, `open`/file-handle reads, synchronous
-     access or resolved symlink destinations; it is not an all-mechanisms
-     filesystem proof. Workspace tests also assert that the emitted project
+     calls and restore before fixture cleanup. Resolved-boundary cases also
+     intercept transcript `createReadStream`, promise `open` and returned
+     file-handle `read`, `readFile`, `readv` and `createReadStream`, resolving
+     observed content paths at call time. Deliberate negative probes prove that
+     the observer detects these mechanisms. Synthetic links exercise external
+     skills directories (A6), cross-store escapes, post-inventory transcript
+     swaps, nested trees, dangling links, cycles and positive in-store aliases.
+     File-link setup failures explicitly skip only those cases; directory
+     junction variants provide Windows coverage without file-link privileges.
+     This does not intercept every synchronous or callback API and is not an
+     all-mechanisms filesystem proof. Workspace tests also assert that the emitted project
      objects omit `guessedPath`, while internal inventory resolution remains
      covered by boundary and session tests.
    - APIs refuse renderer-supplied free-form paths and unknown ids —
@@ -221,6 +228,14 @@ minimize the window and verify native restoration/focus. Both debugging ports
 are allocated by the OS and only endpoints emitted by the fixture child are
 used; no test-only API is added to the production bridge. A local pass
 establishes behavior only on the tested desktop.
+
+`test/relocation.test.ts` exercises link identity through trash and undo with
+native directory links, both rename and an injected `EXDEV` fallback. It checks
+future internal and sibling targets, exact-file restoration, occupied restore
+paths and physical trash measurement/removal without following referents. A
+corrupted copy must retain its source and remove only its incomplete destination;
+if cleanup also fails, undo refuses before changing the healthy source or journal.
+These are fixture and injected-error checks, not a native multi-volume proof.
 
 ## Rules
 

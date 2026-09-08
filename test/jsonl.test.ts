@@ -37,7 +37,7 @@ describe('summarizeTranscript', () => {
   it('summarizes a healthy transcript', async () => {
     const file = path.join(world.base, 'healthy.jsonl')
     await fs.writeFile(file, healthyTranscript(UUID_A))
-    const summary = await summarizeTranscript(file)
+    const summary = await summarizeTranscript(file, world.base)
     expect(summary.lineCount).toBe(4)
     expect(summary.messageCount).toBe(3)
     expect(summary.badLines).toBe(0)
@@ -58,7 +58,7 @@ describe('summarizeTranscript', () => {
           message: { role: 'user', content: 'still here' }
         })
     )
-    const summary = await summarizeTranscript(file)
+    const summary = await summarizeTranscript(file, world.base)
     expect(summary.badLines).toBe(1)
     expect(summary.messageCount).toBe(1)
     expect(summary.firstUserPrompt).toBe('still here')
@@ -74,7 +74,7 @@ describe('summarizeTranscript', () => {
         message: { role: 'user', content: 'x'.repeat(100_000) }
       })
     )
-    const summary = await summarizeTranscript(file)
+    const summary = await summarizeTranscript(file, world.base)
     expect(summary.firstUserPrompt).not.toBeNull()
     expect(summary.firstUserPrompt!.length).toBeLessThanOrEqual(280)
   })
@@ -82,7 +82,7 @@ describe('summarizeTranscript', () => {
   it('handles an empty transcript', async () => {
     const file = path.join(world.base, 'empty.jsonl')
     await fs.writeFile(file, '')
-    const summary = await summarizeTranscript(file)
+    const summary = await summarizeTranscript(file, world.base)
     expect(summary).toEqual({
       lineCount: 0,
       messageCount: 0,
@@ -109,7 +109,7 @@ describe('readFirstUserPrompt', () => {
     await fs.writeFile(file, healthyTranscript(UUID_A))
     // The transcript's second user message says something else; the opening
     // is the first, not the last.
-    expect(await readFirstUserPrompt(file)).toBe('hello kondo')
+    expect(await readFirstUserPrompt(file, world.base)).toBe('hello kondo')
   })
 
   it('skips malformed lines ahead of the opening (ADR-0005)', async () => {
@@ -124,13 +124,13 @@ describe('readFirstUserPrompt', () => {
           message: { role: 'user', content: 'still here' }
         })
     )
-    expect(await readFirstUserPrompt(file)).toBe('still here')
+    expect(await readFirstUserPrompt(file, world.base)).toBe('still here')
   })
 
   it('answers null for a transcript with no user message at all', async () => {
     const file = path.join(world.base, 'silent.jsonl')
     await fs.writeFile(file, transcriptLine({ type: 'summary', sessionId: UUID_A }))
-    expect(await readFirstUserPrompt(file)).toBeNull()
+    expect(await readFirstUserPrompt(file, world.base)).toBeNull()
   })
 
   it('truncates the opening, as the contract promises', async () => {
@@ -139,7 +139,7 @@ describe('readFirstUserPrompt', () => {
       file,
       transcriptLine({ type: 'user', message: { role: 'user', content: 'x'.repeat(100_000) } })
     )
-    expect((await readFirstUserPrompt(file))?.length).toBeLessThanOrEqual(280)
+    expect((await readFirstUserPrompt(file, world.base))?.length).toBeLessThanOrEqual(280)
   })
 
   it('stops at the opening instead of reading the transcript out (ADR-0007)', async () => {
@@ -161,14 +161,14 @@ describe('readFirstUserPrompt', () => {
     expect(size).toBeGreaterThan(2_000_000)
 
     opened.streams.length = 0
-    expect(await readFirstUserPrompt(file)).toBe('the opening')
+    expect(await readFirstUserPrompt(file, world.base)).toBe('the opening')
     // A chunk or two off the front, nowhere near the file.
     expect(opened.streams.at(-1)?.bytesRead).toBeLessThan(size / 4)
 
     // The summary has to reach the last line to bound the session in time,
     // so it does read it all — which is the contrast this test exists for.
     opened.streams.length = 0
-    await summarizeTranscript(file)
+    await summarizeTranscript(file, world.base)
     expect(opened.streams.at(-1)?.bytesRead).toBe(size)
   })
 })

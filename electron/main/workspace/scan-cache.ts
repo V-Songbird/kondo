@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { resolveAllowedPath } from './scan'
 
 /**
  * The tier-2 scan cache ADR-0007 decided on: what a transcript read cost is
@@ -53,7 +54,7 @@ export async function openScanCache<T>(
 ): Promise<ScanCache<T>> {
   const dir = path.join(kondoDataRoot, 'scan-cache')
   const file = path.join(dir, `${name}.json`)
-  const entries = await read(file)
+  const entries = await read(file, kondoDataRoot)
   let dirty = false
 
   return {
@@ -73,22 +74,28 @@ export async function openScanCache<T>(
       // Written aside and renamed: a half-written file is exactly what makes
       // the next read unparseable, and this cache outlives the process.
       const temporary = `${file}.${process.pid}.tmp`
+      let resolvedTemporary: string | null = null
       try {
-        await fs.mkdir(dir, { recursive: true })
-        await fs.writeFile(temporary, JSON.stringify(body), 'utf8')
-        await fs.rename(temporary, file)
+        const resolvedDir = await resolveAllowedPath(dir, kondoDataRoot, true)
+        await fs.mkdir(resolvedDir, { recursive: true })
+        resolvedTemporary = await resolveAllowedPath(temporary, kondoDataRoot, true)
+        const resolvedFile = await resolveAllowedPath(file, kondoDataRoot, true)
+        await fs.writeFile(resolvedTemporary, JSON.stringify(body), 'utf8')
+        await fs.rename(resolvedTemporary, resolvedFile)
       } catch {
-        await fs.rm(temporary, { force: true }).catch(() => undefined)
+        if (resolvedTemporary !== null) {
+          await fs.rm(resolvedTemporary, { force: true }).catch(() => undefined)
+        }
       }
     }
   }
 }
 
 /** Whatever the file holds, or an empty cache — never a throw. */
-async function read(file: string): Promise<Record<string, CacheEntry>> {
+async function read(file: string, root: string): Promise<Record<string, CacheEntry>> {
   let parsed: unknown
   try {
-    parsed = JSON.parse(await fs.readFile(file, 'utf8'))
+    parsed = JSON.parse(await fs.readFile(await resolveAllowedPath(file, root), 'utf8'))
   } catch {
     return {}
   }

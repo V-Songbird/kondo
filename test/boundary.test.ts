@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type TestContext } from 'vitest'
 import fsp from 'node:fs/promises'
+import fs, { createReadStream } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { KondoApi } from '../shared/contract'
-import { collector, safeReadJson } from '../electron/main/workspace/scan'
+import { collector, digestTree, directorySize, safeReadJson } from '../electron/main/workspace/scan'
+import { readFirstUserPrompt, summarizeTranscript } from '../electron/main/workspace/jsonl'
 import { scanSessionInventory } from '../electron/main/workspace/sessions'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import { createMutations, digestSource, type MutationPlan } from '../electron/main/workspace/mutations'
@@ -24,15 +26,81 @@ import {
   type FixtureWorld
 } from './helpers'
 
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  const stream = vi.fn(actual.createReadStream)
+  return { ...actual, createReadStream: stream, default: { ...actual, createReadStream: stream } }
+})
+const nativeCreateReadStream = vi.mocked(createReadStream).getMockImplementation()!
+beforeEach(() => { vi.mocked(createReadStream).mockReset().mockImplementation(nativeCreateReadStream) })
+
+/** Observe content entry points, including reads through an opened handle. */
+function observeContents(): { method: string; target: string; resolved: string }[] {
+  const calls: { method: string; target: string; resolved: string }[] = []
+  const handles = new Map<number, string>()
+  const record = (method: string, argument: unknown): void => {
+    const target = argument instanceof URL ? fileURLToPath(argument)
+      : Buffer.isBuffer(argument) ? argument.toString()
+      : typeof argument === 'number' ? handles.get(argument)
+      : typeof argument === 'object' && argument !== null && 'fd' in argument
+        ? handles.get(Number(argument.fd)) : argument
+    expect(typeof target, `${method} must use an observed pathname or handle`).toBe('string')
+    let resolved = target as string
+    try { resolved = fs.realpathSync(resolved) } catch { /* Observe missing pathname attempts too. */ }
+    calls.push({ method, target: target as string, resolved })
+  }
+  const readFile = fsp.readFile
+  vi.spyOn(fsp, 'readFile').mockImplementation((file, options) => {
+    record('readFile', file)
+    return readFile(file, options)
+  })
+  vi.mocked(createReadStream).mockImplementation((file, options) => {
+    record('createReadStream', file ?? (typeof options === 'object' ? options.fd : undefined))
+    return nativeCreateReadStream(file, options)
+  })
+  const open = fsp.open
+  vi.spyOn(fsp, 'open').mockImplementation(async (file, flags, mode) => {
+    record('open', file)
+    const handle = await open(file, flags, mode)
+    handles.set(handle.fd, String(file))
+    for (const method of ['read', 'readFile', 'readv', 'createReadStream'] as const) {
+      const original = handle[method].bind(handle)
+      vi.spyOn(handle, method).mockImplementation((...args: unknown[]) => {
+        record(`FileHandle.${method}`, handle)
+        return Reflect.apply(original, handle, args)
+      })
+    }
+    return handle
+  })
+  return calls
+}
+
+async function fixtureLink(context: TestContext, target: string, at: string, directory = false): Promise<void> {
+  try {
+    await fsp.symlink(target, at, directory ? (process.platform === 'win32' ? 'junction' : 'dir') : 'file')
+  } catch (cause) {
+    const code = (cause as NodeJS.ErrnoException).code
+    if (code === 'EPERM' || code === 'EACCES' || code === 'ENOSYS') {
+      context.skip(`Fixture symlinks unavailable on ${process.platform}: ${code}`)
+    }
+    throw cause
+  }
+}
+
+function expectNoContentUnder(calls: ReturnType<typeof observeContents>, root: string): void {
+  for (const call of calls) {
+    const relative = path.relative(root, call.resolved)
+    expect(relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative)),
+      `${call.method} escaped through ${call.target} to ${call.resolved}`).toBe(false)
+  }
+}
+
 /**
  * The ADR-0002 boundary test: run every read API over a fixture world whose
  * verified project contains synthetic files OUTSIDE .claude, recording
- * readdir/stat/lstat/readFile calls through node:fs/promises. Assert no
- * recorded path escapes the allowed roots and no readFile attempt names a
- * protected identity/token file. (Transcript streaming goes through node:fs
- * createReadStream, whose static import this spy cannot intercept; those
- * paths come from inventory records that are inside the user store by
- * construction.)
+ * metadata calls and all content opens, including transcript streams and
+ * FileHandle reads. Assert both named and resolved content paths remain
+ * inside their boundary and never name protected identity/token files.
  */
 
 function expectNoProtectedReads(calls: readonly (readonly unknown[])[]): void {
@@ -108,7 +176,8 @@ describe('privacy boundary (ADR-0002)', () => {
     await writeFileTree(world.kondoDataRoot, { 'appearance.json': writeJson({ theme: 'slate' }) })
     expect(protectedFiles.map((file) => path.basename(file))).toEqual([...READ_NEVER_FILES])
     for (const file of protectedFiles) expect((await fsp.stat(file)).isFile(), file).toBe(true)
-    const reads = vi.spyOn(fsp, 'readFile')
+    const contentCalls = observeContents()
+    const reads = vi.mocked(fsp.readFile)
     const spies = (['readdir', 'stat', 'lstat'] as const).map((method) =>
       vi.spyOn(fsp, method)
     )
@@ -168,6 +237,11 @@ describe('privacy boundary (ADR-0002)', () => {
       target === path.join(workdir, '.mcp.json')
 
     expect(reads).toHaveBeenCalled()
+    expect(contentCalls.some((call) => call.method === 'createReadStream')).toBe(true)
+    for (const call of contentCalls) {
+      expect(allowed(call.resolved), `${call.method} resolved escape: ${call.resolved}`).toBe(true)
+      expectNoProtectedReads([[call.target], [call.resolved]])
+    }
     expectNoProtectedReads(reads.mock.calls)
     const touched = [...spies, reads]
       .flatMap((spy) => spy.mock.calls.map((call) => call[0]))
@@ -201,7 +275,7 @@ describe('privacy boundary (ADR-0002)', () => {
       return original(file, options)
     })
     const c = collector()
-    expect(await safeReadJson(target, name, c)).toBeNull()
+    expect(await safeReadJson(target, name, c, name === '.credentials.json' ? world.userRoot : world.desktopRoot)).toBeNull()
     expect(c.errors).toEqual([expect.objectContaining({ code: 'read-failed', path: name })])
     expect(reads).toHaveBeenCalledWith(target, 'utf8')
     expect(() => expectNoProtectedReads(reads.mock.calls)).toThrow(`protected readFile attempt: ${target}`)
@@ -385,6 +459,49 @@ describe('resolved mutation boundaries', () => {
     expect(await hashTree(path.join(world.kondoDataRoot, 'trash'))).toBe(beforeTrash)
   })
 
+  it('refuses undo of a nested external trash junction before journaling or displacing a healthy occupant', async (context) => {
+    const relative = 'skills/restore'
+    const target = path.join(world.userRoot, relative)
+    const outside = path.join(world.base, 'outside')
+    await writeFileTree(target, {
+      'SKILL.md': skillManifest('restore', 'Original skill'),
+      'nested/original.txt': 'saved fixture bytes'
+    })
+    await writeFileTree(outside, { 'sentinel.txt': 'external fixture bytes' })
+    const mutations = createMutations(world.locator)
+    const done = await mutations.mutate({
+      op: 'trash', kind: 'skill', entityId: 'skill:restore', summary: 'Synthetic restore boundary',
+      steps: [{ type: 'trash', store: 'user', from: relative }]
+    })
+    expect(done.errors).toEqual([])
+    expect(done.data).not.toBeNull()
+    const saved = path.join(world.kondoDataRoot, 'trash', done.data!.id.slice('journal:'.length), 'user', relative)
+    await fsp.rename(path.join(saved, 'nested'), path.join(saved, 'original-nested'))
+    await link(context, outside, path.join(saved, 'nested'), true)
+    await writeFileTree(target, {
+      'SKILL.md': skillManifest('restore', 'New healthy occupant'),
+      'occupant.txt': 'must stay in place'
+    })
+    const journal = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const beforeJournal = await fsp.readFile(journal, 'utf8')
+    const beforeOccupant = await hashTree(target)
+    const calls = observeContents()
+    const writes = (['open', 'writeFile', 'appendFile', 'mkdir', 'rename', 'cp', 'copyFile', 'rm', 'rmdir'] as const)
+      .map((method) => vi.spyOn(fsp, method))
+
+    const undone = await mutations.undo(done.data!.id)
+    expect(undone.data).toBeNull()
+    expect(undone.errors.length).toBeGreaterThan(0)
+    expectNoContentUnder(calls, outside)
+    for (const write of writes) expect(write).not.toHaveBeenCalled()
+    vi.restoreAllMocks()
+    expect(await fsp.readFile(journal, 'utf8')).toBe(beforeJournal)
+    expect(await hashTree(target)).toEqual(beforeOccupant)
+    expect(await fsp.readFile(path.join(saved, 'original-nested', 'original.txt'), 'utf8')).toBe('saved fixture bytes')
+    expect((await fsp.lstat(path.join(saved, 'nested'))).isSymbolicLink()).toBe(true)
+    expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
+    expect(await fsp.readFile(path.join(outside, 'sentinel.txt'), 'utf8')).toBe('external fixture bytes')
+  })
   it('reports a dangling splice undo parent without claiming the trash was emptied', async (context) => {
     const backing = path.join(world.userRoot, 'backing')
     const parent = path.join(world.userRoot, 'linked')
@@ -407,5 +524,244 @@ describe('resolved mutation boundaries', () => {
     expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
     expect(await fsp.readFile(path.join(outside, 'sentinel.txt'), 'utf8')).toBe('unchanged')
     expect((await fsp.lstat(parent)).isSymbolicLink()).toBe(true)
+  })
+})
+
+describe('resolved read boundaries', () => {
+  let world: FixtureWorld
+  beforeEach(async () => { world = await makeWorld() })
+  afterEach(async () => { vi.restoreAllMocks(); await world.cleanup() })
+
+  it('observes path reads, streams, open and every supported file-handle reader', async () => {
+    const target = path.join(world.userRoot, 'sentinel.txt')
+    await fsp.writeFile(target, 'invented content')
+    const calls = observeContents()
+    await fsp.readFile(target)
+    for await (const chunk of createReadStream(target)) expect(chunk.length).toBeGreaterThan(0)
+    const handle = await fsp.open(target, 'r')
+    try {
+      await handle.readFile()
+      await handle.read(Buffer.alloc(1), 0, 1, 0)
+      await handle.readv([Buffer.alloc(1)], 0)
+      for await (const chunk of handle.createReadStream({ start: 0, autoClose: false })) {
+        expect(chunk.length).toBeGreaterThan(0)
+      }
+    } finally { await handle.close() }
+    expect(new Set(calls.map((call) => call.method))).toEqual(new Set([
+      'readFile', 'createReadStream', 'open', 'FileHandle.readFile',
+      'FileHandle.read', 'FileHandle.readv', 'FileHandle.createReadStream'
+    ]))
+    for (const call of calls) expect(call.resolved).toBe(target)
+    expect(() => expectNoContentUnder(calls, world.userRoot)).toThrow('escaped through')
+  })
+
+  it('A6 refuses a skills-root junction to an external synthetic directory', async (context) => {
+    const outside = path.join(world.base, 'outside')
+    await writeFileTree(outside, { 'external/SKILL.md': skillManifest('external', 'Never read this') })
+    await fixtureLink(context, outside, path.join(world.userRoot, 'skills'), true)
+    const calls = observeContents()
+    const result = await createWorkspace({ locator: world.locator, platform: process.platform }).skillsList()
+    expect(result.data).toEqual([])
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: expect.stringContaining('skills') })
+    ]))
+    expectNoContentUnder(calls, outside)
+  })
+
+  it.for(['root', 'manifest'] as const)('follows a safe in-store skills %s alias', async (kind, context) => {
+    const backing = path.join(world.userRoot, 'backing')
+    await writeFileTree(backing, { 'healthy/SKILL.md': skillManifest('healthy', 'Safe alias') })
+    await fixtureLink(context, backing, path.join(world.userRoot, 'skills'), true)
+    if (kind === 'manifest') {
+      await fsp.mkdir(path.join(backing, 'alias'))
+      await fixtureLink(context, path.join(backing, 'healthy', 'SKILL.md'), path.join(backing, 'alias', 'SKILL.md'))
+    }
+    const result = await createWorkspace({ locator: world.locator, platform: process.platform }).skillsList()
+    expect(result.errors).toEqual([])
+    expect(result.data.map((entry) => entry.name).sort()).toEqual(kind === 'manifest' ? ['alias', 'healthy'] : ['healthy'])
+  })
+
+  it.for(['external', 'dangling', 'loop'] as const)(
+    'keeps healthy skills and itemizes a nested %s manifest link', async (kind, context) => {
+      const outside = path.join(world.base, 'outside')
+      await writeFileTree(world.userRoot, { 'skills/healthy/SKILL.md': skillManifest('healthy', 'Still available') })
+      await writeFileTree(outside, { 'SKILL.md': skillManifest('forbidden', 'External sentinel') })
+      const manifest = path.join(world.userRoot, 'skills', 'broken', 'SKILL.md')
+      await fsp.mkdir(path.dirname(manifest))
+      await fixtureLink(context, kind === 'loop' ? manifest
+        : path.join(outside, kind === 'dangling' ? 'absent.md' : 'SKILL.md'), manifest)
+      const calls = observeContents()
+      const result = await createWorkspace({ locator: world.locator, platform: process.platform }).skillsList()
+      expect(result.data.some((entry) => entry.name === 'healthy')).toBe(true)
+      expect(result.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: expect.stringContaining('broken') })
+      ]))
+      expectNoContentUnder(calls, outside)
+    }
+  )
+
+  it.for(['file', 'parent'] as const)('rejects a cross-store %s link from a user-store read', async (kind, context) => {
+    await writeFileTree(world.desktopRoot, { 'settings.json': writeJson({ sentinel: 'other store' }) })
+    const linked = path.join(world.userRoot, kind === 'parent' ? 'linked/settings.json' : 'settings.json')
+    await fixtureLink(context, kind === 'parent' ? world.desktopRoot : path.join(world.desktopRoot, 'settings.json'),
+      kind === 'parent' ? path.dirname(linked) : linked, kind === 'parent')
+    const calls = observeContents()
+    const c = collector()
+    expect(await safeReadJson(linked, 'settings.json', c, world.userRoot)).toBeNull()
+    expect(c.errors).toHaveLength(1)
+    expectNoContentUnder(calls, world.desktopRoot)
+  })
+
+  it.for(['registry', 'mcp'] as const)('keeps the exact %s read exception from admitting a sibling', async (kind, context) => {
+    const project = path.join(world.base, 'project')
+    await writeFileTree(project, { '.claude/settings.json': '{}', 'sibling.json': writeJson({ mcpServers: { forbidden: mcpServer() } }) })
+    await registerMcp(world, { projects: { [project]: {} } }, {})
+    const target = kind === 'registry' ? world.locator.userConfigFile : path.join(project, '.mcp.json')
+    const sibling = kind === 'registry' ? path.join(world.home, 'sibling.json') : path.join(project, 'sibling.json')
+    if (kind === 'registry') {
+      await fsp.writeFile(sibling, writeJson({ mcpServers: { forbidden: mcpServer() } }))
+      await fsp.unlink(target)
+    }
+    await fixtureLink(context, sibling, target)
+    const calls = observeContents()
+    const result = await createWorkspace({ locator: world.locator, platform: process.platform }).entityList('mcp')
+    expect(result.data.some((entry) => entry.id.includes('forbidden'))).toBe(false)
+    expect(result.errors.length).toBeGreaterThan(0)
+    expectNoContentUnder(calls, sibling)
+  })
+
+  it.for(['summary-file', 'first-prompt-file', 'summary-parent', 'first-prompt-parent'] as const)('rechecks %s stream paths after inventory', async (kind, context) => {
+    const project = path.join(world.base, 'project')
+    const relative = `projects/${flattenPath(project)}/${UUID_A}.jsonl`
+    const target = path.join(world.userRoot, relative)
+    const outside = path.join(world.base, 'outside')
+    await writeFileTree(world.userRoot, { [relative]: healthyTranscript(UUID_A) })
+    await writeFileTree(outside, { [`${UUID_A}.jsonl`]: healthyTranscript(UUID_A) })
+    const inventory = await scanSessionInventory(world.locator, process.platform)
+    const record = inventory.data.byDirName.get(flattenPath(project))!.sessions[0]!
+    expect(record.file).toBe(target)
+    if (kind.endsWith('parent')) {
+      await fsp.rename(path.dirname(target), `${path.dirname(target)}-original`)
+      await fixtureLink(context, outside, path.dirname(target), true)
+    } else {
+      await fsp.unlink(target)
+      await fixtureLink(context, path.join(outside, `${UUID_A}.jsonl`), target)
+    }
+    const calls = observeContents()
+    const run = kind.startsWith('summary') ? summarizeTranscript : readFirstUserPrompt
+    await expect(run(record.file, world.userRoot)).rejects.toThrow()
+    expect(calls).toEqual([])
+    expectNoContentUnder(calls, outside)
+  })
+
+  it.for(['external', 'dangling', 'loop'] as const)(
+    'recursive size preserves healthy bytes and digest refuses a nested %s directory link', async (kind, context) => {
+      const root = path.join(world.userRoot, 'tree')
+      const outside = path.join(world.base, 'outside')
+      await writeFileTree(root, { 'healthy.txt': 'healthy' })
+      await writeFileTree(outside, { 'sentinel.txt': 'forbidden bytes' })
+      await fixtureLink(context, kind === 'loop' ? root
+        : kind === 'dangling' ? path.join(outside, 'missing') : outside, path.join(root, 'linked'), true)
+      const calls = observeContents()
+      const c = collector()
+      expect(await directorySize(root, 'tree', c, world.userRoot)).toBe(Buffer.byteLength('healthy'))
+      expect(c.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: expect.stringContaining('linked') })
+      ]))
+      await expect(digestTree(root, world.userRoot)).rejects.toThrow()
+      expectNoContentUnder(calls, outside)
+    }
+  )
+
+  it('recursive size and digest include safe in-store aliases without mistaking siblings for a cycle', async (context) => {
+    const root = path.join(world.userRoot, 'tree')
+    const equivalent = path.join(world.userRoot, 'equivalent')
+    await writeFileTree(root, { 'actual/value.txt': 'abc' })
+    await writeFileTree(equivalent, { 'actual/value.txt': 'abc', 'alias/value.txt': 'abc' })
+    await fixtureLink(context, path.join(root, 'actual'), path.join(root, 'alias'), true)
+    const c = collector()
+    expect(await directorySize(root, 'tree', c, world.userRoot)).toBe(6)
+    expect(c.errors).toEqual([])
+    expect(await digestTree(root, world.userRoot)).toBe(await digestTree(equivalent, world.userRoot))
+  })
+
+  it('rechecks nested copy destinations after preflight before a newly inserted junction can receive bytes', async (context) => {
+    const source = path.join(world.userRoot, 'source')
+    const destination = path.join(world.desktopRoot, 'destination')
+    const outside = path.join(world.base, 'outside')
+    await writeFileTree(source, { 'nested/sentinel.txt': 'source bytes' })
+    await writeFileTree(outside, { 'sentinel.txt': 'external bytes must remain' })
+    const probe = path.join(world.desktopRoot, 'link-capability-probe')
+    await fixtureLink(context, outside, probe, true)
+    await fsp.unlink(probe)
+    const beforeSource = await hashTree(source)
+    let injected = false
+    const mkdir = fsp.mkdir
+    vi.spyOn(fsp, 'mkdir').mockImplementation(async (at, options) => {
+      const result = await mkdir(at, options)
+      // Root creation follows copy preflight. Swap the still-missing child
+      // before the copy loop gets to its directory or file entry.
+      if (at === destination && !injected) {
+        injected = true
+        await fsp.symlink(outside, path.join(destination, 'nested'), process.platform === 'win32' ? 'junction' : 'dir')
+      }
+      return result
+    })
+    const calls = observeContents()
+    const copies = vi.spyOn(fsp, 'copyFile')
+    const result = await createMutations(world.locator).mutate({
+      op: 'move', kind: 'skill', entityId: 'skill:boundary', summary: 'Synthetic copy destination swap',
+      steps: [
+        { type: 'copy', store: 'user', from: 'source', toStore: 'desktop', to: 'destination' },
+        { type: 'trash', store: 'user', from: 'source' }
+      ]
+    })
+    expect(injected).toBe(true)
+    expect(result.data).toBeNull()
+    expect(result.errors.length).toBeGreaterThan(0)
+    expect(copies).not.toHaveBeenCalled()
+    expectNoContentUnder(calls, outside)
+    vi.restoreAllMocks()
+    expect(await hashTree(source)).toEqual(beforeSource)
+    expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
+    expect(await fsp.readFile(path.join(outside, 'sentinel.txt'), 'utf8')).toBe('external bytes must remain')
+  })
+  it.for(['source', 'destination'] as const)('recursive mutation rejects a nested external %s junction', async (side, context) => {
+    const outside = path.join(world.base, 'outside')
+    await writeFileTree(outside, { 'sentinel.txt': 'unchanged' })
+    await writeFileTree(world.userRoot, { 'source/healthy.txt': 'healthy' })
+    if (side === 'source') {
+      await fixtureLink(context, outside, path.join(world.userRoot, 'source', 'linked'), true)
+    } else {
+      await fsp.mkdir(path.join(world.desktopRoot, 'nested'))
+      await fixtureLink(context, outside, path.join(world.desktopRoot, 'nested', 'linked'), true)
+    }
+    const calls = observeContents()
+    const writes = (['copyFile', 'cp', 'rename', 'writeFile', 'mkdir'] as const).map((method) => vi.spyOn(fsp, method))
+    const result = await createMutations(world.locator).mutate({
+      op: 'move', kind: 'skill', entityId: 'skill:boundary', summary: 'Synthetic recursive boundary',
+      steps: [
+        { type: 'copy', store: 'user', from: 'source', toStore: 'desktop',
+          to: side === 'destination' ? 'nested/linked/new' : 'destination' },
+        { type: 'trash', store: 'user', from: 'source' }
+      ]
+    })
+    expect(result.data).toBeNull()
+    expect(result.errors.length).toBeGreaterThan(0)
+    expectNoContentUnder(calls, outside)
+    for (const spy of writes) {
+      for (const args of spy.mock.calls) {
+        for (const target of args.slice(0, 2)) {
+          if (typeof target !== 'string') continue
+          let resolved = target
+          try { resolved = fs.realpathSync(target) } catch { /* Missing destinations checked by parent link cases. */ }
+          expectNoContentUnder([{ method: 'mutation', target, resolved }], outside)
+        }
+      }
+    }
+    vi.restoreAllMocks()
+    expect(await fsp.readFile(path.join(world.userRoot, 'source', 'healthy.txt'), 'utf8')).toBe('healthy')
+    expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
+    expect(await fsp.readFile(path.join(outside, 'sentinel.txt'), 'utf8')).toBe('unchanged')
   })
 })

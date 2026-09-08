@@ -45,6 +45,30 @@ ADR-0002 amendment grants and `test/boundary.test.ts` pins. Outside a
 `.claude` directory kondo opens exactly two files — that one and
 `~/.claude.json` — and stats exactly one path, the project root.
 
+✅ **Kondo boundary behavior, verified with synthetic fixtures (097):** scanner
+helpers take the owning user, desktop or verified project `.claude` root. Both
+the requested path and its final resolved target must stay in that root; a link
+into another store is not permission to cross between them. In-store aliases
+remain readable. External links, dangling links and recursive cycles produce
+itemized errors and preserve healthy siblings. The registry and project MCP
+exceptions authorize their exact filename under the resolved parent, so a link
+from either file to a sibling is refused. An ordinary absent optional file is
+still empty data, rather than a broken-link error.
+
+Directory walks validate entries before descending; transcript streams and
+duplicate digests validate before opening bytes, including after a cached
+inventory. Copy verification needs a complete readable tree and refuses a
+partial digest. Configured store-root aliases remain the locator's authority;
+these pathname checks do not eliminate concurrent replacement races.
+
+Copies into another live store materialize safe linked contents and verify the
+complete result. Moves to Kondo's trash preserve the original link entries for
+undo. An archived link is metadata: trash inventory, physical copy verification
+and removal never follow it back into a live store. Undo validates those links
+against the future restored tree before journaling or displacing an occupant.
+Trash size counts physically retained regular-file bytes, excluding referents
+and link metadata. Splice and undo keep their existing in-store link identity.
+
 These limits describe access to Claude's data. Kondo's separate
 [application footprint](foundations.md#kondos-own-footprint) also holds its
 journal, trash, caches and appearance preference. The Themes screen stores

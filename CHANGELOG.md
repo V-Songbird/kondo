@@ -8,6 +8,10 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Store scans, transcript reads and recursive copies refuse links escaping their
+  owning store. Broken links and cycles report problems while healthy entries
+  remain available; safe in-store aliases stay readable.
+
 - Temporary-project classification expands Windows short directory names in the
   OS temporary root, so registered paths using long names are recognized.
 
