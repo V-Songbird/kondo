@@ -40,6 +40,7 @@ import { slashed, tildify } from './display'
 import { desktopSessions, desktopSessionStems } from './desktop-store'
 import { readFirstUserPrompt, summarizeTranscript } from './jsonl'
 import { openScanCache } from './scan-cache'
+import { snapshotRemovalTree } from './reviewed-removals'
 import { toSessionProjects, toSessionSummaries, type SessionInventory } from './sessions'
 import {
   clearEnabledPlugin,
@@ -1536,6 +1537,18 @@ export async function skillDuplicates(
 // ---------------------------------------------------------------------------
 // Duplicate sessions (entry 034)
 
+/** Full group identity and bytes, kept in main alongside its review token. */
+export async function snapshotSkillGroup(group: SkillDuplicateGroup, context: KindContext): Promise<string> {
+  const members = []
+  for (const member of [...group.members].sort((a, b) => a.skill.id.localeCompare(b.skill.id))) {
+    const placement = placementOf('skill', member.skill)
+    const target = placement === null ? null : await absolutePathOf(placement, context)
+    if (target === null || member.digest === null) throw Error('A duplicate member cannot be resolved.')
+    members.push([member.skill, member.digest, await snapshotRemovalTree(target.target, target.root)])
+  }
+  return JSON.stringify([group.name, group.identical, members])
+}
+
 /**
  * How much of an opening two sessions must share before sharing it means
  * anything. "ok" and "continue" open hundreds of sessions apiece and say
@@ -1684,9 +1697,11 @@ export async function sessionTrashPlan(
     const key = id.slice(SESSION_PREFIX.length)
     const slash = key.lastIndexOf('/')
     const project = slash <= 0 ? undefined : inventory.byDirName.get(key.slice(0, slash))
-    const session = project?.sessions.find(
+    const matches = project?.sessions.filter(
       (candidate) => candidate.uuid === key.slice(slash + 1).toLowerCase()
-    )
+    ) ?? []
+    if (matches.length > 1) return { ok: false, code: 'stale-plan', message: 'More than one transcript has this identity. Review the session files again.' }
+    const session = matches[0]
     if (project === undefined || session === undefined) {
       return {
         ok: false,

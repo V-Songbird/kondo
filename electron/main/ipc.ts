@@ -57,8 +57,11 @@ export function registerIpc(
   ipcMain.handle(channels.sessionNearDuplicates, (_event, projectId: unknown) =>
     api.sessionNearDuplicates(String(projectId))
   )
-  ipcMain.handle(channels.sessionTrash, (_event, ids: unknown) =>
-    api.sessionTrash(ids as string[])
+  ipcMain.handle(channels.sessionTrashPreview, (_event, ids: unknown) =>
+    api.sessionTrashPreview(ids as string[])
+  )
+  ipcMain.handle(channels.sessionTrash, (_event, ids: unknown, reviewToken: unknown) =>
+    api.sessionTrash(ids as string[], reviewToken as string | undefined)
   )
   ipcMain.handle(channels.desktopSessions, () => api.desktopSessions())
   ipcMain.handle(channels.skillsList, () => api.skillsList())
@@ -105,8 +108,8 @@ export function registerIpc(
   ipcMain.handle(channels.hooksList, () => api.hooksList())
   ipcMain.handle(channels.settingsLayers, () => api.settingsLayers())
   ipcMain.handle(channels.tidyPreview, () => api.tidyPreview())
-  ipcMain.handle(channels.tidySweep, (_event, categories: unknown) =>
-    api.tidySweep(categories as TidyCategory[])
+  ipcMain.handle(channels.tidySweep, (_event, categories: unknown, reviewToken: unknown) =>
+    api.tidySweep(categories as TidyCategory[], reviewToken as string | undefined)
   )
   ipcMain.handle(channels.configOrphansPreview, () => api.configOrphansPreview())
   ipcMain.handle(channels.configOrphansRemove, (_event, orphanIds: unknown) =>

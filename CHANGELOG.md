@@ -8,6 +8,10 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Cleanup, selected conversation removal and duplicate-skill removal retain
+  the reviewed candidates. Changed files, resumed conversations or changed
+  duplicate groups require another review before anything moves.
+
 - Store scans, transcript reads and recursive copies refuse links escaping their
   owning store. Broken links and cycles report problems while healthy entries
   remain available; safe in-store aliases stay readable.

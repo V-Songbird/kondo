@@ -12,6 +12,7 @@ import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
 import { tildify } from './display'
 import {
   directorySize,
+  inspectTree,
   isEnoent,
   mapPool,
   relativeTo,
@@ -36,10 +37,9 @@ import {
  *
  * Two halves that have to agree. The preview is a pure scan — it moves
  * nothing — and the plan is built from the *same* candidate set, so what the
- * user confirmed is exactly what moves. Both read the cached tier-1
- * inventory rather than walking the store afresh (ADR-0007): 8,921 project
- * directories must answer "what would this free?" without opening one
- * transcript.
+ * user confirmed is exactly what moves. The workspace forces fresh inventory
+ * at review/apply and retains exact tree snapshots under opaque review tokens.
+ * Transcript hashing is streamed; ordinary inventory remains stat-based.
  *
  * Everything the sweep touches goes through kondo's trash as one journal
  * entry (ADR-0001 decision 2) — undo restores a sweep whole or not at all.
@@ -62,6 +62,7 @@ export type TidyCandidates = Record<TidyCategory, Candidate[]>
 export type TidyBlocks = Partial<Record<TidyCategory, string>>
 
 export interface TidyScan {
+  withheldScratchCount: number
   candidates: TidyCandidates
   blocked: TidyBlocks
 }
@@ -240,15 +241,18 @@ export async function scanTidyCandidates(
   // (ADR-0007), which is what lets this answer for 9,171 directories.
   const tmpRoots = [locator.tmpRoot, locator.tmpRootRealpath]
   const trees = new Map<string, TidyCategory>()
+  const withheld = new Set<string>()
   for (const project of inventory.projects) {
     // Only a directory under `projects/` can be trashed as a tree. A project
     // the registry names and `projects/` does not has nothing here to move,
     // however dead its path is.
     if (!project.sources.includes('transcripts')) continue
     if (isScratchProjectName(project.dirName, tmpRoots, project.guessedPath)) {
-      // A temp root, a worktree or a job: scratch by name, whatever it holds
-      // and wherever its path is now.
-      trees.set(project.dirName, 'scratch-projects')
+      // A name does not establish disuse. Preserve memory and recent state,
+      // including sidecars, and do not fall through to another category.
+      if (project.hasMemory || !(await inactiveScratch(project.absPath, root, nowMs, c))) {
+        withheld.add(project.dirName)
+      } else trees.set(project.dirName, 'scratch-projects')
     } else if (project.location === 'gone') {
       // `gone` and never `unlocated` or `unreadable` — a name kondo could not
       // reverse, and a path it could not stat, are not evidence of anything
@@ -268,7 +272,8 @@ export async function scanTidyCandidates(
       // — the owner's store had live projects whose only trace here was
       // memory — and an unlocated name is not evidence of anything
       // (ADR-0009). A project that is on disk is never litter by emptiness.
-      trees.set(project.dirName, 'scratch-projects')
+      if (await inactiveScratch(project.absPath, root, nowMs, c)) trees.set(project.dirName, 'scratch-projects')
+      else withheld.add(project.dirName)
     }
   }
 
@@ -276,7 +281,7 @@ export async function scanTidyCandidates(
   for (const project of inventory.projects) {
     // Skipped whole: every path inside a claimed directory is already
     // covered by the one step that moves the directory.
-    if (trees.has(project.dirName)) continue
+    if (trees.has(project.dirName) || withheld.has(project.dirName)) continue
     for (const session of project.sessions) {
       // The sidecar rides with its transcript. Leaving it behind would only
       // make it tomorrow's orphan, and it is state for a session that is
@@ -373,7 +378,21 @@ export async function scanTidyCandidates(
   const blocked: TidyBlocks = {}
   const busy = candidates['desktop-caches'].length > 0 ? await desktopAppBusy(locator, c) : null
   if (busy !== null) blocked['desktop-caches'] = busy
-  return { candidates, blocked }
+  return { candidates, blocked, withheldScratchCount: withheld.size }
+}
+
+/** No recent entry anywhere in a scratch tree; inability to check is not disuse. */
+async function inactiveScratch(target: string, root: string, nowMs: number, c: Collector): Promise<boolean> {
+  try {
+    for (const entry of await inspectTree(target, root)) {
+      const info = await fs.stat(await resolveAllowedPath(path.join(target, entry.relative), root))
+      if (!isStale(info.mtimeMs, nowMs)) return false
+    }
+    return true
+  } catch {
+    c.fail('read-failed', 'scratch-projects', 'A scratch folder could not be checked for recent activity; it was withheld.')
+    return false
+  }
 }
 
 /**
@@ -540,7 +559,7 @@ async function scanPluginResidue(
 }
 
 /** The dry run itself: counts and bytes per category, and nothing moved. */
-export function toTidyPreview(candidates: TidyCandidates, blocked: TidyBlocks = {}): TidyPreview {
+export function toTidyPreview(candidates: TidyCandidates, blocked: TidyBlocks = {}, withheldScratchCount = 0): TidyPreview {
   const categories: TidyCategoryPreview[] = tidyCategories.map((category) => {
     const items = candidates[category]
     return {
@@ -552,6 +571,8 @@ export function toTidyPreview(candidates: TidyCandidates, blocked: TidyBlocks = 
     }
   })
   return {
+    reviewToken: null,
+    withheldScratchCount,
     categories,
     totalCount: categories.reduce((sum, entry) => sum + entry.count, 0),
     totalBytes: categories.reduce((sum, entry) => sum + entry.bytes, 0),

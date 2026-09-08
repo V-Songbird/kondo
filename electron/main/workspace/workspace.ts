@@ -20,6 +20,7 @@ import type {
   SessionDuplicateGroup,
   SessionProject,
   SessionSummary,
+  SessionTrashPreview,
   SettingsLayerInfo,
   SkillDuplicateGroup,
   SkillInfo,
@@ -42,10 +43,12 @@ import {
   sessionNearDuplicates,
   sessionTrashPlan,
   skillDuplicates,
+  snapshotSkillGroup,
   type KindContext
 } from './kinds'
 import {
   scanSessionInventory,
+  toSessionSummaries,
   type ProjectRecord,
   type SessionInventory
 } from './sessions'
@@ -60,7 +63,9 @@ import {
 import { desktopStoreReport } from './desktop-store'
 import { slashed, tildify } from './display'
 import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
-import { createMutations } from './mutations'
+import { createMutations, type MutationPlan } from './mutations'
+import { createRemovalReviews, snapshotRemovalTree, staleRemoval } from './reviewed-removals'
+import { tidyCategories } from '../../../shared/contract'
 import { createAppearance } from './appearance'
 import type { ExistsFn } from './projects'
 import {
@@ -130,11 +135,17 @@ async function inventoryFingerprint(locator: StoreLocator): Promise<string> {
   return `${registry}|${projects}`
 }
 
+type RemovalReview =
+  | { kind: 'tidy'; candidates: TidyCandidates; signatures: Record<TidyCategory, string>; blocked: TidyBlocks }
+  | { kind: 'sessions'; ids: string[]; signature: string }
+  | { kind: 'skill'; name: string; ids: string[]; signature: string }
+
 export function createWorkspace(options: WorkspaceOptions): KondoApi {
   const { locator, platform } = options
   const tmpRoots = [locator.tmpRoot, locator.tmpRootRealpath]
   const now = options.now ?? Date.now
   const appearance = createAppearance(locator)
+  const reviews = createRemovalReviews<RemovalReview>(now)
 
   let inventoryState: Promise<InventoryState> | null = null
 
@@ -213,6 +224,59 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       projects: only ? async () => only : async () => (await inventory()).verified,
       parentId
     })
+
+  /** Pin one forced inventory to this call, including its verified store roots. */
+  const freshContext = async (c: Collector): Promise<KindContext> => {
+    const { scan, verified } = await inventory(true)
+    c.errors.push(...scan.errors)
+    c.unknown.push(...scan.unknown)
+    return createKindContext({ locator, c, now: now(), inventory: async () => scan.data, projects: async () => verified })
+  }
+
+  const stale = (at: string, detail?: string): Scan<null> => ({
+    data: null, errors: [staleRemoval(at, detail)], unknown: []
+  })
+
+  const snapshotPlan = async (plan: MutationPlan | null): Promise<string> => {
+    const result = []
+    for (const step of plan?.steps ?? []) {
+      if (step.type !== 'trash') throw Error('A removal review may only trash reviewed entries.')
+      const root = step.store === 'user' ? locator.userRoot :
+        step.store === 'desktop' ? locator.desktopRoot : null
+      if (root === null) throw Error('Unknown removal store.')
+      result.push([step.store, step.from, await snapshotRemovalTree(path.join(root, step.from), root)])
+    }
+    return JSON.stringify(result.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))
+  }
+
+  // Include the complete selected UUID namespace, including formerly absent
+  // sidecars/markers. Ambiguous or unrecognized related entries are withheld.
+  const snapshotSessions = async (plan: MutationPlan, ids: string[], shared: KindContext): Promise<string> => {
+    const selected = new Set(plan.steps.map((step) => step.type === 'trash' ? step.from : ''))
+    for (const id of ids) {
+      const key = id.slice('session:code:'.length)
+      const slash = key.lastIndexOf('/')
+      const dirName = key.slice(0, slash)
+      const uuid = key.slice(slash + 1).toLowerCase()
+      const project = (await shared.inventory()).byDirName.get(dirName)
+      if (!project) throw Error('The selected project disappeared.')
+      const record = project.sessions.find((session) => session.uuid === uuid)
+      if (!record) throw Error('The selected transcript disappeared.')
+      const info = await fs.stat(await resolveAllowedPath(record.file, locator.userRoot))
+      if (info.size !== record.bytes || info.mtimeMs !== record.mtimeMs) throw Error('The session changed after inventory.')
+      const root = await resolveAllowedPath(project.absPath, locator.userRoot)
+      const names = (await fs.readdir(root)).filter((name) => {
+        const lower = name.toLowerCase()
+        return lower === uuid || lower.startsWith(uuid + '.')
+      })
+      const planned = [...selected].filter((name) => name.startsWith('projects/' + dirName + '/') &&
+        (path.posix.basename(name).toLowerCase() === uuid || path.posix.basename(name).toLowerCase().startsWith(uuid + '.')))
+      if (names.length !== planned.length || names.some((name) => !selected.has('projects/' + dirName + '/' + name))) {
+        throw Error('The selected session has changed or ambiguous related files.')
+      }
+    }
+    return snapshotPlan(plan)
+  }
 
   const badRequest = <T>(data: T, message: string): Scan<T> => ({
     data,
@@ -389,11 +453,15 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     }
 
     const c = collector()
+    const review = op === 'trash' && listing.kind === 'skill' ? reviews.take(request.reviewToken) : null
     // One context: the entity is read and the plan built from the same bytes,
     // so nothing is re-scanned between deciding and describing.
-    const shared = context(c)
+    const shared = op === 'trash' ? await freshContext(c) : context(c)
     const entity = await listing.definition.read(entityId, shared)
-    if (entity === null || entity === undefined) return unknownId(null, entityId)
+    if (entity === null || entity === undefined) {
+      if (op === 'trash' && listing.kind === 'skill' && request.reviewToken !== undefined) return stale(entityId, 'A reviewed skill is no longer present.')
+      return unknownId(null, entityId)
+    }
 
     // The cast the erased view cannot make for us: `read` and `plan` here are
     // the same registry entry's, so this is the type that entry planned for.
@@ -402,7 +470,32 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       c.errors.push({ code: planned.code, path: entityId, message: planned.message })
       return finish(null, c)
     }
-    return mutations.mutate(planned.plan)
+    // Session trash always goes through sessionTrashPreview/sessionTrash, even
+    // if the generic kind planner later gains a trash implementation.
+    if (op === 'trash' && listing.kind === 'session') {
+      return { data: null, errors: [{ code: 'not-permitted', path: entityId, message: 'Review selected sessions through sessionTrashPreview before removing them.' }], unknown: [] }
+    }
+    if (op === 'trash' && listing.kind === 'skill') {
+      if (review?.kind !== 'skill' || !review.ids.includes(entityId)) return stale(entityId)
+      const revalidate = async (): Promise<ScanError | null> => {
+        const checked = collector()
+        try {
+          const current = await freshContext(checked)
+          const group = (await skillDuplicates(current)).find((group) => group.name === review.name)
+          if (!group?.identical || checked.errors.length > 0 ||
+              await snapshotSkillGroup(group, current) !== review.signature) {
+            return staleRemoval(entityId, 'The reviewed duplicate group changed in membership, identity, or contents.')
+          }
+          return null
+        } catch {
+          return staleRemoval(entityId, 'The reviewed duplicate group could not be verified.')
+        }
+      }
+      const refusal = await revalidate()
+      if (refusal) return { data: null, errors: [refusal], unknown: [] }
+      planned.plan.preflight = revalidate
+    }
+    return mutations.mutate(planned.plan).finally(dropInventory)
   }
 
   /** One listing under the older, kind-specific name a shipped view calls. */
@@ -412,19 +505,19 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
   ): Promise<Scan<T[]>> => (await entityList(kind, parentId)) as Scan<T[]>
 
   /**
-   * What a sweep would move, off the cached inventory (ADR-0007). The
+   * What a sweep would move, from a fresh pinned inventory. The
    * preview and the sweep both come through here, so both subtract the same
    * armed-script set from `hooks/` and neither can offer a script the other
    * would have kept.
    */
   const tidyCandidates = async (
     c: Collector
-  ): Promise<{ scan: Scan<SessionInventory>; candidates: TidyCandidates; blocked: TidyBlocks }> => {
-    const { scan } = await inventory()
-    const shared = context(c)
+  ): Promise<{ scan: Scan<SessionInventory>; candidates: TidyCandidates; blocked: TidyBlocks; withheldScratchCount: number }> => {
+    const shared = await freshContext(c)
+    const scan = finish(await shared.inventory(), collector())
     const armed = armedHookScripts(await shared.layers(), locator, await shared.projects())
     const tidy = await scanTidyCandidates(locator, scan.data, now(), armed, c)
-    return { scan, candidates: tidy.candidates, blocked: tidy.blocked }
+    return { scan, candidates: tidy.candidates, blocked: tidy.blocked, withheldScratchCount: tidy.withheldScratchCount }
   }
 
   return {
@@ -614,29 +707,71 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       return finish(groups, c)
     },
 
-    async sessionTrash(ids: string[]): Promise<Scan<JournalEntryInfo | null>> {
+    async sessionTrashPreview(ids: string[]): Promise<Scan<SessionTrashPreview | null>> {
       if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
-        return badRequest(null, 'sessionTrash expects an array of session ids.')
+        return badRequest(null, 'sessionTrashPreview expects an array of session ids.')
       }
+      const chosen = [...new Set(ids)].sort()
       const c = collector()
-      // The same cached scan the listing was drawn from (ADR-0007), so the
-      // set trashed is the set the user picked. An id that has since gone
-      // refuses the whole plan rather than moving a different one.
-      const planned = await sessionTrashPlan(ids, context(c))
+      const shared = await freshContext(c)
+      const planned = await sessionTrashPlan(chosen, shared)
       if (!planned.ok) {
         c.errors.push({ code: planned.code, path: '(request)', message: planned.message })
         return finish(null, c)
       }
-      if (planned.plan === null) return finish<JournalEntryInfo | null>(null, c)
-
-      // Dropped whether or not it finished: a step that failed part way has
-      // already moved transcripts the cached inventory still lists.
-      const result = await mutations.mutate(planned.plan).finally(dropInventory)
-      return {
-        data: result.data,
-        errors: [...c.errors, ...result.errors],
-        unknown: [...c.unknown, ...result.unknown]
+      if (!planned.plan) return finish(null, c)
+      try {
+        if (c.errors.length > 0) return finish(null, c)
+        const signature = await snapshotSessions(planned.plan, chosen, shared)
+        const stems = await shared.desktopStems()
+        const sessions = (await shared.inventory()).projects.flatMap((project) =>
+          toSessionSummaries(project, shared.now, stems)).filter((session) => chosen.some((id) =>
+            id.toLowerCase() === session.id.toLowerCase()))
+        if (c.errors.length > 0) return finish(null, c)
+        const reviewToken = reviews.issue({ kind: 'sessions', ids: chosen, signature })
+        if (reviewToken === null) return stale('(sessions)', 'This selection is too large to retain safely.')
+        return finish({ reviewToken, count: chosen.length, sessions }, c)
+      } catch {
+        c.errors.push(staleRemoval('(sessions)', 'The selected sessions could not be safely reviewed.'))
+        return finish(null, c)
       }
+    },
+
+    async sessionTrash(ids: string[], reviewToken?: string): Promise<Scan<JournalEntryInfo | null>> {
+      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
+        return badRequest(null, 'sessionTrash expects an array of session ids.')
+      }
+      const chosen = [...new Set(ids)].sort()
+      if (chosen.length === 0) return finish(null, collector())
+      const review = reviews.take(reviewToken)
+      const c = collector()
+      const shared = await freshContext(c)
+      const planned = await sessionTrashPlan(chosen, shared)
+      if (!planned.ok) {
+        if (reviewToken !== undefined && planned.code === 'unknown-id') return stale('(sessions)', 'A reviewed session is no longer present.')
+        c.errors.push({ code: planned.code, path: '(request)', message: planned.message })
+        return finish(null, c)
+      }
+      if (review?.kind !== 'sessions' || JSON.stringify(chosen) !== JSON.stringify(review.ids)) return stale('(sessions)')
+      if (!planned.plan) return stale('(sessions)', 'The reviewed sessions are no longer present.')
+      const revalidate = async (): Promise<ScanError | null> => {
+        const checked = collector()
+        try {
+          const current = await freshContext(checked)
+          const currentPlan = await sessionTrashPlan(chosen, current)
+          if (!currentPlan.ok || !currentPlan.plan || checked.errors.length > 0 ||
+              await snapshotSessions(currentPlan.plan, chosen, current) !== review.signature) {
+            return staleRemoval('(sessions)', 'The selected sessions changed, resumed, or gained or lost related files.')
+          }
+          return null
+        } catch {
+          return staleRemoval('(sessions)', 'The selected sessions could not be verified.')
+        }
+      }
+      const refusal = await revalidate()
+      if (refusal) return { data: null, errors: [refusal], unknown: [] }
+      planned.plan.preflight = revalidate
+      return mutations.mutate(planned.plan).finally(dropInventory)
     },
 
     desktopSessions() {
@@ -677,7 +812,19 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
     async skillDuplicates(): Promise<Scan<SkillDuplicateGroup[]>> {
       const c = collector()
-      return finish(await skillDuplicates(context(c)), c)
+      const shared = await freshContext(c)
+      const groups = await skillDuplicates(shared)
+      for (const group of groups) {
+        group.reviewToken = null
+        if (!group.identical || c.errors.length > 0) continue
+        try {
+          const signature = await snapshotSkillGroup(group, shared)
+          group.reviewToken = reviews.issue({ kind: 'skill', name: group.name, ids: group.members.map((member) => member.skill.id), signature })
+        } catch {
+          c.errors.push(staleRemoval(group.name, 'This duplicate group changed or could not be safely reviewed.'))
+        }
+      }
+      return finish(groups, c)
     },
 
     pluginsList() {
@@ -772,48 +919,54 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
     async tidyPreview(): Promise<Scan<TidyPreview>> {
       const c = collector()
-      const { scan, candidates, blocked } = await tidyCandidates(c)
-      return {
-        data: toTidyPreview(candidates, blocked),
-        errors: [...scan.errors, ...c.errors],
-        unknown: [...scan.unknown, ...c.unknown]
+      const { candidates, blocked, withheldScratchCount } = await tidyCandidates(c)
+      const preview = toTidyPreview(candidates, blocked, withheldScratchCount)
+      const signatures = {} as Record<TidyCategory, string>
+      try {
+        if (c.errors.length === 0) {
+          for (const category of tidyCategories) signatures[category] = await snapshotPlan(tidyPlan(candidates, [category]))
+          preview.reviewToken = reviews.issue({ kind: 'tidy', candidates, signatures, blocked })
+          if (preview.reviewToken === null) c.errors.push(staleRemoval('(cleanup)', 'This preview is too large to retain safely.'))
+        }
+      } catch {
+        c.errors.push(staleRemoval('(cleanup)', 'The cleanup candidates changed or could not be safely reviewed.'))
       }
+      return finish(preview, c)
     },
 
-    async tidySweep(categories: TidyCategory[]): Promise<Scan<JournalEntryInfo | null>> {
+    async tidySweep(categories: TidyCategory[], reviewToken?: string): Promise<Scan<JournalEntryInfo | null>> {
       const chosen = readCategories(categories)
-      if (chosen === null) {
-        return badRequest(null, 'tidySweep expects an array of known tidy categories.')
-      }
-      const c = collector()
-      // The same cached scan the preview was built from (ADR-0007), so the
-      // sweep moves the set the user confirmed rather than one rediscovered
-      // a moment later. An item that vanished in between refuses the whole
-      // plan in `mutate` — all of the preview or none of it.
-      const { candidates, blocked } = await tidyCandidates(c)
-      // A blocked category refuses the whole sweep before a byte moves: the
-      // desktop app holding its caches open would fail the plan part way.
-      const held = chosen.find((category) => blocked[category] !== undefined)
+      if (chosen === null) return badRequest(null, 'tidySweep expects an array of known tidy categories.')
+      if (chosen.length === 0) return finish(null, collector())
+      const review = reviews.take(reviewToken)
+      if (review?.kind !== 'tidy') return stale('(cleanup)')
+      const selected = [...new Set(chosen)]
+      const held = selected.find((category) => review.blocked[category] !== undefined)
       if (held !== undefined) {
-        return {
-          data: null,
-          errors: [{ code: 'not-permitted', path: held, message: blocked[held] as string }],
-          unknown: []
+        return { data: null, errors: [{ code: 'not-permitted', path: held, message: review.blocked[held] as string }], unknown: [] }
+      }
+      const revalidate = async (): Promise<ScanError | null> => {
+        const checked = collector()
+        try {
+          const current = await tidyCandidates(checked)
+          if (checked.errors.length > 0) return staleRemoval(selected.join(', '), 'The selected cleanup categories could not be completely checked.')
+          for (const category of selected) {
+            if (current.blocked[category] !== undefined ||
+                await snapshotPlan(tidyPlan(current.candidates, [category])) !== review.signatures[category]) {
+              return staleRemoval(category, 'The reviewed selection (' + review.candidates[category].length + ' items) changed: files were added, removed, edited or used again.')
+            }
+          }
+          return null
+        } catch {
+          return staleRemoval(selected.join(', '), 'The selected cleanup candidates could not be verified.')
         }
       }
-      const plan = tidyPlan(candidates, chosen)
-      // Nothing to sweep is the ordinary answer on a tidy store, not an
-      // error: no journal entry, and not a byte touched.
-      if (plan === null) return finish<JournalEntryInfo | null>(null, c)
-
-      // Dropped whether or not the sweep finished: a step that failed part
-      // way has already moved transcripts the cached inventory still lists.
-      const result = await mutations.mutate(plan).finally(dropInventory)
-      return {
-        data: result.data,
-        errors: [...c.errors, ...result.errors],
-        unknown: [...c.unknown, ...result.unknown]
-      }
+      const refusal = await revalidate()
+      if (refusal) return { data: null, errors: [refusal], unknown: [] }
+      const plan = tidyPlan(review.candidates, selected)
+      if (plan === null) return finish(null, collector())
+      plan.preflight = revalidate
+      return mutations.mutate(plan).finally(dropInventory)
     },
 
     async configOrphansPreview(): Promise<Scan<ConfigOrphan[]>> {

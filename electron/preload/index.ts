@@ -29,7 +29,9 @@ const api: KondoApi = {
   sessionDetail: (sessionId: string) => ipcRenderer.invoke(channels.sessionDetail, sessionId),
   sessionNearDuplicates: (projectId: string) =>
     ipcRenderer.invoke(channels.sessionNearDuplicates, projectId),
-  sessionTrash: (ids: string[]) => ipcRenderer.invoke(channels.sessionTrash, ids),
+  sessionTrashPreview: (ids: string[]) => ipcRenderer.invoke(channels.sessionTrashPreview, ids),
+  sessionTrash: (ids: string[], reviewToken?: string) =>
+    ipcRenderer.invoke(channels.sessionTrash, ids, reviewToken),
   desktopSessions: () => ipcRenderer.invoke(channels.desktopSessions),
   skillsList: () => ipcRenderer.invoke(channels.skillsList),
   skillToggle: (skillId: string, operation: ToggleOperation) =>
@@ -64,8 +66,8 @@ const api: KondoApi = {
   hooksList: () => ipcRenderer.invoke(channels.hooksList),
   settingsLayers: () => ipcRenderer.invoke(channels.settingsLayers),
   tidyPreview: () => ipcRenderer.invoke(channels.tidyPreview),
-  tidySweep: (categories: TidyCategory[]) =>
-    ipcRenderer.invoke(channels.tidySweep, categories),
+  tidySweep: (categories: TidyCategory[], reviewToken?: string) =>
+    ipcRenderer.invoke(channels.tidySweep, categories, reviewToken),
   configOrphansPreview: () => ipcRenderer.invoke(channels.configOrphansPreview),
   configOrphansRemove: (orphanIds: string[]) =>
     ipcRenderer.invoke(channels.configOrphansRemove, orphanIds),

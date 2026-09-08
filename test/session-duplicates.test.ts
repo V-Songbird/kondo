@@ -35,6 +35,11 @@ import {
  * a unit (ADR-0001).
  */
 
+async function reviewedSessionTrash(api: KondoApi, ids: string[]) {
+  const review = await api.sessionTrashPreview(ids)
+  return api.sessionTrash(ids, review.data?.reviewToken)
+}
+
 const UUID_D = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const UUID_E = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
@@ -335,7 +340,7 @@ describe('trashing a chosen set of sessions (ADR-0001)', () => {
   it('is one journal entry for the whole selection, and undo restores all of it', async () => {
     const before = await hashTree(world.userRoot)
 
-    const done = await api.sessionTrash([sessionId(UUID_A), sessionId(UUID_B)])
+    const done = await reviewedSessionTrash(api, [sessionId(UUID_A), sessionId(UUID_B)])
     expect(done.errors).toEqual([])
     expect(done.data?.op).toBe('trash')
     // Two transcripts and the one sidecar, in a single entry.
@@ -359,7 +364,7 @@ describe('trashing a chosen set of sessions (ADR-0001)', () => {
   // at the same uuid between the sweep and the undo is the ordinary case.
   it('keeps a transcript written at the same uuid after the trash', async () => {
     const root = path.join(world.userRoot, 'projects', flattenPath(workdir))
-    const done = await api.sessionTrash([sessionId(UUID_A)])
+    const done = await reviewedSessionTrash(api, [sessionId(UUID_A)])
     expect(done.errors).toEqual([])
     expect(await exists(path.join(root, `${UUID_A}.jsonl`))).toBe(false)
 
@@ -387,7 +392,7 @@ describe('trashing a chosen set of sessions (ADR-0001)', () => {
   })
 
   it('names the one session when only one was picked', async () => {
-    const done = await api.sessionTrash([sessionId(UUID_C)])
+    const done = await reviewedSessionTrash(api, [sessionId(UUID_C)])
     expect(done.errors).toEqual([])
     expect(done.data?.kind).toBe('session')
     expect(done.data?.entityId).toBe(sessionId(UUID_C))
@@ -396,7 +401,7 @@ describe('trashing a chosen set of sessions (ADR-0001)', () => {
 
   it('refuses the whole set when one id no longer resolves', async () => {
     const before = await hashTree(world.userRoot)
-    const refusal = await api.sessionTrash([sessionId(UUID_A), sessionId(UUID_D)])
+    const refusal = await reviewedSessionTrash(api, [sessionId(UUID_A), sessionId(UUID_D)])
     expect(refusal.data).toBeNull()
     expect(refusal.errors[0]?.code).toBe('unknown-id')
     // Not one byte moved, and no entry promising an undo that never happened.
@@ -405,27 +410,138 @@ describe('trashing a chosen set of sessions (ADR-0001)', () => {
   })
 
   it('refuses a desktop session in the matrix’s own words (ADR-0006)', async () => {
-    const refusal = await api.sessionTrash(['session:desktop:device-1/account-1/x'])
+    const refusal = await reviewedSessionTrash(api, ['session:desktop:device-1/account-1/x'])
     expect(refusal.data).toBeNull()
     expect(refusal.errors[0]?.code).toBe('not-permitted')
     expect(refusal.errors[0]?.message).toMatch(/stays where it is/)
   })
 
   it('writes no entry for an empty selection', async () => {
-    const nothing = await api.sessionTrash([])
+    const nothing = await reviewedSessionTrash(api, [])
     expect(nothing.errors).toEqual([])
     expect(nothing.data).toBeNull()
     expect((await api.journalList()).data).toEqual([])
   })
 
   it('refuses a request that is not a list of ids', async () => {
-    const bad = await api.sessionTrash('session:code:x/y' as never)
+    const bad = await reviewedSessionTrash(api, 'session:code:x/y' as never)
     expect(bad.errors[0]?.code).toBe('bad-request')
   })
 
   it('displaces a session named twice exactly once', async () => {
-    const done = await api.sessionTrash([sessionId(UUID_C), sessionId(UUID_C)])
+    const done = await reviewedSessionTrash(api, [sessionId(UUID_C), sessionId(UUID_C)])
     expect(done.errors).toEqual([])
     expect(done.data?.stepCount).toBe(1)
+  })
+})
+
+describe('reviewed session removal (102)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+  const dir = 'D--Projects-reviewed'
+  const id = (uuid = UUID_A): string => `session:code:${dir}/${uuid}`
+  const file = (name: string): string => path.join(world.userRoot, 'projects', dir, name)
+  const ids = (): string[] => [id(), id(UUID_B)]
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, {
+      'settings.json': '{}',
+      [`projects/${dir}/${UUID_A}.jsonl`]: opening(SHARED),
+      [`projects/${dir}/${UUID_A}/nested/agent.jsonl`]: opening(SHARED),
+      [`projects/${dir}/${UUID_B}.jsonl`]: opening(SHARED)
+    })
+    await fs.utimes(file(`${UUID_A}.jsonl`), PINNED, PINNED)
+    api = createWorkspace({ locator: world.locator, platform: process.platform, guessExists: async () => 'absent' })
+  })
+  afterEach(async () => { vi.restoreAllMocks(); await world.cleanup() })
+
+  const token = async (): Promise<string> => {
+    const preview = await api.sessionTrashPreview(ids())
+    expect(preview.errors).toEqual([])
+    expect(preview.data?.count).toBe(2)
+    expect(preview.data?.sessions.map((session) => session.id).sort()).toEqual(ids().sort())
+    return preview.data!.reviewToken
+  }
+
+  it.each(['resume', 'same-size', 'metadata-only', 'removed', 'replaced', 'sidecar-added', 'sidecar-removed', 'sidecar-changed', 'marker-added', 'marker-changed'] as const)(
+    'refuses the entire selection before journaling after %s', async (change) => {
+      if (change === 'marker-changed') await fs.writeFile(file(`${UUID_A}.desktop-released.json`), '{"v":1}')
+      const reviewToken = await token()
+      if (change === 'resume') await fs.appendFile(file(`${UUID_A}.jsonl`), opening('new work'))
+      if (change === 'same-size') {
+        await fs.writeFile(file(`${UUID_A}.jsonl`), opening(REWRITTEN))
+        await fs.utimes(file(`${UUID_A}.jsonl`), PINNED, PINNED)
+      }
+      if (change === 'metadata-only') await fs.utimes(file(`${UUID_A}.jsonl`), new Date(), new Date())
+      if (change === 'removed' || change === 'replaced') {
+        await fs.rename(file(`${UUID_A}.jsonl`), path.join(world.base, 'retained.jsonl'))
+        if (change === 'replaced') {
+          await fs.writeFile(file(`${UUID_A}.jsonl`), opening(SHARED))
+          await fs.utimes(file(`${UUID_A}.jsonl`), PINNED, PINNED)
+        }
+      }
+      if (change === 'sidecar-added') await writeFileTree(world.userRoot, { [`projects/${dir}/${UUID_B}/new.jsonl`]: opening('new state') })
+      if (change === 'sidecar-removed') await fs.rename(file(UUID_A), path.join(world.base, 'retained-sidecar'))
+      if (change === 'sidecar-changed') {
+        const nested = file(`${UUID_A}/nested/agent.jsonl`)
+        const before = await fs.stat(nested)
+        await fs.writeFile(nested, opening(REWRITTEN))
+        await fs.utimes(nested, before.atime, before.mtime)
+      }
+      if (change === 'marker-added') await fs.writeFile(file(`${UUID_A}.desktop-released.json`), '{"v":1}')
+      if (change === 'marker-changed') await fs.writeFile(file(`${UUID_A}.desktop-released.json`), '{"v":2}')
+      const before = await hashTree(world.userRoot)
+      const result = await api.sessionTrash(ids(), reviewToken)
+      expect(result.data).toBeNull()
+      expect(result.errors[0]?.code).toBe('stale-plan')
+      expect(await hashTree(world.userRoot)).toBe(before)
+      expect(await exists(path.join(world.kondoDataRoot, 'journal.jsonl'))).toBe(false)
+      expect(await exists(path.join(world.kondoDataRoot, 'trash'))).toBe(false)
+    }
+  )
+
+  it('forces fresh inventory for the review and returns the reviewed metadata', async () => {
+    const old = await api.sessionList(`project:code:${dir}`)
+    await fs.appendFile(file(`${UUID_A}.jsonl`), opening('a new turn'))
+    const current = await api.sessionTrashPreview([id()])
+    expect(current.errors).toEqual([])
+    expect(current.data?.sessions[0]?.bytes).toBeGreaterThan(old.data.find((session) => session.id === id())!.bytes)
+    expect(current.data?.sessions[0]?.mtimeMs).toBe((await fs.stat(file(`${UUID_A}.jsonl`))).mtimeMs)
+  })
+
+  it('rejects missing/unknown/cross-workspace tokens and changed ID sets', async () => {
+    const reviewToken = await token()
+    expect((await api.sessionTrash(ids())).errors[0]?.code).toBe('stale-plan')
+    expect((await api.sessionTrash(ids(), 'unknown')).errors[0]?.code).toBe('stale-plan')
+    const other = createWorkspace({ locator: world.locator, platform: process.platform, guessExists: async () => 'absent' })
+    expect((await other.sessionTrash(ids(), reviewToken)).errors[0]?.code).toBe('stale-plan')
+    expect((await api.sessionTrash([id()], reviewToken)).errors[0]?.code).toBe('stale-plan')
+    expect((await api.sessionTrash(ids(), reviewToken)).errors[0]?.code).toBe('stale-plan')
+    expect((await api.journalList()).data).toEqual([])
+  })
+
+  it('keeps generic session trash closed', async () => {
+    const reviewToken = await token()
+    const result = await api.entityMutate(id(), { op: 'trash', reviewToken })
+    expect(result.data).toBeNull()
+    expect(result.errors[0]?.code).toBe('not-permitted')
+    expect((await api.journalList()).data).toEqual([])
+  })
+
+  it('unchanged review streams full nested transcripts, applies once and undoes byte-for-byte', async () => {
+    const before = await hashTree(world.userRoot)
+    const read = vi.spyOn(fs, 'readFile')
+    const reviewToken = await token()
+    const result = await api.sessionTrash(ids(), reviewToken)
+    expect(result.errors).toEqual([])
+    expect(result.data?.stepCount).toBe(3)
+    expect(read.mock.calls.some(([target]) => String(target).endsWith(`${UUID_A}.jsonl`) || String(target).endsWith('agent.jsonl'))).toBe(false)
+    read.mockRestore()
+    expect((await api.sessionTrash(ids(), reviewToken)).errors[0]?.code).toBe('stale-plan')
+    expect((await api.journalUndo(result.data!.id)).errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+    const journal = await hashTree(world.kondoDataRoot)
+    expect((await api.sessionTrash(ids(), reviewToken)).errors[0]?.code).toBe('stale-plan')
+    expect(await hashTree(world.kondoDataRoot)).toBe(journal)
   })
 })

@@ -32,6 +32,8 @@ export type ScanErrorCode =
    * lost. UI: say the file moved on, re-read, and offer the action again.
    */
   | 'stale-file'
+  /** The removal review changed or expired/was used. Review again; nothing moved. */
+  | 'stale-plan'
   /** The capability matrix refuses the operation on this entity (ADR-0006). */
   | 'not-permitted'
   /**
@@ -136,6 +138,8 @@ export type Capabilities = Record<CapabilityOperation, CapabilityDecision>
  */
 export interface MutateRequest {
   op: CapabilityOperation
+  /** Main-owned, single-use duplicate-group review required for skill trash. */
+  reviewToken?: string
   /**
    * Where the operation lands, as an id from a previous scan (ADR-0008) and
    * never a path: the destination scope for a `move`, the settings layer for
@@ -184,6 +188,8 @@ export interface SkillDuplicate {
  */
 export interface SkillDuplicateGroup {
   name: string
+  /** Issued only for a safely reviewed identical group. */
+  reviewToken?: string | null
   /** Two or more, always: a unique name is not a group and is never digested. */
   members: SkillDuplicate[]
   /** True when every member digested and all the digests agree. */
@@ -334,6 +340,13 @@ export interface SessionDuplicateGroup {
   prompt: string
   /** Two or more, always: a lone opening is not a group. */
   members: SessionSummary[]
+}
+
+/** Fresh selected metadata and the main-owned removal review it describes. */
+export interface SessionTrashPreview {
+  reviewToken: string
+  count: number
+  sessions: SessionSummary[]
 }
 
 export interface SessionDetail {
@@ -812,8 +825,9 @@ export const tidyCategories = [
   /**
    * Project directories that were only ever throwaway: the flattened name
    * sits under the OS temp directory, or carries a `.claude-worktrees` /
-   * `.claude-jobs` marker, or the directory holds no transcript, no `memory/`
-   * and no path kondo can locate (entry 058).
+   * `.claude-jobs` marker, or the directory holds no transcript, no memory
+   * and no located path. Recent, memory-bearing or unsafe scratch trees are
+   * withheld; a temporary name alone does not prove disuse.
    */
   'scratch-projects',
   /** Project directories the registry names whose path no longer stats. */
@@ -892,6 +906,10 @@ export interface TidyCategoryPreview {
 }
 
 export interface TidyPreview {
+  /** Scratch/worktree trees kept for memory, recent activity, or an unsafe scan. */
+  withheldScratchCount: number
+  /** Null when the preview could not be bound to complete, safely read candidates. */
+  reviewToken: string | null
   /** Every category, always — a category with nothing to sweep reports zero. */
   categories: TidyCategoryPreview[]
   totalCount: number
@@ -1148,13 +1166,17 @@ export interface KondoApi {
    * unlinked.
    *
    * `ids` are `session:code:` ids from a previous scan (ADR-0008), never
-   * paths. An id the current scan no longer holds refuses the whole set
-   * rather than trashing part of it, and a desktop session is refused in the
+   * paths. First call sessionTrashPreview and show its fresh summaries, then
+   * pass its single-use reviewToken with the same IDs. Main streams complete
+   * transcripts and related state to bind identity, content and activity;
+   * any change refuses the entire selection before journaling. Desktop
+   * sessions are refused in the
    * capability matrix's own words (ADR-0006). An empty selection returns null
    * and writes no entry. A trash changes the tree the inventory was built
    * from, so callers re-read rather than patching.
    */
-  sessionTrash(ids: string[]): Promise<Scan<JournalEntryInfo | null>>
+  sessionTrashPreview(ids: string[]): Promise<Scan<SessionTrashPreview | null>>
+  sessionTrash(ids: string[], reviewToken?: string): Promise<Scan<JournalEntryInfo | null>>
   desktopSessions(): Promise<Scan<DesktopSession[]>>
   skillsList(): Promise<Scan<SkillInfo[]>>
   /**
@@ -1192,7 +1214,8 @@ export interface KondoApi {
    * skills can share a name and hold different work. `identical` is the fact
    * that matters, and it is false whenever any member could not be read.
    *
-   * Removing one is `entityMutate(skillId, { op: 'trash' })` — one journaled
+   * Removing one requires its identical group reviewToken in
+   * `entityMutate(skillId, { op: 'trash', reviewToken })` — one journaled
    * step, reversible like every other (ADR-0001), and refused by the matrix
    * for a plugin-shipped skill.
    */
@@ -1283,8 +1306,9 @@ export interface KondoApi {
   settingsLayers(): Promise<Scan<SettingsLayerInfo[]>>
   /**
    * What a sweep would move, computed without moving anything: counts and
-   * bytes per category, off the cached tier-1 inventory rather than a walk
-   * of every transcript (ADR-0007). This is the dry run the user confirms.
+   * bytes per category from a forced fresh inventory. Main snapshots the
+   * complete candidates with streamed content digests and retains them under
+   * the returned opaque reviewToken. Unsafe previews have a null token.
    */
   tidyPreview(): Promise<Scan<TidyPreview>>
   /**
@@ -1292,14 +1316,16 @@ export interface KondoApi {
    * journal entry, so a single undo restores the whole sweep together
    * (ADR-0001). Nothing is ever unlinked.
    *
-   * The set moved is the set `tidyPreview` named: both read the same cached
-   * scan, and an item that disappeared in between refuses the sweep whole
-   * rather than quietly moving a different set. Nothing to sweep is the
+   * The token binds the exact candidates `tidyPreview` reviewed. Selected
+   * category membership, identities, content and activity are rechecked before
+   * journaling. A missing/expired/used token or a changed selection refuses
+   * with stale-plan; it never adds candidates or partially deletes a set.
+   * Nothing to sweep with an unchanged review is the
    * ordinary answer on a tidy store, not an error — it returns null and
    * writes no journal entry. A sweep changes the tree the inventory was
    * built from, so callers re-read rather than patching.
    */
-  tidySweep(categories: TidyCategory[]): Promise<Scan<JournalEntryInfo | null>>
+  tidySweep(categories: TidyCategory[], reviewToken?: string): Promise<Scan<JournalEntryInfo | null>>
   /**
    * Configuration members nothing stands behind any more: `~/.claude.json`
    * project entries whose directory is gone and the MCP servers declared
@@ -1372,6 +1398,7 @@ export const channels = {
   sessionList: 'kondo:session-list',
   sessionDetail: 'kondo:session-detail',
   sessionNearDuplicates: 'kondo:session-near-duplicates',
+  sessionTrashPreview: 'kondo:session-trash-preview',
   sessionTrash: 'kondo:session-trash',
   desktopSessions: 'kondo:desktop-sessions',
   skillsList: 'kondo:skills-list',

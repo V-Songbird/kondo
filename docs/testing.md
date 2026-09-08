@@ -180,6 +180,24 @@ Chalk and Carbon are checked at 1360x860 and 900x600 with optional screenshots
 and unchanged fixture stores/journal. This does not establish screen-reader
 announcements or recovery of asynchronous actions or store mutations.
 
+## Reviewed removals (102)
+
+The focused fixture suites `test/tidy.test.ts`, `test/session-duplicates.test.ts`
+and `test/skill-duplicates.test.ts` cover review-token requirements and stale
+preconditions. Audit A5/A9/A11 are inverted: adding a cache after preview,
+resuming a transcript, or changing a formerly identical skill must refuse before
+store mutation or journal append. Unchanged reviewed plans retain their existing
+apply/Undo checks. Scratch activity and memory checks keep uncertain trees out
+of the reviewed candidate set.
+
+The workspace and IPC integration tests exercise the selected-session preview
+and token forwarding. The Electron fixture smoke covers confirmation through
+the real bridge, visible stale-review refusal, cleared selection, focus and a
+return to review. Chalk/Carbon captures at normal and compact sizes are visual
+evidence for the host tested. A clean mechanical detector is separate evidence
+from those rendered states. None of these tests claims filesystem transactions
+or a complete absence of races with external writers after preflight.
+
 One remaining suite limitation:
 
 - The renderer has no isolated DOM unit suite; the built Electron smoke covers

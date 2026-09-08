@@ -21,6 +21,8 @@ re-asked. Numbered, never renumbered; a superseded ADR stays and gains a
 - [0013 — Keep private working records local](0013-keep-working-records-local.md)
 - [0014 — Reload through a window lifecycle signal](0014-reload-through-window-lifecycle.md)
 
+- [0015 — Bind removal to reviewed state](0015-bind-removal-to-reviewed-state.md)
+
 ## Template
 
 ```markdown

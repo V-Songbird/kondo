@@ -35,4 +35,25 @@ describe('appearance IPC native-window notification', () => {
     expect(changed).toHaveBeenCalledTimes(1)
     expect(await get(null)).toEqual({ data: { theme: 'carbon' }, errors: [], unknown: [] })
   })
+
+  it('forwards removal review identities and opaque tokens unchanged', async () => {
+    const api = createWorkspace({ locator: world.locator, platform: process.platform })
+    const result = { data: null, errors: [], unknown: [] }
+    const preview = vi.spyOn(api, 'sessionTrashPreview').mockResolvedValue(result)
+    const sessions = vi.spyOn(api, 'sessionTrash').mockResolvedValue(result)
+    const sweep = vi.spyOn(api, 'tidySweep').mockResolvedValue(result)
+    const mutate = vi.spyOn(api, 'entityMutate').mockResolvedValue(result)
+    registerIpc(api)
+    const ids = ['session:code:fixture/reviewed-session']
+    const token = 'opaque-reviewed-token'
+    expect(await handlers.get(channels.sessionTrashPreview)!(null, ids)).toBe(result)
+    expect(preview).toHaveBeenCalledExactlyOnceWith(ids)
+    expect(await handlers.get(channels.sessionTrash)!(null, ids, token)).toBe(result)
+    expect(sessions).toHaveBeenCalledExactlyOnceWith(ids, token)
+    expect(await handlers.get(channels.tidySweep)!(null, ['reclaimable-caches'], token)).toBe(result)
+    expect(sweep).toHaveBeenCalledExactlyOnceWith(['reclaimable-caches'], token)
+    const request = { op: 'trash', reviewToken: token }
+    expect(await handlers.get(channels.entityMutate)!(null, 'skill:user:fixture', request)).toBe(result)
+    expect(mutate).toHaveBeenCalledExactlyOnceWith('skill:user:fixture', request)
+  })
 })

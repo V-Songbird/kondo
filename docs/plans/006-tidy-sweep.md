@@ -2,6 +2,10 @@
 
 Status: **done — shipped in `a4bc8b2`**
 
+The cached-scan confirmation design below is historical. Task 102 and
+[ADR-0015](../adr/0015-bind-removal-to-reviewed-state.md) replace it with
+main-owned review tokens and current precondition validation.
+
 Written after the code rather than before it, which is the wrong order and is
 recorded here rather than hidden: the implementing session's file surface was
 scoped to `electron/`, `src/` and `test/`, so this file was flagged and then

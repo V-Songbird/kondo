@@ -1,10 +1,11 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
-import type { JournalEntryInfo, TidyCategory } from '../../../shared/contract'
+import type { JournalEntryInfo, TidyCategory, TidyCategoryPreview } from '../../../shared/contract'
 import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { LastChange } from '../../ui/last-change'
 import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { formatBytes, formatCount, joinErrors } from '../../lib/format'
+import { ReviewRefusal } from './review-refusal'
 import { SkillDuplicates } from './duplicates'
 import { Orphans } from '../orphans/orphans'
 
@@ -89,7 +90,7 @@ const LABEL: Record<TidyCategory, string> = {
 function hintFor(category: TidyCategory, staleAfterDays: number): string {
   switch (category) {
     case 'scratch-projects':
-      return 'Saved Claude data for temporary folders, worktrees, jobs or folders with no conversations. The project’s own files stay.'
+      return 'Saved Claude data for temporary folders, worktrees or jobs with no memory and no recent activity. The project’s own files stay.'
     case 'dead-projects':
       return 'Saved Claude data for project folders that are no longer on disk.'
     case 'stale-sessions':
@@ -118,27 +119,30 @@ function hintFor(category: TidyCategory, staleAfterDays: number): string {
 function FileCleanup() {
   const state = useScan((api) => api.tidyPreview())
   const [selected, setSelected] = useState<TidyCategory[]>([])
-  const [confirming, setConfirming] = useState(false)
+  const [review, setReview] = useState<{ token: string; chosen: TidyCategoryPreview[] } | null>(null)
+  const [stale, setStale] = useState<{ reason: string; selection: string } | null>(null)
+  const choiceId = useId()
+  const confirming = review !== null
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<string | null>(null)
   const [change, setChange] = useState<JournalEntryInfo | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const sweepButtonId = useId()
   const questionId = useId()
-  const confirmation = useConfirmationFocus(confirming, () => setConfirming(false))
+  const confirmation = useConfirmationFocus(confirming, () => setReview(null))
   const { reload } = state
   const resultRef = useRef<HTMLDivElement>(null)
   const focusResult = useRef(false)
 
   useLayoutEffect(() => {
     if (!busy && focusResult.current) {
-      resultRef.current?.focus()
+      if (stale === null) resultRef.current?.focus()
       focusResult.current = false
     }
   })
 
   const pick = (category: TidyCategory): void => {
-    setConfirming(false)
+    setReview(null)
     setSelected((current) =>
       current.includes(category)
         ? current.filter((entry) => entry !== category)
@@ -146,17 +150,25 @@ function FileCleanup() {
     )
   }
 
-  const sweep = async (categories: TidyCategory[]): Promise<void> => {
+  const sweep = async (): Promise<void> => {
+    if (review === null) return
+    const categories = review.chosen.map((entry) => entry.category)
     const api = window.kondo
     if (!api) return
     setBusy(true)
-    setConfirming(false)
+    setReview(null)
     setProblem(null)
+    setStale(null)
     setOutcome(null)
     setChange(null)
     try {
-      const done = await api.tidySweep(categories)
-      setProblem(joinErrors(done.errors))
+      const done = await api.tidySweep(categories, review.token)
+      if (done.errors.some((error) => error.code === 'stale-plan')) {
+        setStale({
+          reason: joinErrors(done.errors) ?? 'The selected files changed. Select them again after reviewing the current list.',
+          selection: review.chosen.map((entry) => `${LABEL[entry.category]} · ${formatCount(entry.count, 'item')}`).join('; ')
+        })
+      } else setProblem(joinErrors(done.errors))
       setChange(done.data)
       if (done.errors.length === 0) {
         // A clean-up that moved something is a change with a way back, so
@@ -192,6 +204,10 @@ function FileCleanup() {
         Moving files to trash does not free disk space. Space is freed only when you
         permanently empty the trash in History.
       </p>
+      {stale !== null && <ReviewRefusal {...stale} onReview={() => {
+        setStale(null)
+        document.getElementById(choiceId)?.focus()
+      }} />}
       <div ref={resultRef} tabIndex={-1} aria-label="Cleanup result">
         {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
         {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
@@ -205,19 +221,38 @@ function FileCleanup() {
           )
           const available = scan.data.categories.filter((entry) => entry.count > 0 || entry.blocked !== null)
           const empty = scan.data.categories.filter((entry) => entry.count === 0 && entry.blocked === null)
-          const count = chosen.reduce((sum, entry) => sum + entry.count, 0)
-          const bytes = chosen.reduce((sum, entry) => sum + entry.bytes, 0)
+          const reviewed = review?.chosen ?? chosen
+          const count = reviewed.reduce((sum, entry) => sum + entry.count, 0)
+          const bytes = reviewed.reduce((sum, entry) => sum + entry.bytes, 0)
 
           return (
             <section className="sheet">
               <div className="mb-5">
-                <h3>1. Choose what to clean up</h3>
+                <h3 id={choiceId} tabIndex={-1}>1. Choose what to clean up</h3>
                 <p className="mt-1 max-w-2xl text-ink-2">
                   {scan.data.totalCount === 0
                     ? 'No files need cleaning up in the categories kondo checked.'
                     : `${formatCount(scan.data.totalCount, 'item')} found. Select a category to include every item in it; review your selection before anything moves.`}
                 </p>
               </div>
+
+              {scan.data.withheldScratchCount > 0 && (
+                <p className="mb-4 text-ink-2">
+                  {formatCount(scan.data.withheldScratchCount, 'temporary or worktree folder')} kept:
+                  {' '}they contain memory, activity within {scan.data.staleAfterDays} days, or could not be checked safely.
+                  These folders are not included in cleanup.
+                </p>
+              )}
+              {scan.data.reviewToken === null && (
+                <div className="band band-note flex-col items-start gap-3">
+                  <p>This preview could not be checked completely. Nothing can move until a new review is available.</p>
+                  <button type="button" disabled={busy || state.loading} className="btn btn-quiet btn-sm" onClick={() => {
+                    setReview(null)
+                    setSelected([])
+                    reload()
+                  }}>Refresh preview</button>
+                </div>
+              )}
 
               {available.length > 0 && <table className="ledger mb-5">
                 <thead>
@@ -236,7 +271,7 @@ function FileCleanup() {
                           type="checkbox"
                           aria-label={`Select ${LABEL[entry.category]}`}
                           aria-describedby={`${questionId}-${entry.category}`}
-                          disabled={entry.count === 0 || entry.blocked !== null || busy}
+                          disabled={entry.count === 0 || entry.blocked !== null || busy || scan.data.reviewToken === null || stale !== null}
                           checked={chosen.some((chosenEntry) => chosenEntry.category === entry.category)}
                           onChange={() => pick(entry.category)}
                         />
@@ -294,11 +329,11 @@ function FileCleanup() {
                   <h3 id={questionId}>2. Review before moving anything</h3>
                   <p>Move {formatCount(count, 'item')} (about {formatBytes(bytes)}) into kondo&rsquo;s trash?</p>
                   <ul className="space-y-1">
-                    {chosen.map((entry) => (
+                    {reviewed.map((entry) => (
                       <li key={entry.category}>{LABEL[entry.category]} · {formatCount(entry.count, 'item')}</li>
                     ))}
                   </ul>
-                  <p>All items in these categories will move together. One Undo restores the move.</p>
+                  <p>Only the reviewed items will move together. If they change, review again. One Undo restores the move.</p>
                   <div className="flex flex-wrap gap-3">
                     <button
                       ref={confirmation.cancelRef}
@@ -308,7 +343,7 @@ function FileCleanup() {
                     >
                       Cancel
                     </button>
-                    <button type="button" disabled={busy || count === 0 || state.loading} className="btn btn-pencil btn-sm" onClick={() => void sweep(chosen.map((entry) => entry.category))}>
+                    <button type="button" disabled={busy || count === 0 || state.loading} className="btn btn-pencil btn-sm" onClick={() => void sweep()}>
                       Move to trash
                     </button>
                   </div>
@@ -323,11 +358,11 @@ function FileCleanup() {
                   <button
                     id={sweepButtonId}
                     type="button"
-                    disabled={count === 0 || busy || state.loading}
+                    disabled={count === 0 || busy || state.loading || !scan.data.reviewToken || stale !== null}
                     className="btn btn-go"
                     onClick={() => {
                       confirmation.rememberFocus(sweepButtonId)
-                      setConfirming(true)
+                      if (scan.data.reviewToken) setReview({ token: scan.data.reviewToken, chosen })
                     }}
                   >
                     Review selected items

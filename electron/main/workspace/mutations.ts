@@ -6,6 +6,7 @@ import type {
   JournalEntryInfo,
   JournalOp,
   Scan,
+  ScanError,
   ScanErrorCode,
   TrashReport
 } from '../../../shared/contract'
@@ -155,6 +156,8 @@ export interface MutationPlan {
   entityId: string
   summary: string
   steps: PlannedStep[]
+  /** Main-only review check, after step planning and immediately before journaling. */
+  preflight?: () => Promise<ScanError | null>
 }
 
 // ---------------------------------------------------------------------------
@@ -877,14 +880,21 @@ export function createMutations(
     }
   }
 
-  return {
+  const operations: Mutations = {
     async mutate(plan: MutationPlan): Promise<Scan<JournalEntryInfo | null>> {
       if (nested) return misconfigured()
       const id = newId()
       let steps: JournalStep[]
       try {
         steps = await planSteps(id, plan.steps)
+        const refusal = await plan.preflight?.()
+        if (refusal) return refuse(refusal.code, refusal.path, refusal.message)
       } catch (cause) {
+        // A source can disappear during planSteps, before the last preflight.
+        // Prefer the operation-specific stale review refusal in that case.
+        const refusal = await plan.preflight?.()
+        if (refusal) return refuse(refusal.code, refusal.path, refusal.message)
+
         if (cause instanceof Refused) return refuse(cause.code, cause.at, cause.message)
         return refuse('read-failed', plan.entityId, describe(cause))
       }
@@ -1179,4 +1189,20 @@ export function createMutations(
       }
     }
   }
+  // Two different valid tokens must not both preflight the same duplicate
+  // group before either removal runs. All writes in this workspace share the
+  // queue, including Undo and empty-trash; external processes remain outside it.
+  let pending: Promise<unknown> = Promise.resolve()
+  const serial = <T>(act: () => Promise<T>): Promise<T> => {
+    const result = pending.then(act, act)
+    pending = result.then(() => undefined, () => undefined)
+    return result
+  }
+  return {
+    ...operations,
+    mutate: (plan) => serial(() => operations.mutate(plan)),
+    undo: (id) => serial(() => operations.undo(id)),
+    emptyTrash: () => serial(() => operations.emptyTrash())
+  }
+
 }

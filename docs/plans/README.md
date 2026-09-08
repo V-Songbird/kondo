@@ -13,6 +13,8 @@ between the two is the part a later reader needs.
 
 ## Index
 
+- [102 — Reviewed cleanup](102-reviewed-cleanup.md) — **awaiting acceptance**
+
 - [097 — Resolved store boundaries](097-resolved-store-boundaries.md) — **done**
 
 - [113 — Hosted CI and release rehearsal](113-hosted-ci-rehearsal.md) — **in progress**

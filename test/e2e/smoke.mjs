@@ -530,7 +530,9 @@ test('Clean up contains files, settings leftovers and duplicate skills', async (
   await client.waitFor(`document.querySelector('input[aria-label^="Select "]') !== null`)
   const tidy = await call(`(await window.kondo.tidyPreview()).data`)
   const throwaway = tidy.categories.find((entry) => entry.category === 'scratch-projects')
-  assert.equal(throwaway.count, 2)
+  assert.equal(throwaway.count, 0, 'Fresh temporary session trees must be withheld')
+  assert.equal(tidy.withheldScratchCount, 2)
+  assert.equal(await client.evaluate(`document.querySelectorAll('main input[type="checkbox"]:checked').length`), 0)
 
   await section('Cleanup sections', 'Settings leftovers')
   await client.waitFor(`document.body.textContent.includes('ghost@acme') && document.body.textContent.includes('retired-helper')`)
@@ -795,8 +797,23 @@ test('file cleanup review applies once and Undo restores all fixture bytes', asy
   assert.ok(beforeSaved.length > 0)
   assert.equal((await fs.readdir(savedProjects)).length, 2)
   await client.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 600, deviceScaleFactor: 1, mobile: false })
+  const timestamps = []
+  const rememberTimes = async (at) => {
+    const info = await fs.stat(at)
+    timestamps.push({ at, atime: info.atime, mtime: info.mtime })
+    if (info.isDirectory()) {
+      for (const entry of await fs.readdir(at)) await rememberTimes(path.join(at, entry))
+    }
+  }
+  await rememberTimes(savedProjects)
+  const preview = await call(`(await window.kondo.tidyPreview()).data`)
+  const old = new Date(Date.now() - (preview.staleAfterDays + 30) * 86_400_000)
   try {
+    // Intentional whole-tree success: age every child and directory, not just
+    // transcripts. Ordinary fresh scratch trees stay protected elsewhere.
+    for (const { at } of timestamps) await fs.utimes(at, old, old)
     await navigate('Clean up')
+    await section('Cleanup sections', 'Duplicate skills')
     await section('Cleanup sections', 'Files and caches')
     const checkbox = `document.querySelector('input[aria-label="Select Throwaway folders"]')`
     await client.waitFor(`${checkbox} !== null && !${checkbox}.disabled`)
@@ -825,6 +842,7 @@ test('file cleanup review applies once and Undo restores all fixture bytes', asy
     assert.equal(await client.evaluate(`${undo} === null`), true)
     await capture('cleanup-minimum-restored')
   } finally {
+    for (const { at, atime, mtime } of timestamps) await fs.utimes(at, atime, mtime)
     await client.send('Emulation.clearDeviceMetricsOverride')
   }
 })
@@ -1017,5 +1035,220 @@ test('retrying an appearance save keeps keyboard focus on the checked choice thr
     })
     if (entry?.isDirectory()) await fs.rmdir(preference)
     await fs.writeFile(preference, original)
+  }
+})
+
+
+// These races change only the harness's disposable fixture while the actual
+// renderer holds a review. No bridge override manufactures a stale response.
+const staleAlert = `[...document.querySelectorAll('[role="alert"]')].find((element) => element.querySelector('h3')?.textContent === 'Review changed — nothing moved')`
+
+const inspectStaleReview = async (flow, theme, selection, beforeFiles, beforeJournal) => {
+  await client.waitFor(`${staleAlert} !== undefined && document.activeElement === ${staleAlert}`)
+  assert.ok(await client.evaluate(`${staleAlert}.textContent.includes(${JSON.stringify(selection)})`))
+  assert.equal(await client.evaluate(`document.querySelectorAll('main input[type="checkbox"]:checked').length`), 0)
+  assert.equal(await journalBytes(), beforeJournal, 'Stale review must not append even a failed journal entry')
+  assert.deepEqual(await fixtureSnapshot(), beforeFiles, 'Refusal must preserve the externally changed fixture')
+  const accessibility = await client.send('Accessibility.getFullAXTree')
+  assert.ok(accessibility.nodes.some((node) => node.role?.value === 'alert' && !node.ignored))
+  assert.ok(accessibility.nodes.some((node) => node.role?.value === 'button' && node.name?.value === 'Return to review' && !node.ignored))
+  await press('Tab')
+  assert.equal(await client.evaluate(`document.activeElement === ${button('Return to review')}`), true)
+  assert.equal(await client.evaluate(`getComputedStyle(document.activeElement).outlineStyle`), 'solid')
+  for (const [width, height] of [[1360, 860], [900, 600]]) {
+    await client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+    await client.evaluate(`${staleAlert}.scrollIntoView({ block: 'center' })`)
+    await assertNoHorizontalOverflow()
+    await assertInViewport(button('Return to review'))
+    await capture(`review-stale-${flow}-${theme}-${width}x${height}`)
+  }
+  await keyboardActivate(button('Return to review'))
+  await client.waitFor(`${staleAlert} === undefined`)
+  if (flow === 'cache') {
+    assert.equal(await client.evaluate(`document.activeElement?.matches('h3') && document.activeElement.textContent === '1. Choose what to clean up'`), true)
+  } else assert.equal(await client.evaluate(`document.activeElement?.matches('h1, h2')`), true)
+  assert.equal(await client.evaluate(`document.querySelectorAll('main input[type="checkbox"]:checked').length`), 0)
+  assert.equal(await journalBytes(), beforeJournal)
+}
+
+const applyAndUndoReviewedRemoval = async (apply) => {
+  const beforeFiles = await fixtureSnapshot()
+  const beforeJournal = (await call(`(await window.kondo.journalList()).data`)).length
+  await keyboardActivate(apply)
+  const undo = `document.querySelector('main button[aria-label^="Undo "]')`
+  await client.waitFor(`${undo} !== null && !${undo}.disabled`)
+  assert.notDeepEqual(await fixtureSnapshot(), beforeFiles)
+  assert.equal((await call(`(await window.kondo.journalList()).data`)).length, beforeJournal + 1)
+  await keyboardActivate(undo)
+  await client.waitFor(`[...document.querySelectorAll('main [role="status"]')].some((element) => element.textContent.startsWith('Undone —'))`)
+  assert.deepEqual(await fixtureSnapshot(), beforeFiles)
+  assert.equal((await call(`(await window.kondo.journalList()).data`)).length, beforeJournal + 2)
+}
+
+test('cleanup refuses a cache that appeared after review, then a fresh choice applies and undoes', async () => {
+  const cache = path.join(fixtureEnv.KONDO_STORE_ROOT, 'cache')
+  const appeared = path.join(fixtureEnv.KONDO_STORE_ROOT, 'debug')
+  // mkdir without recursive refuses collisions rather than claiming existing fixtures.
+  await fs.mkdir(cache)
+  await fs.writeFile(path.join(cache, 'reviewed-cache'), 'reviewed cache fixture')
+  let ownsAppeared = false
+  const checkbox = `document.querySelector('input[aria-label="Select Caches Claude rebuilds"]')`
+  const review = button('Review selected items')
+  const selectAndReview = async () => {
+    await client.waitFor(`${checkbox} !== null && !${checkbox}.disabled`)
+    assert.equal(await client.evaluate(`${checkbox}.checked`), false)
+    await client.evaluate(`${checkbox}.focus()`)
+    await press(' ')
+    await keyboardActivate(review)
+    await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel'`)
+  }
+  try {
+    for (const theme of ['chalk', 'carbon']) {
+      await openThemes()
+      await chooseTheme(theme)
+      await navigate('Clean up')
+      await section('Cleanup sections', 'Files and caches')
+      await selectAndReview()
+      const beforeJournal = await journalBytes()
+      await fs.mkdir(appeared)
+      ownsAppeared = true
+      await fs.writeFile(path.join(appeared, 'new-cache-not-in-review'), 'appeared after review')
+      const changedFiles = await fixtureSnapshot()
+      await keyboardActivate(button('Move to trash'))
+      await inspectStaleReview('cache', theme, 'Caches Claude rebuilds', changedFiles, beforeJournal)
+      assert.equal(await client.evaluate(`${review}.disabled`), true)
+      // Explicitly choose the refreshed category. The new cache is now reviewed.
+      await selectAndReview()
+      await applyAndUndoReviewedRemoval(button('Move to trash'))
+      await fs.rm(appeared, { recursive: true })
+      ownsAppeared = false
+    }
+  } finally {
+    if (ownsAppeared) await fs.rm(appeared, { recursive: true, force: true })
+    await fs.rm(cache, { recursive: true, force: true })
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
+})
+
+test('conversation review refuses a resumed transcript, clears selection, and allows renewed review with Undo', async () => {
+  const uuid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const flattened = path.join(base, 'work', 'apiserver').replace(/[^a-zA-Z0-9]/g, '-')
+  const transcript = path.join(fixtureEnv.KONDO_STORE_ROOT, 'projects', flattened, uuid + '.jsonl')
+  const original = await fs.readFile(transcript)
+  const stat = await fs.stat(transcript)
+  const checkbox = `document.querySelector('input[aria-label="Select session ${uuid}"]')`
+  const review = button('Move 1 conversation to trash')
+  const selectAndReview = async () => {
+    await client.waitFor(`${checkbox} !== null && !${checkbox}.disabled`)
+    assert.equal(await client.evaluate(`${checkbox}.checked`), false)
+    await client.evaluate(`${checkbox}.focus()`)
+    await press(' ')
+    await keyboardActivate(review)
+    await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel' && ${button('Move to trash')} !== undefined`)
+  }
+  try {
+    for (const theme of ['chalk', 'carbon']) {
+      await openThemes()
+      await chooseTheme(theme)
+      await openProject('apiserver')
+      await section('Project sections', 'Conversations')
+      await selectAndReview()
+      const beforeJournal = await journalBytes()
+      await press('Escape')
+      await client.waitFor(`document.activeElement === ${review} && ${button('Move to trash')} === undefined`)
+      assert.equal(await journalBytes(), beforeJournal)
+      await keyboardActivate(review)
+      await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel' && ${button('Move to trash')} !== undefined`)
+      await fs.appendFile(transcript, '\n' + JSON.stringify({ type: 'user', timestamp: new Date().toISOString(),
+        message: { role: 'user', content: 'Resumed fixture conversation after its removal was reviewed' } }) + '\n')
+      const changedFiles = await fixtureSnapshot()
+      await keyboardActivate(button('Move to trash'))
+      await inspectStaleReview('session', theme, '1 conversation', changedFiles, beforeJournal)
+      await client.waitFor(`${button('Pick conversations to move to trash')}?.disabled`)
+      await selectAndReview()
+      await applyAndUndoReviewedRemoval(button('Move to trash'))
+      await fs.writeFile(transcript, original)
+      await fs.utimes(transcript, stat.atime, stat.mtime)
+    }
+  } finally {
+    await fs.writeFile(transcript, original)
+    await fs.utimes(transcript, stat.atime, stat.mtime)
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
+})
+
+test('duplicate review refuses changed equivalence with long location labels and preserves renewed-review Undo', async () => {
+  const name = 'reviewed-duplicate-with-a-deliberately-long-name-for-compact-window-checks'
+  const global = path.join(fixtureEnv.KONDO_STORE_ROOT, 'skills', name)
+  const project = path.join(base, 'work', 'apiserver', '.claude', 'skills', name)
+  await fs.mkdir(global)
+  let ownsProject = false
+  const content = `---\nname: ${name}\ndescription: Synthetic identical copies for reviewed-removal smoke\n---\n`
+  const choose = `document.querySelector('button[aria-label^="Move this copy to trash: ${name} from "]')`
+  const apply = `document.querySelector('button[aria-label^="Move to trash: ${name} from "]')`
+  try {
+    await fs.mkdir(project)
+    ownsProject = true
+    await fs.writeFile(path.join(global, 'SKILL.md'), content)
+    await fs.writeFile(path.join(project, 'SKILL.md'), content)
+    for (const theme of ['chalk', 'carbon']) {
+      await openThemes()
+      await chooseTheme(theme)
+      await navigate('Clean up')
+      await section('Cleanup sections', 'Duplicate skills')
+      await client.waitFor(`${choose} !== null && !${choose}.disabled`)
+      await keyboardActivate(choose)
+      await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel'`)
+      const beforeJournal = await journalBytes()
+      await press('Escape')
+      await client.waitFor(`document.activeElement === ${choose} && ${apply} === null`)
+      assert.equal(await journalBytes(), beforeJournal)
+      await keyboardActivate(choose)
+      await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel'`)
+      await fs.appendFile(path.join(project, 'SKILL.md'), '\nChanged after reviewing the identical group.\n')
+      const changedFiles = await fixtureSnapshot()
+      await keyboardActivate(apply)
+      await inspectStaleReview('duplicate', theme, name, changedFiles, beforeJournal)
+      await client.waitFor(`${choose} !== null && ${choose}.disabled`)
+      assert.equal(await client.evaluate(`${apply} === null`), true)
+      // Restore equivalence, then obtain a new list and make a new explicit choice.
+      await fs.writeFile(path.join(project, 'SKILL.md'), content)
+      await section('Cleanup sections', 'Files and caches')
+      await section('Cleanup sections', 'Duplicate skills')
+      await client.waitFor(`${choose} !== null && !${choose}.disabled`)
+      await keyboardActivate(choose)
+      await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel'`)
+      await applyAndUndoReviewedRemoval(apply)
+    }
+  } finally {
+    if (ownsProject) await fs.rm(project, { recursive: true, force: true })
+    await fs.rm(global, { recursive: true, force: true })
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
+})
+
+
+test('a newly created empty scratch folder is withheld and never chosen automatically', async () => {
+  const flattened = path.join(base, 'work', 'recent-empty-scratch').replace(/[^a-zA-Z0-9]/g, '-')
+  const folder = path.join(fixtureEnv.KONDO_STORE_ROOT, 'projects', flattened)
+  await fs.mkdir(folder)
+  try {
+    const beforeFiles = await fixtureSnapshot()
+    const beforeJournal = await journalBytes()
+    await call(`await window.kondo.sessionProjects(true)`)
+    await navigate('Clean up')
+    await section('Cleanup sections', 'Duplicate skills')
+    await section('Cleanup sections', 'Files and caches')
+    await client.waitFor(`${button('Review selected items')} !== undefined`)
+    const preview = await call(`(await window.kondo.tidyPreview()).data`)
+    assert.equal(preview.categories.find((entry) => entry.category === 'scratch-projects').count, 0)
+    assert.ok(preview.withheldScratchCount >= 1)
+    assert.equal(await client.evaluate(`document.querySelectorAll('main input[type="checkbox"]:checked').length`), 0)
+    assert.equal(await client.evaluate(`${button('Review selected items')}.disabled`), true)
+    assert.deepEqual(await fs.readdir(folder), [])
+    assert.deepEqual(await fixtureSnapshot(), beforeFiles)
+    assert.equal(await journalBytes(), beforeJournal)
+  } finally {
+    await fs.rmdir(folder)
   }
 })

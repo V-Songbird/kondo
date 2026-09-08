@@ -348,6 +348,21 @@ scan and a mutation can never disagree about where an entry lives.
   displaced into kondo's trash with its sidecar, as one journal entry
   (`sessionTrash`, ADR-0001).
 
+### Reviewed removal policy (102)
+
+✅ Synthetic removal regressions verify this Kondo policy. Removal safety uses current filesystem evidence, not a claim that Claude has
+finished with a file. `tidyPreview`, `sessionTrashPreview` and `skillDuplicates`
+retain exact reviewed identities and content/activity preconditions in main.
+Category additions, missing or changed members, resumed transcripts and changed
+duplicate groups require renewed review before mutation (ADR-0015). Session
+sidecars and released markers are part of the reviewed displacement.
+
+A temporary/worktree/job name alone no longer makes its saved tree eligible.
+Scratch trees with memory, recent entries or unreadable activity evidence are
+withheld and counted separately; their sessions do not fall through into another
+cleanup category. Explicit selected-session removal remains a separate review.
+These are Kondo policies over observable state, not proof of process inactivity.
+
 ## Project store: `<project>/.claude`
 
 - `settings.json` (project scope, committed) and `settings.local.json`

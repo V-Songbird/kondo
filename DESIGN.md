@@ -150,6 +150,12 @@ emptying trash frees it. Settings removal has its own scope review, and duplicat
 skills retain visible location information because equal contents do not imply
 equal availability across projects.
 
+A changed removal review shows a focused alert with the affected selection, a
+plain reason and Return to review. Clear the previous destructive selection.
+Session confirmation displays the current reviewed size and activity; duplicate
+skill confirmation retains the location. Kept scratch/worktree folders are
+counted separately and never appear selected for removal.
+
 Technical paths, hashes and raw settings use native details disclosures when
 they are not needed for the immediate decision. Partial scans, warnings and
 capability refusals remain visible. Partial applications retain Undo beside the

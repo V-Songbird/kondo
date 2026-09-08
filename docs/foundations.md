@@ -138,6 +138,24 @@ One shape everywhere: every view receives `Scan<T>` and renders `data`
 alongside a problems affordance for `errors`/`unknown`. No view may swallow
 the error half (ADR-0005).
 
+## Reviewed removals
+
+The workspace owns opaque removal-review tokens (ADR-0015). `tidyPreview`
+retains category candidates, `sessionTrashPreview` retains the chosen sessions
+and returns their current summaries, and `skillDuplicates` retains the group
+behind each removable identical-copy verdict. The renderer freezes its reviewed
+selection with the token and returns both on apply. Main re-resolves and validates
+that state before the mutation journal is appended. Stale, missing or consumed
+reviews refuse with `stale-plan` and require renewed selection; no call quietly
+expands the reviewed set or deletes an unaffected subset of a changed selection.
+
+The extra validation belongs to removal review rather than cached inventory
+listings. Inventory cache fingerprints alone cannot establish transcript
+freshness or duplicate equivalence. Review tokens are transient main-process
+state and are not filesystem paths or serialized mutation plans. Mutation, Undo
+and empty-trash execution share a workspace queue so separate valid reviews
+cannot race through preflight together. External writers do not join this queue.
+
 ## Kondo's own footprint
 
 Kondo keeps its private state in `<kondo-data>` — Electron's `userData`

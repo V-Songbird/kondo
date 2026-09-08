@@ -184,6 +184,9 @@ describe('trashing one skill (ADR-0001)', () => {
       'settings.json': writeJson({ enabledPlugins: { 'alpha@acme': true } }),
       'skills/twin-skill/SKILL.md': skillManifest('twin-skill', 'Two of these'),
       'skills/twin-skill/reference/notes.md': '# shared body\n',
+      'skills.disabled/twin-skill/SKILL.md': skillManifest('twin-skill', 'Two of these'),
+      'skills.disabled/twin-skill/reference/notes.md': '# shared body\n',
+      'skills/benched-skill/SKILL.md': skillManifest('benched-skill', 'On the bench'),
       'skills.disabled/benched-skill/SKILL.md': skillManifest('benched-skill', 'On the bench'),
       'plugins/installed_plugins.json': writeJson({
         version: 2,
@@ -206,7 +209,8 @@ describe('trashing one skill (ADR-0001)', () => {
     const before = await hashTree(world.userRoot)
     const target = path.join(world.userRoot, 'skills', 'twin-skill')
 
-    const done = await api.entityMutate('skill:user:twin-skill', { op: 'trash' })
+    const reviewToken = (await api.skillDuplicates()).data.find((group) => group.name === 'twin-skill')!.reviewToken!
+    const done = await api.entityMutate('skill:user:twin-skill', { op: 'trash', reviewToken })
     expect(done.errors).toEqual([])
     expect(done.data?.op).toBe('trash')
     expect(done.data?.kind).toBe('skill')
@@ -222,7 +226,8 @@ describe('trashing one skill (ADR-0001)', () => {
   })
 
   it('trashes a benched skill out of its own directory', async () => {
-    const done = await api.entityMutate('skill:user-disabled:benched-skill', { op: 'trash' })
+    const reviewToken = (await api.skillDuplicates()).data.find((group) => group.name === 'benched-skill')!.reviewToken!
+    const done = await api.entityMutate('skill:user-disabled:benched-skill', { op: 'trash', reviewToken })
     expect(done.errors).toEqual([])
     expect(done.data?.stepCount).toBe(1)
     expect(await exists(path.join(world.userRoot, 'skills.disabled', 'benched-skill'))).toBe(
@@ -253,5 +258,121 @@ describe('trashing one skill (ADR-0001)', () => {
     const bad = await api.entityMutate('skill:user:twin-skill', { op: 'delete' as never })
     expect(bad.errors[0]?.code).toBe('bad-request')
     expect(bad.errors[0]?.message).toMatch(/enable, disable, move or trash/)
+  })
+})
+
+describe('reviewed duplicate skill removal (102)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+  const selected = 'skill:user:twin'
+  const other = 'skill:user-disabled:twin'
+  const body = 'AAAA'
+  const source = (): string => path.join(world.userRoot, 'skills', 'twin')
+  const twin = (): string => path.join(world.userRoot, 'skills.disabled', 'twin')
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, {
+      'settings.json': '{}',
+      'skills/twin/SKILL.md': skillManifest('twin', 'Identical copies'),
+      'skills/twin/body.txt': body,
+      'skills.disabled/twin/SKILL.md': skillManifest('twin', 'Identical copies'),
+      'skills.disabled/twin/body.txt': body,
+      'skills/unique/SKILL.md': skillManifest('unique', 'No redundant copy')
+    })
+    api = createWorkspace({ locator: world.locator, platform: process.platform })
+  })
+  afterEach(async () => { vi.restoreAllMocks(); await world.cleanup() })
+  const token = async (): Promise<string> => {
+    const result = await api.skillDuplicates()
+    expect(result.errors).toEqual([])
+    const group = result.data.find((group) => group.name === 'twin')!
+    expect(group.identical).toBe(true)
+    expect(group.reviewToken).toBeTypeOf('string')
+    return group.reviewToken!
+  }
+
+  it.each(['selected-bytes', 'other-bytes', 'both-bytes', 'metadata-only', 'removed', 'replaced', 'group-addition'] as const)(
+    'A11: refuses the old group after %s, before journaling', async (change) => {
+      const pinned = new Date(1_780_000_000_000)
+      for (const root of [source(), twin()]) await fs.utimes(path.join(root, 'body.txt'), pinned, pinned)
+      const reviewToken = await token()
+      if (change === 'selected-bytes' || change === 'both-bytes') {
+        await fs.writeFile(path.join(source(), 'body.txt'), 'BBBB')
+        await fs.utimes(path.join(source(), 'body.txt'), pinned, pinned)
+      }
+      if (change === 'other-bytes' || change === 'both-bytes') {
+        await fs.writeFile(path.join(twin(), 'body.txt'), 'BBBB')
+        await fs.utimes(path.join(twin(), 'body.txt'), pinned, pinned)
+      }
+      if (change === 'metadata-only') await fs.utimes(path.join(twin(), 'body.txt'), new Date(), new Date())
+      if (change === 'removed' || change === 'replaced') {
+        const info = await fs.stat(source())
+        await fs.rename(source(), path.join(world.base, 'retained-skill'))
+        if (change === 'replaced') {
+          await writeFileTree(source(), { 'SKILL.md': skillManifest('twin', 'Identical copies'), 'body.txt': body })
+          await fs.utimes(source(), info.atime, info.mtime)
+        }
+      }
+      if (change === 'group-addition') {
+        const project = path.join(world.base, 'work', 'added-project')
+        await writeFileTree(project, {
+          '.claude/skills/twin/SKILL.md': skillManifest('twin', 'Identical copies'),
+          '.claude/skills/twin/body.txt': body
+        })
+        await fs.writeFile(world.locator.userConfigFile, writeJson({ projects: { [project]: {} } }))
+      }
+      const before = await hashTree(world.userRoot)
+      const result = await api.entityMutate(selected, { op: 'trash', reviewToken })
+      expect(result.data).toBeNull()
+      expect(result.errors[0]?.code).toBe('stale-plan')
+      expect(await hashTree(world.userRoot)).toBe(before)
+      expect((await api.journalList()).data).toEqual([])
+      expect(await exists(path.join(world.kondoDataRoot, 'trash'))).toBe(false)
+    }
+  )
+
+  it('refuses missing/unknown tokens and unique-skill trash, without bypassing the group check', async () => {
+    const reviewToken = await token()
+    for (const request of [{ op: 'trash' as const }, { op: 'trash' as const, reviewToken: 'unknown' }]) {
+      expect((await api.entityMutate(selected, request)).errors[0]?.code).toBe('stale-plan')
+    }
+    expect((await api.entityMutate('skill:user:unique', { op: 'trash' })).errors[0]?.code).toBe('stale-plan')
+    expect((await api.entityMutate('skill:user:unique', { op: 'trash', reviewToken })).errors[0]?.code).toBe('stale-plan')
+    expect((await api.journalList()).data).toEqual([])
+  })
+
+  it('does not issue a usable token for nonidentical groups', async () => {
+    await fs.writeFile(path.join(twin(), 'body.txt'), 'BBBB')
+    const group = (await api.skillDuplicates()).data.find((group) => group.name === 'twin')!
+    expect(group.identical).toBe(false)
+    expect(group.reviewToken).toBeNull()
+  })
+
+  it('allows one unchanged removal/Undo and refuses replay after Undo', async () => {
+    const before = await hashTree(world.userRoot)
+    const reviewToken = await token()
+    const result = await api.entityMutate(selected, { op: 'trash', reviewToken })
+    expect(result.errors).toEqual([])
+    expect(result.data?.stepCount).toBe(1)
+    expect(await exists(twin())).toBe(true)
+    expect((await api.entityMutate(selected, { op: 'trash', reviewToken })).errors[0]?.code).toBe('stale-plan')
+    expect((await api.journalUndo(result.data!.id)).errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+    const journal = await hashTree(world.kondoDataRoot)
+    expect((await api.entityMutate(selected, { op: 'trash', reviewToken })).errors[0]?.code).toBe('stale-plan')
+    expect(await hashTree(world.kondoDataRoot)).toBe(journal)
+  })
+
+  it('serializes two distinct valid tokens so concurrent requests cannot remove every copy', async () => {
+    const first = await token()
+    const second = await token()
+    const results = await Promise.all([
+      api.entityMutate(selected, { op: 'trash', reviewToken: first }),
+      api.entityMutate(other, { op: 'trash', reviewToken: second })
+    ])
+    expect(results.filter((result) => result.data !== null)).toHaveLength(1)
+    expect(results.flatMap((result) => result.errors.map((error) => error.code))).toEqual(['stale-plan'])
+    expect((await api.journalList()).data).toHaveLength(1)
+    expect([await exists(source()), await exists(twin())].filter(Boolean)).toHaveLength(1)
   })
 })

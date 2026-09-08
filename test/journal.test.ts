@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { KondoApi } from '../shared/contract'
+import type { KondoApi, TidyCategory } from '../shared/contract'
 import { STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
@@ -41,6 +41,13 @@ describe('the journal and trash surface (ADR-0001)', () => {
   let api: KondoApi
   let trashRoot: string
   let journalFile: string
+
+  const reviewedSweep = async (categories: TidyCategory[]) => {
+    const preview = await api.tidyPreview()
+    expect(preview.errors).toEqual([])
+    expect(preview.data.reviewToken).toEqual(expect.any(String))
+    return api.tidySweep(categories, preview.data.reviewToken!)
+  }
 
   const inStore = (relative: string): string =>
     path.join(world.userRoot, ...relative.split('/'))
@@ -143,7 +150,7 @@ describe('the journal and trash surface (ADR-0001)', () => {
 
   it('restores a whole sweep from one list row', async () => {
     const before = await hashTree(world.userRoot)
-    const swept = await api.tidySweep(['stale-sessions'])
+    const swept = await reviewedSweep(['stale-sessions'])
     expect(swept.errors).toEqual([])
     expect(swept.data).not.toBeNull()
     expect(await hashTree(world.userRoot)).not.toBe(before)
@@ -158,7 +165,7 @@ describe('the journal and trash surface (ADR-0001)', () => {
   // The trash's size, and emptying it
 
   it('reports what the trash holds, and empties only that', async () => {
-    expect((await api.tidySweep(['stale-sessions'])).errors).toEqual([])
+    expect((await reviewedSweep(['stale-sessions'])).errors).toEqual([])
 
     const held = await api.trashSize()
     expect(held.errors).toEqual([])
@@ -192,7 +199,7 @@ describe('the journal and trash surface (ADR-0001)', () => {
   })
 
   it('refuses an undo whose displaced bytes were emptied, rather than half-restoring', async () => {
-    const swept = await api.tidySweep(['stale-sessions'])
+    const swept = await reviewedSweep(['stale-sessions'])
     expect(swept.data).not.toBeNull()
     await api.trashEmpty()
 
@@ -210,7 +217,7 @@ describe('the journal and trash surface (ADR-0001)', () => {
   // The invariant the whole feature rests on
 
   it('never empties the trash as part of another operation', async () => {
-    expect((await api.tidySweep(['stale-sessions'])).data).not.toBeNull()
+    expect((await reviewedSweep(['stale-sessions'])).data).not.toBeNull()
     const kept = await listTree(trashRoot)
     expect(kept.length).toBeGreaterThan(0)
 
@@ -227,8 +234,7 @@ describe('the journal and trash surface (ADR-0001)', () => {
       await api.pluginsList()
       await api.hooksList()
       await api.settingsLayers()
-      await api.tidyPreview()
-      await api.tidySweep(['stale-sessions', 'reclaimable-caches'])
+      await reviewedSweep(['stale-sessions', 'reclaimable-caches'])
       await api.journalList()
       await api.trashSize()
       await api.journalUndo((await api.journalList()).data[0]!.id)

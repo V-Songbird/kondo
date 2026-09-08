@@ -6,6 +6,7 @@ import { createLocator } from '../electron/main/workspace/locator'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   healthyTranscript,
+  hashTree,
   flattenPath,
   makeWorld,
   registerProjects,
@@ -95,6 +96,37 @@ describe('workspace (KondoApi)', () => {
 
     const gone = await api.sessionList('project:code:D--Not-There')
     expect(gone.errors[0]?.code).toBe('unknown-id')
+  })
+
+  it('previews exact session identities without writes and refuses changed bytes before journaling', async () => {
+    const projectId = `project:code:${flattenPath(workdir)}`
+    const sessions = (await api.sessionList(projectId)).data
+    const ids = sessions.map((session) => session.id)
+    const before = await hashTree(world.userRoot)
+    const review = await api.sessionTrashPreview(ids)
+    expect(review.errors).toEqual([])
+    expect(review.data).toMatchObject({ count: 1, reviewToken: expect.any(String), sessions })
+    expect(review.data!.reviewToken).not.toContain(world.base)
+    expect(await hashTree(world.userRoot)).toBe(before)
+    await expect(fs.readFile(path.join(world.kondoDataRoot, 'journal.jsonl')))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+
+    await fs.appendFile(path.join(world.userRoot, 'projects', flattenPath(workdir), `${UUID_A}.jsonl`),
+      '\n' + JSON.stringify({ type: 'user', message: { role: 'user', content: 'resumed fixture conversation' } }))
+    const changed = await hashTree(world.userRoot)
+    const refused = await api.sessionTrash(ids, review.data!.reviewToken)
+    expect(refused.data).toBeNull()
+    expect(refused.errors.map((error) => error.code)).toContain('stale-plan')
+    expect(await hashTree(world.userRoot)).toBe(changed)
+    await expect(fs.readFile(path.join(world.kondoDataRoot, 'journal.jsonl')))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('refuses an unknown session review identity without issuing a token', async () => {
+    const review = await api.sessionTrashPreview(['session:code:../../../outside'])
+    expect(review.data).toBeNull()
+    expect(review.errors[0]?.code).toBe('unknown-id')
+    expect((await api.journalList()).data).toEqual([])
   })
 
   it('surfaces skills and settings from the verified project', async () => {

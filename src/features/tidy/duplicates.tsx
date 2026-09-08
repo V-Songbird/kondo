@@ -6,6 +6,7 @@ import { LastChange } from '../../ui/last-change'
 import { Refusal } from '../../ui/refusal'
 import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { joinErrors } from '../../lib/format'
+import { ReviewRefusal } from './review-refusal'
 import { keepReason, shortDigest, verdictFor } from './duplicate-rows'
 
 /**
@@ -32,32 +33,41 @@ export function SkillDuplicates() {
   const [change, setChange] = useState<JournalEntryInfo | null>(null)
   // Which copy the confirm band is asking about; null when it is asking about
   // none. One click used to be the whole decision (entry 076).
-  const [asking, setAsking] = useState<string | null>(null)
+  const [asking, setAsking] = useState<{ id: string; token: string; name: string; origin: string } | null>(null)
+  const [stale, setStale] = useState<{ reason: string; selection: string } | null>(null)
+  const headingRef = useRef<HTMLHeadingElement>(null)
   const buttonPrefix = useId()
   const questionId = useId()
-  const confirmation = useConfirmationFocus(asking !== null, () => setAsking(null), asking)
+  const confirmation = useConfirmationFocus(asking !== null, () => setAsking(null), asking?.id)
   const { reload } = state
   const resultRef = useRef<HTMLDivElement>(null)
   const focusResult = useRef(false)
 
   useLayoutEffect(() => {
     if (!busy && focusResult.current) {
-      resultRef.current?.focus()
+      if (stale === null) resultRef.current?.focus()
       focusResult.current = false
     }
   })
 
-  const trash = async (skillId: string): Promise<void> => {
+  const trash = async (): Promise<void> => {
+    if (asking === null) return
     const api = window.kondo
     if (!api) return
     setBusy(true)
     setAsking(null)
     setProblem(null)
+    setStale(null)
     setOutcome(null)
     setChange(null)
     try {
-      const done = await api.entityMutate(skillId, { op: 'trash' })
-      setProblem(joinErrors(done.errors))
+      const done = await api.entityMutate(asking.id, { op: 'trash', reviewToken: asking.token })
+      if (done.errors.some((error) => error.code === 'stale-plan')) {
+        setStale({
+          reason: joinErrors(done.errors) ?? 'The copies changed. Compare their current contents before choosing again.',
+          selection: `1 copy of ${asking.name} · ${asking.origin}`
+        })
+      } else setProblem(joinErrors(done.errors))
       setChange(done.data)
       if (done.errors.length === 0 && done.data === null) {
         setOutcome('This copy no longer needs removing. The list has been refreshed.')
@@ -76,7 +86,7 @@ export function SkillDuplicates() {
   return (
     <section className="sheet" data-tone="mustard">
       <div className="sheet-head">
-        <h2>Duplicate skills</h2>
+        <h2 ref={headingRef} tabIndex={-1}>Duplicate skills</h2>
       </div>
       <p className="mb-4 max-w-2xl text-[13px] text-ink-2">
         Compare skills with the same name in different places. Kondo only offers to
@@ -86,6 +96,10 @@ export function SkillDuplicates() {
         Keep a copy wherever you need it: a skill in one project may not be available
         in another. Review the location before moving a copy to trash. You can undo the move.
       </p>
+      {stale !== null && <ReviewRefusal {...stale} onReview={() => {
+        setStale(null)
+        headingRef.current?.focus()
+      }} />}
       <div ref={resultRef} tabIndex={-1} aria-label="Duplicate cleanup result">
         {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
         {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
@@ -112,7 +126,7 @@ export function SkillDuplicates() {
                     </thead>
                     <tbody>
                       {group.members.map((member) => {
-                        const reason = keepReason(group, member)
+                        const reason = keepReason(group, member) ?? (!group.reviewToken ? 'These copies could not be safely reviewed. Refresh the list before removing one.' : null)
                         return (
                           <tr key={member.skill.id}>
                             <td className="max-w-md">
@@ -126,7 +140,7 @@ export function SkillDuplicates() {
                               </details>
                             </td>
                             <td className="text-right">
-                              {asking === member.skill.id ? (
+                              {asking?.id === member.skill.id ? (
                                 <div className="band band-pencil flex-col items-start gap-2 text-left" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
                                   <span id={questionId}>Move this copy of {group.name} to trash?</span>
                                   <p className="break-all text-xs">{member.skill.origin}</p>
@@ -136,7 +150,7 @@ export function SkillDuplicates() {
                                     disabled={busy || reason !== null || state.loading}
                                     aria-label={`Move to trash: ${group.name} from ${member.skill.origin}`}
                                     className="btn btn-pencil btn-sm"
-                                    onClick={() => void trash(member.skill.id)}
+                                    onClick={() => void trash()}
                                   >
                                     Move to trash
                                   </button>
@@ -154,11 +168,11 @@ export function SkillDuplicates() {
                                   id={`${buttonPrefix}-${member.skill.id}`}
                                   type="button"
                                   aria-label={`Move this copy to trash: ${group.name} from ${member.skill.origin}`}
-                                  disabled={reason !== null || busy || state.loading}
+                                  disabled={reason !== null || busy || state.loading || stale !== null}
                                   className="btn btn-pencil btn-sm"
                                   onClick={() => {
                                     confirmation.rememberFocus(`${buttonPrefix}-${member.skill.id}`)
-                                    setAsking(member.skill.id)
+                                    if (group.reviewToken) setAsking({ id: member.skill.id, token: group.reviewToken, name: group.name, origin: member.skill.origin })
                                   }}
                                 >
                                   Move this copy to trash

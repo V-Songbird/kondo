@@ -9,6 +9,7 @@ import type {
 } from '../shared/contract'
 import { tidyCategories } from '../shared/contract'
 import { isScratchProjectName, STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
+import * as relocation from '../electron/main/workspace/relocation'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   desktopReleased,
@@ -35,6 +36,17 @@ import {
  */
 
 const UUID_D = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+
+async function reviewedSweep(api: KondoApi, categories: TidyCategory[]) {
+  const preview = await api.tidyPreview()
+  return api.tidySweep(categories, preview.data.reviewToken ?? undefined)
+}
+
+async function ageTree(root: string): Promise<void> {
+  const entries = await fs.readdir(root, { recursive: true })
+  for (const name of entries) await fs.utimes(path.join(root, name), LONG_AGO, LONG_AGO)
+  await fs.utimes(root, LONG_AGO, LONG_AGO)
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const NOW = Date.UTC(2026, 5, 1)
@@ -110,6 +122,7 @@ describe('temporary aliases across workspace and cleanup', () => {
           [`projects/${flattenPath(project)}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A)
         })
       }
+      for (const project of temporary) await ageTree(path.join(world.userRoot, 'projects', flattenPath(project)))
       const before = await hashTree(world.userRoot)
       const api = createWorkspace({ locator: world.locator, platform: process.platform, guessExists: async () => 'absent' })
       const list = await api.projectsList()
@@ -127,7 +140,7 @@ describe('temporary aliases across workspace and cleanup', () => {
       const preview = await api.tidyPreview()
       expect(preview.errors).toEqual([])
       expect(byCategory(preview.data)['scratch-projects'].count).toBe(2)
-      const swept = await api.tidySweep(['scratch-projects'])
+      const swept = await api.tidySweep(['scratch-projects'], preview.data.reviewToken!)
       expect(swept.errors).toEqual([])
       expect(swept.data?.stepCount).toBe(2)
       expect(await exists(path.join(world.userRoot, 'projects', unlocated))).toBe(true)
@@ -277,7 +290,7 @@ describe('the tidy sweep (ADR-0001)', () => {
     const named = preview.data.categories.flatMap((entry) => entry.examples)
     const before = await listTree(world.userRoot)
 
-    const done = await api.tidySweep(ALL)
+    const done = await api.tidySweep(ALL, preview.data.reviewToken!)
     expect(done.errors).toEqual([])
 
     const after = await listTree(world.userRoot)
@@ -297,7 +310,7 @@ describe('the tidy sweep (ADR-0001)', () => {
   })
 
   it('sweeps only the categories it was given', async () => {
-    const done = await api.tidySweep(['reclaimable-caches'])
+    const done = await reviewedSweep(api, ['reclaimable-caches'])
     expect(done.errors).toEqual([])
     expect(done.data?.stepCount).toBe(2)
 
@@ -314,11 +327,11 @@ describe('the tidy sweep (ADR-0001)', () => {
 
   it('refuses a category it does not know, and moves nothing', async () => {
     const before = await hashTree(world.userRoot)
-    const bogus = await api.tidySweep(['everything' as TidyCategory])
+    const bogus = await reviewedSweep(api, ['everything' as TidyCategory])
     expect(bogus.data).toBeNull()
     expect(bogus.errors.map((error) => error.code)).toContain('bad-request')
 
-    const notAList = await api.tidySweep('all' as unknown as TidyCategory[])
+    const notAList = await reviewedSweep(api, 'all' as unknown as TidyCategory[])
     expect(notAList.errors.map((error) => error.code)).toContain('bad-request')
 
     expect(await hashTree(world.userRoot)).toBe(before)
@@ -329,7 +342,7 @@ describe('the tidy sweep (ADR-0001)', () => {
   // One entry, one undo (ADR-0001 decision 2)
 
   it('records the whole sweep as one journal entry', async () => {
-    const done = await api.tidySweep(ALL)
+    const done = await reviewedSweep(api, ALL)
     expect(done.errors).toEqual([])
     expect(done.data?.op).toBe('trash')
     expect(done.data?.kind).toBe('store')
@@ -348,7 +361,7 @@ describe('the tidy sweep (ADR-0001)', () => {
   it('undoes the whole sweep as a unit, byte-for-byte', async () => {
     const before = await hashTree(world.userRoot)
 
-    const done = await api.tidySweep(ALL)
+    const done = await reviewedSweep(api, ALL)
     expect(done.errors).toEqual([])
     expect(await hashTree(world.userRoot)).not.toBe(before)
 
@@ -362,7 +375,7 @@ describe('the tidy sweep (ADR-0001)', () => {
   })
 
   it('displaces every swept item into kondo trash, never unlinking one', async () => {
-    const done = await api.tidySweep(ALL)
+    const done = await reviewedSweep(api, ALL)
     const trashDir = path.join(
       world.kondoDataRoot,
       'trash',
@@ -379,10 +392,16 @@ describe('the tidy sweep (ADR-0001)', () => {
 
   it('appends the journal entry before the store is touched', async () => {
     const ordered: string[] = []
+    const readOnlyOpen = fs.open.bind(fs)
     const restores = recordWrites(ordered)
+    const recordedOpen = fs.open.bind(fs)
+    // The shared recorder counts every open as a write; snapshot reads are r.
+    const open = vi.spyOn(fs, 'open').mockImplementation((target, flags, mode) =>
+      flags === 'r' ? readOnlyOpen(target, flags, mode) : recordedOpen(target, flags, mode))
     try {
-      expect((await api.tidySweep(ALL)).errors).toEqual([])
+      expect((await reviewedSweep(api, ALL)).errors).toEqual([])
     } finally {
+      open.mockRestore()
       for (const restore of restores) restore()
     }
 
@@ -400,7 +419,7 @@ describe('the tidy sweep (ADR-0001)', () => {
     // Warm the cached inventory first, so a stale cache would be the failure.
     expect((await api.sessionProjects()).data[0]?.sessionCount).toBe(3)
 
-    expect((await api.tidySweep(ALL)).errors).toEqual([])
+    expect((await reviewedSweep(api, ALL)).errors).toEqual([])
 
     const projects = (await api.sessionProjects()).data
     expect(projects[0]?.sessionCount).toBe(1)
@@ -439,7 +458,7 @@ describe('the tidy sweep (ADR-0001)', () => {
       expect(preview.data.categories.map((entry) => entry.count)).toEqual(ALL.map(() => 0))
 
       const before = await hashTree(tidy.userRoot)
-      const swept = await clean.tidySweep(ALL)
+      const swept = await reviewedSweep(clean, ALL)
       // Nothing to sweep is the ordinary answer, not an error — and it costs
       // no journal entry, so there is nothing to undo either.
       expect(swept.data).toBeNull()
@@ -517,6 +536,7 @@ describe('dead and scratch project directories', () => {
       'settings.json': '{}'
     })
     await fs.mkdir(inStore(`projects/${SCRATCH_EMPTY}`), { recursive: true })
+    for (const dir of [SCRATCH_TMP, SCRATCH_WORKTREE, SCRATCH_JOBS, SCRATCH_EMPTY]) await ageTree(inStore(`projects/${dir}`))
     await fs.utimes(inStore(`projects/${DEAD}/${UUID_A}.jsonl`), LONG_AGO, LONG_AGO)
     await fs.utimes(inStore(`projects/${LIVE}/${UUID_B}.jsonl`), FRESH, FRESH)
 
@@ -540,7 +560,7 @@ describe('dead and scratch project directories', () => {
     expect(named).not.toContain(`~/.claude/projects/${MEMORY_LIVE}`)
     expect(named).not.toContain(`~/.claude/projects/${MEMORY_UNLOCATED}`)
 
-    expect((await api.tidySweep(ALL)).errors).toEqual([])
+    expect((await reviewedSweep(api, ALL)).errors).toEqual([])
     expect(await exists(inStore(`projects/${MEMORY_LIVE}/memory/MEMORY.md`))).toBe(true)
     expect(await exists(inStore(`projects/${MEMORY_UNLOCATED}/memory/notes.md`))).toBe(true)
   })
@@ -575,7 +595,8 @@ describe('dead and scratch project directories', () => {
     // And the whole-tree sweep leaves the directory alone. Its transcripts
     // are still judged one by one on their own age, the way every other
     // project's are — what must not happen is the folder going as a unit.
-    expect((await blocked.tidySweep(['scratch-projects', 'dead-projects'])).errors).toEqual([])
+    expect(preview.data.reviewToken).toBeNull()
+    expect((await blocked.tidySweep(['scratch-projects', 'dead-projects'])).errors[0]?.code).toBe('stale-plan')
     expect(await exists(inStore(`projects/${DEAD}/${UUID_A}.jsonl`))).toBe(true)
   })
 
@@ -604,7 +625,7 @@ describe('dead and scratch project directories', () => {
     const named = preview.data.categories.flatMap((entry) => entry.examples)
     expect(named).not.toContain(`~/.claude/projects/${LIVE}`)
 
-    expect((await api.tidySweep(ALL)).errors).toEqual([])
+    expect((await reviewedSweep(api, ALL)).errors).toEqual([])
     expect(await exists(inStore(`projects/${LIVE}/${UUID_B}.jsonl`))).toBe(true)
   })
 
@@ -637,7 +658,7 @@ describe('dead and scratch project directories', () => {
   it('moves each tree as a single step, and undo puts it back whole', async () => {
     const before = await hashTree(world.userRoot)
 
-    const done = await api.tidySweep(['scratch-projects', 'dead-projects'])
+    const done = await reviewedSweep(api, ['scratch-projects', 'dead-projects'])
     expect(done.errors).toEqual([])
     // One step per directory: six trees, six steps, children included.
     expect(done.data?.stepCount).toBe(TREES.length)
@@ -719,7 +740,7 @@ describe('desktop-released sessions (entry 059)', () => {
 
   it('sweeps transcript, sidecar and marker together, and undo puts all three back', async () => {
     const before = await hashTree(world.userRoot)
-    const done = await api.tidySweep(['desktop-released-sessions'])
+    const done = await reviewedSweep(api, ['desktop-released-sessions'])
     expect(done.errors).toEqual([])
     expect(done.data?.summary).toContain('2 conversations deleted in the desktop app')
     for (const relative of [
@@ -742,7 +763,9 @@ describe('desktop-released sessions (entry 059)', () => {
   })
 
   it('takes the marker along when one session is trashed by hand', async () => {
-    const done = await api.sessionTrash([`session:code:${DIR}/${UUID_B}`])
+    const ids = [`session:code:${DIR}/${UUID_B}`]
+    const preview = await api.sessionTrashPreview(ids)
+    const done = await api.sessionTrash(ids, preview.data!.reviewToken)
     expect(done.errors).toEqual([])
     expect(done.data?.stepCount).toBe(2)
     expect(await exists(inStore(`projects/${DIR}/${UUID_B}.jsonl`))).toBe(false)
@@ -858,7 +881,7 @@ describe('session-env snapshots and plugin residue', () => {
     expect(named).not.toContain(`~/.claude/plugins/cache/mp/keep/${LIVE_VERSION}`)
 
     // And a full sweep leaves the live version exactly where Claude left it.
-    expect((await api.tidySweep(ALL)).errors).toEqual([])
+    expect((await reviewedSweep(api, ALL)).errors).toEqual([])
     expect(await exists(liveInstallPath(world.userRoot))).toBe(true)
     expect(await exists(path.join(liveInstallPath(world.userRoot), 'plugin.json'))).toBe(
       true
@@ -897,7 +920,7 @@ describe('session-env snapshots and plugin residue', () => {
         '~/.claude/plugins/cache/mp/keep/1.0.0'
       ])
 
-      const done = await api.tidySweep(['superseded-plugin-versions'])
+      const done = await reviewedSweep(api, ['superseded-plugin-versions'])
       expect(done.errors).toEqual([])
       expect(done.data?.stepCount).toBe(1)
       for (const install of installs) {
@@ -942,7 +965,7 @@ describe('session-env snapshots and plugin residue', () => {
       'superseded-plugin-versions',
       'orphan-plugin-residue'
     ]
-    const done = await api.tidySweep(categories)
+    const done = await reviewedSweep(api, categories)
     expect(done.errors).toEqual([])
     // One step per candidate: two snapshots, two versions, two leftovers.
     expect(done.data?.stepCount).toBe(6)
@@ -998,7 +1021,8 @@ describe('session-env snapshots and plugin residue', () => {
           'settings.json': '{}'
         })
         const reader = open(fixture)
-        const found = byCategory((await reader.tidyPreview()).data)
+        const preview = await reader.tidyPreview()
+        const found = byCategory(preview.data)
         // A manifest kondo cannot read is not evidence that nothing is
         // installed, so it degrades to offering nothing (ADR-0005).
         expect(found['superseded-plugin-versions'].count, broken).toBe(0)
@@ -1007,8 +1031,8 @@ describe('session-env snapshots and plugin residue', () => {
         // Degrading is not going quiet: a manifest that would not parse is
         // reported, and the sweep still moves nothing under `plugins/`.
         const stored = await hashTree(fixture.userRoot)
-        const swept = await reader.tidySweep(ALL)
-        expect(swept.errors.every((error) => error.code === 'parse-failed')).toBe(true)
+        const swept = await reader.tidySweep(ALL, preview.data.reviewToken ?? undefined)
+        expect(swept.errors.map((error) => error.code)).toEqual(preview.errors.length > 0 ? ['stale-plan'] : [])
         expect(await hashTree(fixture.userRoot)).toBe(stored)
       } finally {
         await fixture.cleanup()
@@ -1089,7 +1113,7 @@ describe('desktop app caches (entry 063)', () => {
 
   it('moves them into kondo\u2019s trash under the desktop store, and undo puts every byte back', async () => {
     const before = await hashTree(world.desktopRoot)
-    const done = await api.tidySweep(['desktop-caches'])
+    const done = await reviewedSweep(api, ['desktop-caches'])
     expect(done.errors).toEqual([])
     expect(done.data?.stepCount).toBe(5)
     expect(done.data?.summary).toContain('5 desktop app caches')
@@ -1118,10 +1142,168 @@ describe('desktop app caches (entry 063)', () => {
     expect(found['reclaimable-caches'].blocked).toBeNull()
 
     const before = await hashTree(world.desktopRoot)
-    const refused = await api.tidySweep(['desktop-caches'])
+    const refused = await reviewedSweep(api, ['desktop-caches'])
     expect(refused.data).toBeNull()
     expect(refused.errors.map((error) => error.code)).toEqual(['not-permitted'])
     expect(await hashTree(world.desktopRoot)).toBe(before)
     expect((await api.journalList()).data).toEqual([])
+  })
+})
+
+describe('reviewed cleanup safety (102)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+  let clock: number
+  const cache = (): string => path.join(world.userRoot, 'cache', 'blob')
+  const transcript = (): string => path.join(world.userRoot, 'projects', DIR, `${UUID_A}.jsonl`)
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    clock = NOW
+    await writeFileTree(world.userRoot, {
+      'settings.json': '{}', 'cache/blob': 'AAAA',
+      [`projects/${DIR}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A)
+    })
+    await fs.utimes(transcript(), LONG_AGO, LONG_AGO)
+    api = createWorkspace({ locator: world.locator, platform: process.platform, now: () => clock, guessExists: async () => 'absent' })
+  })
+  afterEach(async () => { vi.restoreAllMocks(); await world.cleanup() })
+
+  const review = async (): Promise<string> => {
+    const result = await api.tidyPreview()
+    expect(result.errors).toEqual([])
+    expect(result.data.reviewToken).toBeTypeOf('string')
+    return result.data.reviewToken!
+  }
+  const refused = async (token: string, categories: TidyCategory[] = ['reclaimable-caches']): Promise<void> => {
+    const before = await hashTree(world.userRoot)
+    const result = await api.tidySweep(categories, token)
+    expect(result.data).toBeNull()
+    expect(result.errors[0]?.code).toBe('stale-plan')
+    expect(await hashTree(world.userRoot)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
+    expect(await exists(path.join(world.kondoDataRoot, 'trash'))).toBe(false)
+  }
+
+  it('A5: refuses a new cache added after preview instead of expanding the sweep', async () => {
+    const token = await review()
+    await writeFileTree(world.userRoot, { 'debug/new.log': 'newly appeared' })
+    await refused(token)
+  })
+
+  it('refuses a same-size rewrite even when the original mtime is restored', async () => {
+    const pinned = new Date(LONG_AGO)
+    await fs.utimes(cache(), pinned, pinned)
+    const token = await review()
+    await fs.writeFile(cache(), 'BBBB')
+    await fs.utimes(cache(), pinned, pinned)
+    await refused(token)
+  })
+
+  it('refuses metadata-only activity with unchanged bytes', async () => {
+    const token = await review()
+    await fs.utimes(cache(), FRESH, FRESH)
+    await refused(token)
+  })
+
+  it('refuses removal and same-path replacement, even with identical bytes/mtime', async () => {
+    const info = await fs.stat(cache())
+    const token = await review()
+    await fs.rename(cache(), path.join(world.base, 'original-cache'))
+    await fs.writeFile(cache(), 'AAAA')
+    await fs.utimes(cache(), info.atime, info.mtime)
+    await refused(token)
+  })
+
+  it('refuses a removed selected candidate', async () => {
+    const token = await review()
+    await fs.rename(path.join(world.userRoot, 'cache'), path.join(world.base, 'retained-cache'))
+    await refused(token)
+  })
+
+  it('A9: refuses a resumed stale transcript after preview', async () => {
+    const token = await review()
+    await fs.utimes(transcript(), FRESH, FRESH)
+    await refused(token, ['stale-sessions'])
+  })
+
+  it('permits changes in an unselected category, then undoes only the reviewed caches', async () => {
+    const token = await review()
+    await fs.appendFile(transcript(), '\nnew work')
+    const before = await hashTree(world.userRoot)
+    const result = await api.tidySweep(['reclaimable-caches'], token)
+    expect(result.errors).toEqual([])
+    expect(result.data?.stepCount).toBe(1)
+    expect((await api.journalUndo(result.data!.id)).errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('refuses missing, unknown, expired and replayed tokens, including after Undo', async () => {
+    expect((await api.tidySweep(['reclaimable-caches'])).errors[0]?.code).toBe('stale-plan')
+    await refused('unknown-token')
+    const expired = await review()
+    clock += 15 * 60_000
+    await refused(expired)
+    const token = await review()
+    const result = await api.tidySweep(['reclaimable-caches'], token)
+    expect(result.errors).toEqual([])
+    expect((await api.journalUndo(result.data!.id)).errors).toEqual([])
+    const journal = await hashTree(world.kondoDataRoot)
+    expect((await api.tidySweep(['reclaimable-caches'], token)).errors[0]?.code).toBe('stale-plan')
+    expect(await hashTree(world.kondoDataRoot)).toBe(journal)
+  })
+
+  it('streams transcript snapshots rather than reading a whole transcript into memory', async () => {
+    const read = vi.spyOn(fs, 'readFile')
+    const token = await review()
+    expect((await api.tidySweep(['stale-sessions'], token)).errors).toEqual([])
+    expect(read.mock.calls.some(([file]) => String(file).endsWith(`${UUID_A}.jsonl`))).toBe(false)
+  })
+
+  it('checks again after planSteps and refuses an injected change before journaling', async () => {
+    const token = await review()
+    const original = relocation.preflightRelocation
+    let changed = false
+    vi.spyOn(relocation, 'preflightRelocation').mockImplementation(async (...args) => {
+      const result = await original(...args)
+      if (!changed && args[0] === path.join(world.userRoot, 'cache')) {
+        changed = true
+        await fs.writeFile(cache(), 'BBBB')
+      }
+      return result
+    })
+    const result = await api.tidySweep(['reclaimable-caches'], token)
+    expect(changed).toBe(true)
+    expect(result.data).toBeNull()
+    expect(result.errors[0]?.code).toBe('stale-plan')
+    expect(await fs.readFile(cache(), 'utf8')).toBe('BBBB')
+    expect(await exists(path.join(world.kondoDataRoot, 'journal.jsonl'))).toBe(false)
+    expect(await exists(path.join(world.kondoDataRoot, 'trash'))).toBe(false)
+  })
+
+  it('reports withheld scratch trees without offering their paths or per-session fallbacks', async () => {
+    const recent = 'D--Projects-app--claude-worktrees-recent'
+    const memory = 'D--Projects-app--claude-jobs-memory'
+    const old = 'D--Projects-app--claude-worktrees-old'
+    await writeFileTree(world.userRoot, {
+      [`projects/${recent}/${UUID_B}.jsonl`]: healthyTranscript(UUID_B),
+      [`projects/${memory}/${UUID_B}.jsonl`]: healthyTranscript(UUID_B),
+      [`projects/${memory}/memory/MEMORY.md`]: 'retained memory',
+      [`projects/${old}/${UUID_B}.jsonl`]: healthyTranscript(UUID_B)
+    })
+    for (const dir of [recent, memory, old]) await ageTree(path.join(world.userRoot, 'projects', dir))
+    // Recent nested state counts even when the main transcript is old.
+    await writeFileTree(world.userRoot, { [`projects/${recent}/${UUID_B}/state.json`]: 'active' })
+    const preview = await api.tidyPreview()
+    expect(preview.errors).toEqual([])
+    expect(preview.data.withheldScratchCount).toBe(2)
+    const offered = preview.data.categories.flatMap((entry) => entry.examples)
+    expect(offered.some((name) => name.includes(recent) || name.includes(memory))).toBe(false)
+    expect(byCategory(preview.data)['scratch-projects'].count).toBe(1)
+    const result = await api.tidySweep(['scratch-projects'], preview.data.reviewToken!)
+    expect(result.errors).toEqual([])
+    expect(await exists(path.join(world.userRoot, 'projects', recent))).toBe(true)
+    expect(await exists(path.join(world.userRoot, 'projects', memory))).toBe(true)
+    expect((await api.journalUndo(result.data!.id)).errors).toEqual([])
   })
 })

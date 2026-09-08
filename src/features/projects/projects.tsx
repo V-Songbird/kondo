@@ -14,6 +14,7 @@ import type {
   Scan,
   SessionDuplicateGroup,
   SessionSummary,
+  SessionTrashPreview,
   SkillInfo,
   StoreReport,
   StoresOverview,
@@ -26,6 +27,7 @@ import { MovePicker } from '../../ui/move-picker'
 import { Refusal } from '../../ui/refusal'
 import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { flatKeyParts, formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
+import { ReviewRefusal } from '../tidy/review-refusal'
 import { PluginControl } from './plugin-control'
 
 /**
@@ -368,6 +370,8 @@ function ProjectPage({
   const [busy, setBusy] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
   const refusalRef = useRef<HTMLDivElement>(null)
+  const [staleSelection, setStaleSelection] = useState<string | null>(null)
+  const removalSelection = useRef('Selected conversations')
   const [pending, setPending] = useState<Pending | null>(null)
   const [change, setChange] = useState<JournalEntryInfo | null>(null)
   const pendingCancelled = useRef(false)
@@ -376,8 +380,8 @@ function ProjectPage({
     setPending(null)
   })
   useEffect(() => {
-    if (refusal !== null) refusalRef.current?.focus()
-  }, [refusal])
+    if (refusal !== null && staleSelection === null) refusalRef.current?.focus()
+  }, [refusal, staleSelection])
   useEffect(() => {
     if (pending === null && pendingCancelled.current) {
       pendingCancelled.current = false
@@ -407,6 +411,7 @@ function ProjectPage({
     if (pending === null) confirmation.rememberFocus()
     setBusy(true)
     setRefusal(null)
+    setStaleSelection(null)
     setPending(null)
     try {
       const done = await call(api)
@@ -418,6 +423,7 @@ function ProjectPage({
       } else {
         // Every message, not just the first: a move refuses per step
         // (ADR-0005), and showing one of four hid the other three.
+        if (done.errors.some((entry) => entry.code === 'stale-plan')) setStaleSelection(removalSelection.current)
         setRefusal(joinErrors(done.errors))
         setChange(done.data)
       }
@@ -468,7 +474,13 @@ function ProjectPage({
 
   return (
     <div>
-      {refusal !== null && <div ref={refusalRef} tabIndex={-1} role="alert" className="band band-pencil text-pencil">{refusal}</div>}
+      {refusal !== null && (staleSelection !== null
+        ? <ReviewRefusal reason={refusal} selection={staleSelection} onReview={() => {
+            setRefusal(null)
+            setStaleSelection(null)
+            headingRef.current?.focus()
+          }} />
+        : <div ref={refusalRef} tabIndex={-1} role="alert" className="band band-pencil text-pencil">{refusal}</div>)}
       {pending !== null && (
         <div className="band" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
           <span id={questionId} className="text-ink-2">{pending.message}</span>
@@ -821,7 +833,10 @@ function ProjectPage({
                     sessions={detail.sessions}
                     staleAfterDays={detail.staleAfterDays}
                     busy={busy}
-                    onTrash={(ids) => void run((api) => api.sessionTrash(ids))}
+                    onTrash={(ids, token) => {
+                      removalSelection.current = formatCount(ids.length, 'conversation')
+                      void run((api) => api.sessionTrash(ids, token))
+                    }}
                   />
                 </Section>
               )}
@@ -1254,18 +1269,28 @@ function SessionTable({
   /** The day count behind `stale`, from the same detail payload as the rows. */
   staleAfterDays: number
   busy: boolean
-  onTrash: (ids: string[]) => void
+  onTrash: (ids: string[], token: string) => void
 }) {
   const [opened, setOpened] = useState<string | null>(null)
   const [picked, setPicked] = useState<string[]>([])
-  const [confirming, setConfirming] = useState(false)
+  const [review, setReview] = useState<(SessionTrashPreview & { ids: string[] }) | null>(null)
+  const [reviewing, setReviewing] = useState(false)
+  const requestNumber = useRef(0)
+  useEffect(() => () => { requestNumber.current += 1 }, [])
+  const cancelReview = (): void => {
+    requestNumber.current += 1
+    setReview(null)
+    setReviewing(false)
+  }
   const [groups, setGroups] = useState<SessionDuplicateGroup[] | null>(null)
   const [looking, setLooking] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  const problemRef = useRef<HTMLSpanElement>(null)
+  useEffect(() => { if (problem !== null) problemRef.current?.focus() }, [problem])
   const sectionId = useId()
   const trashButtonId = useId()
   const questionId = useId()
-  const confirmation = useConfirmationFocus(confirming, () => setConfirming(false))
+  const confirmation = useConfirmationFocus(review !== null || reviewing, cancelReview, review?.reviewToken)
 
   const find = async (): Promise<void> => {
     const api = window.kondo
@@ -1294,15 +1319,16 @@ function SessionTable({
   })
 
   const pick = (id: string): void => {
-    setConfirming(false)
+    cancelReview()
     setPicked((current) =>
       current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]
     )
   }
 
   const trash = (): void => {
-    setConfirming(false)
-    onTrash(picked)
+    if (review === null) return
+    setReview(null)
+    onTrash(review.ids, review.reviewToken)
     // The store is the state (ADR-0006): what was picked and what was found
     // both describe the tree before the move, so neither survives it.
     setPicked([])
@@ -1310,6 +1336,26 @@ function SessionTable({
   }
 
   const chosen = picked.filter((id) => sessions.some((session) => session.id === id))
+  const prepareReview = async (): Promise<void> => {
+    const api = window.kondo
+    if (!api || chosen.length === 0) return
+    const ids = [...chosen]
+    const request = ++requestNumber.current
+    confirmation.rememberFocus(trashButtonId)
+    setReviewing(true)
+    setProblem(null)
+    try {
+      const scan = await api.sessionTrashPreview(ids)
+      if (request !== requestNumber.current) return
+      setProblem(joinErrors(scan.errors))
+      if (scan.data !== null && scan.errors.length === 0) setReview({ ...scan.data, ids })
+      else setPicked([])
+    } catch (cause) {
+      if (request === requestNumber.current) setProblem(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      if (request === requestNumber.current) setReviewing(false)
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -1317,7 +1363,7 @@ function SessionTable({
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          disabled={looking || busy}
+          disabled={looking || busy || reviewing}
           className="btn btn-quiet btn-sm"
           onClick={() => void find()}
         >
@@ -1330,7 +1376,7 @@ function SessionTable({
               : `${formatCount(groups.length, 'set')} of sessions open the same way.`}
           </span>
         )}
-        {problem !== null && <span role="alert" className="text-xs text-pencil">{problem}</span>}
+        {problem !== null && <span ref={problemRef} tabIndex={-1} role="alert" className="text-pencil">{problem}</span>}
       </div>
 
       <table className="ledger">
@@ -1353,7 +1399,7 @@ function SessionTable({
                     <input
                       type="checkbox"
                       aria-label={`Select session ${session.uuid}`}
-                      disabled={busy}
+                      disabled={busy || reviewing}
                       checked={picked.includes(session.id)}
                       onChange={() => pick(session.id)}
                     />
@@ -1416,13 +1462,26 @@ function SessionTable({
         </tbody>
       </table>
 
-      {confirming ? (
-        <div className="band band-pencil" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
+      {reviewing ? (
+        <div className="band" role="group" aria-label="Preparing conversation review" onKeyDown={confirmation.onKeyDown}>
+          <span role="status">Checking selected conversations…</span>
+          <button ref={confirmation.cancelRef} type="button" className="btn btn-quiet btn-sm" onClick={confirmation.cancel}>Cancel</button>
+        </div>
+      ) : review !== null ? (
+        <div className="band band-pencil flex-col items-start gap-3" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
           <span id={questionId}>
-            Move {formatCount(chosen.length, 'conversation')} and their saved supporting files
+            Move {formatCount(review.count, 'conversation')} and their saved supporting files
             into kondo&rsquo;s trash?
           </span>
-          <button type="button" disabled={busy || chosen.length === 0} className="btn btn-pencil btn-sm" onClick={trash}>
+          <ul className="space-y-1 text-ink-2">
+            {review.sessions.map((session) => (
+              <li key={session.id} className="break-all">
+                {session.uuid} · {formatBytes(session.bytes)} · last activity {formatAgo(session.mtimeMs)}
+              </li>
+            ))}
+          </ul>
+          <p>If a conversation changes or resumes, nothing moves until you review again.</p>
+          <button type="button" disabled={busy || review.count === 0} className="btn btn-pencil btn-sm" onClick={trash}>
             Move to trash
           </button>
           <button
@@ -1440,10 +1499,7 @@ function SessionTable({
           type="button"
           disabled={chosen.length === 0 || busy}
           className="btn btn-quiet btn-sm"
-          onClick={() => {
-            confirmation.rememberFocus(trashButtonId)
-            setConfirming(true)
-          }}
+          onClick={() => void prepareReview()}
         >
           {chosen.length === 0
             ? 'Pick conversations to move to trash'
