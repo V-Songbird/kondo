@@ -109,3 +109,13 @@ No Electron smoke or new hosted run was launched for this documentation-only
 change. The historical remote check results above do not validate this branch.
 Private report receipt and remote enforcement remain unverified for the reasons
 recorded above.
+
+## Review clarification
+
+Local development integration remains available after owner review and required
+local checks. Hosted checks on the exact candidate commit are required for
+shared PR integration and acceptance of a public or release candidate; local
+integration does not satisfy the packaging or publication gates. CONTRIBUTING.md
+and docs/release.md now state this distinction explicitly. For this documentation
+adjustment, guards ran with the three owned files staged and diff whitespace
+checks passed. No application or workflow behavior changed.

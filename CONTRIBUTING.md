@@ -71,10 +71,17 @@ and need a migration note in the PR.
 
 ## Merge checks and remote enforcement
 
-Before integration, review successful `verify` and `smoke` results for Windows,
-macOS and Linux on the exact candidate commit, as well as the change itself.
-Record the reviewed commit and run links. A new commit needs new check evidence.
-Local hooks and green checks do not establish server-enforced protection.
+Local development changes may be integrated after owner review and the required
+local checks above pass. Record the reviewed commit and local evidence. This
+local integration does not accept a public or release candidate.
+
+For shared changes integrated through a pull request, and before accepting a
+public or release candidate, review successful hosted `verify` and `smoke`
+results for Windows, macOS and Linux on the exact candidate commit, as well as
+the change itself. Record that commit and the run links; a new candidate commit
+needs new hosted check evidence. Release acceptance also requires the packaging
+and publication gates in `docs/release.md`. Local hooks and green checks do not
+establish server-enforced protection.
 
 On 2026-09-08, GitHub denied reads of `main` protection and repository rulesets
 with an explicit plan/visibility restriction. Until the owner enables and

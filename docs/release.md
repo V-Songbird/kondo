@@ -75,8 +75,14 @@ a blanket prohibition on an explicit job grant. Keep the write grant scoped to
 publication; do not broaden the repository default or enable bot PR approvals.
 See [GitHub's permissions reference](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions).
 
+Hosted checks gate shared PR integration and acceptance of a public or release
+candidate. Reviewed local development integration can proceed with the required
+local checks in [CONTRIBUTING.md](../CONTRIBUTING.md#merge-checks-and-remote-enforcement);
+it does not satisfy release acceptance or authorize publication.
+
 Check runs and classic commit statuses are separate API surfaces. For the exact
-candidate SHA, inspect `repos/V-Songbird/kondo/commits/<sha>/check-runs` and
+PR or public/release candidate SHA, inspect
+`repos/V-Songbird/kondo/commits/<sha>/check-runs` and
 `repos/V-Songbird/kondo/commits/<sha>/status`. Require the six `verify` / `smoke`
 OS results, not a previous commit's results. An empty classic status list does
 not mean Actions checks are absent. If protection becomes available, configure
