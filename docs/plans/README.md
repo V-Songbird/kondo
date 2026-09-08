@@ -17,7 +17,7 @@ between the two is the part a later reader needs.
 
 - [100 — Conservative configuration inventory](100-conservative-config-inventory.md) — **done — accepted 2026-09-08**
 
-- [099 — Undo recovery](099-undo-recovery.md) — **awaiting acceptance**
+- [099 — Undo recovery](099-undo-recovery.md) — **done — accepted 2026-09-08**
 
 - [098 — Concurrent settings writes](098-concurrent-settings-writes.md) — **done**
 

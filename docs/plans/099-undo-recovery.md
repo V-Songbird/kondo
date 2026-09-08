@@ -1,6 +1,6 @@
 # Plan: honest Undo results and resumable recovery
 
-Status: **implemented — awaiting review and owner acceptance**
+Status: **done — accepted by the owner on 2026-09-08**
 
 A fixture that refuses the first restore rename reproduces A1: Undo marks the
 original undone despite moving no files, and a new workspace cannot retry.
@@ -75,3 +75,11 @@ this task's files staged before the local commit.
 
 No main integration, publication, roadmap mutation or final acceptance is part
 of this executor's work. The coordinator owns those later decisions.
+
+## Owner acceptance
+
+The owner accepted this result and local main integration on 2026-09-08.
+The coordinator reviewed both 099 and 100 together at fe91a87: 676 tests passed
+with 14 existing Windows file-symlink skips, and Electron smoke passed 25/25.
+Typecheck, lint, staged guards, build and whitespace checks passed. This is
+local development acceptance; release and publication gates remain separate.
