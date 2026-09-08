@@ -7,8 +7,9 @@
 Kondo is a local-first desktop app that manages the state Claude leaves on your
 machine. Claude Code and the Claude desktop app accumulate a lot of it —
 thousands of session transcripts, skills scattered across scopes, plugins,
-hooks, layered settings files, caches. It piles up silently. Kondo scans all of
-it, shows you what you have, and lets you tidy it safely.
+hooks, layered settings files, caches. It piles up silently. Kondo inventories
+supported Claude Code data, reports part of Desktop's local storage, and offers
+reviewed cleanup within those limits.
 
 Kondo is about Claude's own files, and only those. It **never reads your
 project files** — the one exception is a project's `.claude/` directory
@@ -25,13 +26,14 @@ machine; nothing is ever sent anywhere.
   project for its own settings. Start with an overview, then focus on skills,
   plugins, connections, other tools, conversations or technical details.
   Throwaway runs and projects whose folder is gone fold behind a count.
-- **Sessions** — one inventory across every store: Claude Code's
-  `~/.claude/projects` and the desktop app's session directories. See per
-  project how many sessions exist, how large they are, which are stale,
-  empty, orphaned, deleted on the desktop side, or duplicated — the same
-  session id held in both stores, or two sessions of one project opening
-  with near-identical prompts. Pick any set and move it to kondo's trash in
-  one undoable step. (Worked time is still on the roadmap, not in the build.)
+- **Sessions** — Claude Code transcripts under `~/.claude/projects`, grouped
+  by project, with size, activity and cleanup signals. Compare opening prompts
+  within a project or see a matching session ID in Desktop's local filenames;
+  neither signal proves identical contents. Review selected Code transcripts
+  and move them with recognized companion folders and released markers to
+  Kondo's trash. Desktop-only sessions have no browsing or removal UI.
+  See [session scope and retained data](#session-scope-and-retained-data).
+  (Worked time is still on the roadmap, not in the build.)
 - **Skills** — global and per-project, with what `skillUsage` says about
   each. Disable with Claude's own `skillOverrides` switch, move a skill
   between scopes or from one project to another, and thin out a skill kept
@@ -48,8 +50,8 @@ machine; nothing is ever sent anywhere.
 - **Settings** — the layered view: user, project, local. See what wins and why.
 - **Clean up** — review files and caches, settings leftovers, or duplicate
   skills. File categories include saved Claude data for throwaway folders, projects that
-  are gone, old and empty conversations, conversations the desktop app
-  deleted, leftover session folders and snapshots, caches Claude rebuilds,
+  are gone, old and empty Code conversations, Code transcripts with a Desktop
+  released marker, leftover session folders and snapshots, allowlisted caches,
   old plugin versions and residue, hook scripts nothing runs. Select, review,
   then move to trash in one undoable step. Disk space is freed only when the
   trash is permanently emptied.
@@ -63,6 +65,38 @@ machine; nothing is ever sent anywhere.
 - **Themes** — six Signal appearances: Chalk (the default), Parchment, Sage,
   Slate, Carbon and Signal Original. Choose a visual preview; Kondo remembers
   your preference on this computer.
+
+### Session scope and retained data
+
+**Desktop session support is partial and read-only.** Kondo reports local store
+metadata and matches filenames to Code session IDs. It does not manage Desktop
+sessions or verify their contents. Desktop cache cleanup is a separate, existing
+allowlisted operation; it does not remove Desktop session records, VM bundles,
+unknown caches or other application state.
+
+**Moving a session to trash does not erase a conversation.** Selected Code
+removal moves its transcript, matching companion folder and
+`.desktop-released.json` marker when present. These records can remain:
+
+- `history.jsonl` with global prompt history;
+- `session-env/` snapshots, which may qualify for a separate later cleanup;
+- `file-history/` and `backups/`, which Kondo does not offer for cleanup;
+- Desktop records, shared artifacts, exports, cloud copies and OS backups;
+- Kondo's trash, journal and scan cache. Trash retains the removed files until
+  you empty it; emptying it loses the affected Undo data and does not clear the
+  journal or scan cache.
+
+Whole-project Clean up moves the reviewed saved-data directory under
+`~/.claude/projects`, so it can include more files than selected-session removal.
+It still does not clear the global or external records above. Disk space from
+displaced files is reclaimed when trash is emptied; this is not secure erasure.
+
+The current UI's `also in desktop` label means a filename ID match, and
+`deleted in desktop app` means a released marker was found beside a Code
+transcript. Neither proves that all Desktop or cloud copies are gone. More
+precise in-app scope and residual disclosures remain follow-up work in the
+[decision package](docs/plans/108-desktop-session-boundary.md), under the accepted
+[ADR-0016](docs/adr/0016-desktop-session-boundary.md).
 
 ## Principles
 

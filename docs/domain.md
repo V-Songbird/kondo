@@ -97,9 +97,9 @@ usage):
 | `session-env/` | Per-session environment snapshots, one dir per session id ✅. Nothing prunes it. Kondo sweeps it: a uuid-named directory with no transcript behind it is the `orphan-session-env` tidy category (entry 033), decided on the name alone and offered as its own reversible trash step. A snapshot whose transcript is still on disk is never offered — including one whose transcript the same sweep is about to move, since candidates come from a single scan. |
 | `tasks/` | Background task state, one dir per task id ✅ (`pins.json` ◇, not seen on the last pass). |
 | `jobs/` | Job state, dirs per job id ✅. |
-| `file-history/` | Edit history backing checkpoint/rewind ✅. Grows silently; tidy candidate. |
+| `file-history/` | Edit history backing checkpoint/rewind ✅. Excluded from Kondo's cleanup allowlist; safe session-specific pruning is unverified ◇. |
 | `shell-snapshots/` | Shell state snapshots ✅. Tidy candidate. |
-| `backups/`, `paste-cache/`, `cache/`, `debug/`, `telemetry/`, `downloads/`, `ide/` | Support and cache directories ✅. Reclaimable space lives here. |
+| `backups/`, `paste-cache/`, `cache/`, `debug/`, `telemetry/`, `downloads/`, `ide/` | Support and cache directories ✅. Kondo's user-cache allowlist includes `paste-cache`, `cache`, `debug`, `telemetry`, `downloads` and `shell-snapshots`; it excludes `backups` and `ide`. Directory presence alone does not prove safe cleanup. |
 | `chrome/` | Claude in Chrome's native-messaging host (`chrome-native-host.bat`) ✅. 1 KB; not a cache. |
 | `plans/` | Plan-mode plans as markdown, one file per plan with a generated slug name ✅ (3 observed, 60 KB). The user's writing; never a tidy candidate. |
 | `daemon`, `daemon.log` | Daemon socket/state and log ✅. |
@@ -318,6 +318,10 @@ scan and a mutation can never disagree about where an entry lives.
     `SessionSummary.releasedByDesktop`), moves it with the transcript, treats
     one without a transcript as an orphan sidecar, and offers the released
     sessions as the `desktop-released-sessions` tidy category (entry 059).
+    ✅ **Kondo source inspection (108):** the scanner associates the marker
+    by filename without parsing its contents. The current UI's `deleted in
+    desktop app` wording therefore does not verify its reason or establish
+    that a Desktop or cloud copy is gone.
   - `.benchmarks/<name>/runs/<stamp>/` ◇ — benchmark runs written by
     `claude plugin eval`; one project directory held one. Known, never
     offered.
@@ -362,6 +366,33 @@ Scratch trees with memory, recent entries or unreadable activity evidence are
 withheld and counted separately; their sessions do not fall through into another
 cleanup category. Explicit selected-session removal remains a separate review.
 These are Kondo policies over observable state, not proof of process inactivity.
+
+### Session removal scope (108)
+
+✅ **Kondo implementation, source-reviewed with existing synthetic coverage:**
+`sessionTrashPlan` in `kinds.ts` moves only the selected Code transcript,
+recognized sibling sidecar directory and `.desktop-released.json` marker when
+present. `workspace.ts`'s `snapshotSessions` refuses ambiguous or unrecognized
+entries in the selected UUID namespace rather than silently expanding that set.
+Desktop IDs are refused. `test/session-duplicates.test.ts` and
+`test/tidy.test.ts` cover selected displacement, review changes and Undo.
+
+Selected removal leaves `session-env/`, `history.jsonl`, `file-history/`,
+`backups/` and Desktop records untouched. `orphan-session-env` is a separate
+category: a fresh inventory must no longer contain a transcript for that UUID.
+Even if a sweep removes a transcript, that sweep does not also treat its
+previously live snapshot as orphaned. Whole-project tidy categories instead
+move the reviewed saved-data tree under `projects/`; their scope is broader
+than selected removal but does not include those global or Desktop residuals.
+
+◇ Exact retained-content relationships, safe pruning rules and completeness
+across Claude versions remain unverified for file history, backups, shared
+Desktop artifacts and external copies. They must not become new deletion
+candidates from a matching UUID alone. Kondo's trash retains displaced bytes;
+its journal and scan cache are separate retained records, not cleared by
+selected removal or trash emptying. No action promises privacy erasure.
+See the [itemized scope and follow-up criteria](plans/108-desktop-session-boundary.md)
+and the accepted [ADR-0016](adr/0016-desktop-session-boundary.md).
 
 ## Project store: `<project>/.claude`
 
@@ -423,6 +454,16 @@ These are Kondo policies over observable state, not proof of process inactivity.
 
 ## Desktop store
 
+**Accepted product boundary (108): partial, read-only session
+support.** ✅ Current source inspection: `desktopSessions` is exposed through
+the workspace/typed bridge but has no renderer consumer, including through the
+generic session listing. The adapter reads names, sizes and mtimes, not session
+JSON contents. Code rows receive only a filename-stem match through
+`desktopSessionStems`; that match merges devices/accounts into one set and is
+not content equality or a verified backup. Desktop-only sessions are not
+browsable or removable in the current UI. This session boundary does not remove
+the existing, separate `desktop-caches` cleanup operation.
+
 Electron app data — 10.9 GB on the owner's machine on 2026-09-05 ✅, against
 1.6 GB for the Claude Code store. Observed top-level entries, by what they
 are:
@@ -433,7 +474,7 @@ are:
 | `claude-code/<version>/`, `claude-code-vm/<version>/` | 416 MB + 205 MB ✅ — the Claude Code CLI the desktop app bundles, one directory per version (2.1.258 and 2.1.260 seen; only the newer has a `-vm` twin). The older version looks superseded ◇, the way a plugin's cache versions are. | Reported. Not offered until the app's rollback behaviour is known. |
 | `Code Cache/`, `Cache/`, `GPUCache/`, `DawnGraphiteCache/`, `DawnWebGPUCache/`, `Shared Dictionary/` | 317 MB + 157 MB + … ✅ — Chromium's own caches; the app rebuilds each on its next launch, which is what "clear cache" means in any Electron app. | The `desktop-caches` tidy category (entry 063), at the root and inside each `Partitions/<name>/`. |
 | `Partitions/<name>/` | 129 MB ✅ — one Chromium profile per isolated web view (`cowork-artifact-<ids>`, `cowork-file-preview`, `launch-preview-cowork-shared`, `launch-preview-static`), each with the same cache directories beside its `Local Storage`, `IndexedDB`, `Network`, `Preferences`. | Only the cache directories inside are offered. |
-| `local-agent-mode-sessions/<device-or-install-uuid>/<account-uuid>/` | 287 MB ✅ — desktop/cowork sessions: `local_<session-uuid>.json` + `local_<session-uuid>/` per session, `agent/`, `artifacts.json`, `cowork-*-cache.json`. | Read for the mirror flag and the desktop session listing. Never swept. |
+| `local-agent-mode-sessions/<device-or-install-uuid>/<account-uuid>/` | 287 MB ✅ — desktop/cowork sessions: `local_<session-uuid>.json` + `local_<session-uuid>/` per session, `agent/`, `artifacts.json`, `cowork-*-cache.json`. | Filename match and metadata listing API only; no session UI consumer. Session contents are not opened by this adapter. Never swept or removed by Code session removal. |
 | `claude-code-sessions/<uuid>/`, `scratch-workspaces/`, `git-shadow/`, `git-worktrees.json` | 9 MB + … ✅ — cowork's working state: the CLI sessions it drove, the scratch checkouts it works in, shadow git data. | Reported only. |
 | `logs/` (14 files), `sentry/`, `Crashpad/` | 56 MB ✅ — the app's own logs, error reports and crash dumps. | Reported only ◇ — a candidate once the app's retention is known. |
 | `pending-uploads/` | 22 MB, 60 PNGs ✅ — pasted images awaiting upload. | **Never offered**: in-flight user data. |
@@ -456,11 +497,11 @@ mechanisms. Names and sizes remain available to store reports.
 - A session id is a UUID and appears in: its transcript filename, the
   transcript's lines, `history.jsonl` entries, `session-env/`, and possibly a
   desktop-store directory — this is how kondo joins data across stores to
-  find duplicates. The transcript, its sidecar and its `session-env/`
-  snapshot are joined for the sweep; the desktop store's
-  `local_<uuid>.json` stems are joined to the code store's uuids for
-  `SessionSummary.mirroredIn` ✅, which is the whole of "the same session in
-  two stores" (entry 034). `session-env/` held 5,213 directories
+  identify possible relationships. The transcript and its sidecar move together;
+  `session-env/` uses a separate orphan join, not a removal cascade. The desktop
+  store's `local_<uuid>.json` stems are joined to the code store's uuids for
+  `SessionSummary.mirroredIn` ✅, which means a matching identifier only
+  (entry 034), not verified equal contents or completeness. `session-env/` held 5,213 directories
   against 11,686 transcripts ✅ — the sweep entry 033 shipped reads exactly
   that join, and offers only the snapshots the transcript set does not claim.
 - A project is joined across `~/.claude.json`, `~/.claude/projects/` and

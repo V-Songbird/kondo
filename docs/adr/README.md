@@ -22,6 +22,7 @@ re-asked. Numbered, never renumbered; a superseded ADR stays and gains a
 - [0014 — Reload through a window lifecycle signal](0014-reload-through-window-lifecycle.md)
 
 - [0015 — Bind removal to reviewed state](0015-bind-removal-to-reviewed-state.md)
+- [0016 — Keep Desktop sessions read-only and name removal scope](0016-desktop-session-boundary.md) — **accepted**
 
 ## Template
 

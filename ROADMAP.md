@@ -28,7 +28,7 @@ put the clean-up categories behind reversible steps.
 Landed in `a5c9505` ([plan](docs/plans/v1-read-only-core.md)).
 
 - Store discovery on Windows, macOS, Linux.
-- Sessions inventory: per-project counts, sizes, last activity, staleness,
+- Code sessions inventory: per-project counts, sizes, last activity, staleness,
   orphaned transcripts, per-session detail on demand.
 - Skills catalog across user scope, `skills.disabled`, and per-project
   skills; a plugin's own skills listed under the plugin.
@@ -108,8 +108,9 @@ Each is a tidy category or a listing with a reversible trash step behind it.
 - Duplicate skills across scopes, with a digest and a trash operation (032).
 - Plugin residue (superseded cache versions, orphan manifests and data) and
   orphan `session-env` directories (033).
-- Duplicate sessions: mirrored across stores, and near-duplicate opening
-  prompts behind the ADR-0007 tier-2 cache (034).
+- Session comparison signals: matching IDs in Desktop filenames, and similar
+  Code opening prompts behind the ADR-0007 tier-2 cache (034). These do not
+  establish equal contents or a unified Desktop/Code management workflow.
 - UI words: the glossary's user-facing labels applied, empty states, refusal
   reasons inline rather than in tooltips (037).
 - The Leftovers view over the configuration orphans (040), and "Skills kept
@@ -227,11 +228,35 @@ tell the README where kondo's own data lives and how to rehearse on a copy.
 
 The release itself is the owner's to cut ([docs/release.md](docs/release.md)).
 
+### Desktop session boundary and truthful removal scope
+
+The [108 decision package](docs/plans/108-desktop-session-boundary.md) and
+[ADR-0016](docs/adr/0016-desktop-session-boundary.md) choose partial, read-only
+Desktop session support, **accepted by the owner**. Code session removal
+moves a reviewed transcript and recognized companions; global prompt history,
+environment snapshots, file history, backups, Desktop copies and Kondo's retained
+data can remain. Unified session removal and privacy erasure are not shipped or
+promised. The existing Desktop cache allowlist remains separate.
+
+- **Reconcile the in-app claims (110):** with 108 accepted and after the other recorded dependencies
+  (107/109) are resolved, label Code-only scope, filename matches and released markers
+  accurately. Disclose exact removal candidates and residual data before
+  confirmation; preserve keyboard flow, focus return and fresh main-process
+  review. The plan names the required fixture and UI evidence.
+- **Complete removal-size accounting (105, depends on 102):** include every
+  moved companion before calling a number the full removal size. Coordinate
+  with 110's candidate disclosure; this decision makes no size fix.
+- **Retain the recovery limits:** concurrent writes (098) and failed/partial
+  Undo outcomes (099) remain separate release-safety work. A session scope
+  decision does not establish those guarantees.
+
 ## Later
 
 - Desktop-app store depth beyond the caches: whether `vm_bundles/` (9.3 GB)
   and superseded `claude-code/<version>/` directories are rebuilt, and a
-  category for each once known; per-account session browsing; artifacts.
+  category for each only after evidence and a separate decision. Per-account
+  session browsing and artifact management also require a new decision under
+  ADR-0016; they are not part of the supported session workflow.
 - Time analytics: worked time per session (active spans, not wall clock),
   timelines per project and per week.
 - Code signing and macOS notarization, when ADR-0011's conditions hold.
@@ -245,6 +270,8 @@ These are boundaries, not backlog:
   Claude-owned `<project>/.mcp.json` beside it. See
   [ADR-0002](docs/adr/0002-project-privacy-boundary.md).
 - No cloud component, no sync, no telemetry.
+- No complete conversation erasure or unified Desktop/Code session deletion;
+  local removal can leave other records and copies (ADR-0016).
 - Not a Claude client: kondo never talks to models or APIs.
 - Not a skill marketplace; installing third-party skills stays out of scope
   (skilldex already does that well).

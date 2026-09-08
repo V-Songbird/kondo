@@ -13,6 +13,8 @@ between the two is the part a later reader needs.
 
 ## Index
 
+- [108 — Desktop session boundary and removal scope](108-desktop-session-boundary.md) — **accepted decision**
+
 - [102 — Reviewed cleanup](102-reviewed-cleanup.md) — **awaiting acceptance**
 
 - [097 — Resolved store boundaries](097-resolved-store-boundaries.md) — **done**
