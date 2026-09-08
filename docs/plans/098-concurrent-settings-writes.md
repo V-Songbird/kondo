@@ -1,6 +1,6 @@
 # Plan: Preserve concurrent settings writes
 
-Status: **awaiting acceptance**
+Status: **done — accepted; implemented in b3495a7**
 
 Task 098 addresses an external write after splice digest validation but before
 temporary-file publication, in both apply and Undo. All evidence uses synthetic
@@ -93,4 +93,4 @@ Evidence on Windows:
 
 These results establish the enforced refusal and retained existing operations
 on the tested host, not a safe native settings backend or cross-platform
-execution of the skipped link cases. Final user acceptance remains outstanding.
+execution of the skipped link cases. The owner accepted this result on 2026-09-08.
