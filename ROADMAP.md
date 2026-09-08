@@ -255,9 +255,9 @@ promised. The existing Desktop cache allowlist remains separate.
 
 ### Hook declaration boundary
 
-The [109 decision package](docs/plans/109-hook-layer-boundary.md) and proposed
+The [109 decision package](docs/plans/109-hook-layer-boundary.md) and accepted
 [ADR-0017](docs/adr/0017-hook-layer-boundary.md) retain read-only hook declarations
-and correct the earlier shipped-move claim, **awaiting owner acceptance**.
+and correct the earlier shipped-move claim, **accepted by the owner**.
 Inventory is limited to the settings layers Kondo reads; script diagnostics do
 not prove which hooks execute or that a layer move preserves behavior. No move
 implementation is commissioned. Product-copy reconciliation (110) and

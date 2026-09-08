@@ -1,6 +1,6 @@
 # Plan: Hook layer boundary and accurate claims
 
-Status: **awaiting owner acceptance — decision only; no behavior changes**
+Status: **done — decision accepted by the owner; no behavior changes**
 
 ## Decision
 
@@ -130,4 +130,4 @@ The final diff contains documentation only. Existing `test/hooks.test.ts`
 covers script recognition, project grouping and no outside-boundary stat;
 `test/kinds.test.ts` and `test/plugin-move.test.ts` pin the refusal behavior.
 These establish Kondo behavior, not safe hook relocation or native Claude
-execution semantics. Owner acceptance of the decision remains separate.
+execution semantics. The owner accepted this decision; release acceptance remains separate.

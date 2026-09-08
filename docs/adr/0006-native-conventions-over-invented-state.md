@@ -139,8 +139,8 @@ preferences, scan cache — never the truth about the user's Claude setup.
 
 ## Amendment, 2026-09-03 — a hook does not toggle, but it does move
 
-**Superseded for the proposed 109 boundary by
-[ADR-0017](0017-hook-layer-boundary.md), awaiting owner acceptance.** The text
+**Superseded by
+[ADR-0017](0017-hook-layer-boundary.md), accepted by the owner (109).** The text
 below records the earlier proposal, not shipped behavior. Hook moves are
 refused; two splices alone establish neither preserved hook semantics nor
 all-or-nothing recovery. Use ADR-0017 and its evidence package for current scope.

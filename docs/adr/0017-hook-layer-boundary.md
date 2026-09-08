@@ -1,6 +1,6 @@
 # Keep hook declarations read-only until semantics are proven
 
-Status: **proposed for owner acceptance — decision 109**
+Status: **accepted by the owner — decision 109**
 
 Keep hook declarations read-only in Kondo. Inventory and limited script
 diagnostics have shipped; layer moves, individual enable/disable and declaration

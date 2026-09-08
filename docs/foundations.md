@@ -96,7 +96,7 @@ entity through the kind registry. Structure:
   `kinds.hook.plan` returns that refusal without building mutation steps.
   The hook display projection flattens groups and truncates commands, so it
   cannot be used to reconstruct a settings edit. The read-only hook boundary
-  and the proposed conditions for reconsideration are recorded in
+  and the conditions for reconsideration are recorded in
   [decision 109](plans/109-hook-layer-boundary.md) and
   [ADR-0017](adr/0017-hook-layer-boundary.md). Script-file cleanup is separate.
 - **Adapters** — `user-store.ts`, `sessions.ts`, `projects.ts`,
