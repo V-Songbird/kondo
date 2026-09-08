@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { constants } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -237,6 +238,17 @@ export async function exists(target: string): Promise<boolean> {
   }
 }
 
+/** Numeric access modes plus flags that can mutate during open itself. */
+const MUTATING_OPEN_FLAGS = constants.O_WRONLY | constants.O_RDWR |
+  constants.O_CREAT | constants.O_TRUNC | constants.O_APPEND
+
+function openCanMutate(flags: unknown): boolean {
+  if (typeof flags === 'number') return (flags & MUTATING_OPEN_FLAGS) !== 0
+  // Exempt only known read-only spellings; unknown flags still reach Node
+  // unchanged and remain visible to the observer if Node ever accepts them.
+  return flags !== 'r' && flags !== 'rs' && flags !== 'sr'
+}
+
 /** Every fs entry point that can change bytes on disk. */
 const WRITE_METHODS = ['open', 'rename', 'writeFile', 'mkdir', 'cp', 'copyFile', 'rm'] as const
 
@@ -250,7 +262,9 @@ export function recordWrites(into: string[]): Array<() => void> {
   return WRITE_METHODS.map((method) => {
     const original = fs[method] as (...args: unknown[]) => unknown
     const patched = (...args: unknown[]): unknown => {
-      if (typeof args[0] === 'string') into.push(args[0])
+      if (typeof args[0] === 'string' && (method !== 'open' || openCanMutate(args[1]))) {
+        into.push(args[0])
+      }
       return original(...args)
     }
     Object.defineProperty(fs, method, { value: patched, configurable: true, writable: true })

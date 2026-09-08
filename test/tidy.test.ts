@@ -392,16 +392,10 @@ describe('the tidy sweep (ADR-0001)', () => {
 
   it('appends the journal entry before the store is touched', async () => {
     const ordered: string[] = []
-    const readOnlyOpen = fs.open.bind(fs)
     const restores = recordWrites(ordered)
-    const recordedOpen = fs.open.bind(fs)
-    // The shared recorder counts every open as a write; snapshot reads are r.
-    const open = vi.spyOn(fs, 'open').mockImplementation((target, flags, mode) =>
-      flags === 'r' ? readOnlyOpen(target, flags, mode) : recordedOpen(target, flags, mode))
     try {
       expect((await reviewedSweep(api, ALL)).errors).toEqual([])
     } finally {
-      open.mockRestore()
       for (const restore of restores) restore()
     }
 
