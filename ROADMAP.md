@@ -9,6 +9,22 @@ clones. Entry numbers in parentheses are references to that local history;
 public plans and ADRs carry the reusable context. See the
 [publication policy](docs/adr/0013-keep-working-records-local.md).
 
+## Current safety restriction (098)
+
+Settings execution is temporarily suspended on every platform. Any plan with
+`write` or `splice` steps, and any historical Undo entry containing them,
+refuses whole before journal or filesystem effects. Missing-file creation is
+included. Existing history and recovery bytes remain intact. Unrelated moves,
+trash and their Undo retain their existing checks.
+
+This affects settings-based skill, plugin and MCP toggles, plugin clearing and
+scope changes, configuration-leftover removal and settings-bearing skill moves.
+The shipped sections below record earlier capabilities and intent; they do not
+override this restriction. Re-enabling settings changes requires a preservation
+backend with native concurrency and recovery evidence. See
+[the current plan](docs/plans/098-concurrent-settings-writes.md) and
+[ADR-0010](docs/adr/0010-splice-config-files-never-whole-file-writes.md).
+
 ## The shape kondo is heading for
 
 Open kondo and see your **projects** — each with the skills, plugins, hooks,
@@ -106,8 +122,9 @@ Each is a tidy category or a listing with a reversible trash step behind it.
 - Configuration orphans in `~/.claude.json` and the settings layers: project
   entries and MCP declarations for directories that no longer exist,
   `enabledPlugins` keys for uninstalled plugins, `skillOverrides` for
-  missing skills — behind a splice step that proves the bytes it changes
-  are the bytes it read (031, its own ADR).
+  missing skills — originally edited with digest-checked splices (031,
+  ADR-0010). The digest did not prevent writes racing with replacement;
+  removal is now refused under 098 while inventory remains available.
 - Duplicate skills across scopes, with a digest and a trash operation (032).
 - Plugin residue (superseded cache versions, orphan manifests and data) and
   orphan `session-env` directories (033).
@@ -192,16 +209,18 @@ Four decisions frame them and are not up for re-argument here:
 Safety before packaging. The four initial blockers below have landed; 071's
 copy-of-store rehearsal still needs to be performed:
 
-- 072 splice the settings toggles with a digest guard instead of whole-file writes;
-  ADR-0010 already forbids what `kinds.ts` does today, and all ten real writes so
-  far took that path.
+- 072 changed settings toggles from whole-file writes to digest-checked splices.
+  This retained narrow edits but did not prevent a final replacement race;
+  098 now suspends settings execution under ADR-0010.
 - 073 displace whatever occupies a restore path before an undo renames over it.
 - 075 stop an unreadable or unmounted project path from being reported `gone` and
   offered for wholesale trashing.
 - 076 stage every move picker behind a confirm, and confirm the one-click trash —
   one keypress on a focused select currently moves files.
 - 071 then rehearses every destructive path, with undo, against a copy of a real
-  store. 074 hardens the splice write against a crash and a symlink.
+  store. 074 improved temporary-file synchronization and resolved-target
+  checks; it did not establish concurrent-writer preservation or power-loss
+  durability. Settings execution remains suspended under 098.
 
 Then the pipeline, which has never run: 077 build from the lockfile and lock both
 workflows down, 078 make one tag produce one complete draft that can be rehearsed

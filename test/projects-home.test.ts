@@ -7,6 +7,7 @@ import type { KondoApi } from '../shared/contract'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   flattenPath,
+  hashTree,
   healthyTranscript,
   makeWorld,
   mcpServer,
@@ -335,29 +336,20 @@ describe('the projects home', () => {
     expect(there?.targetLayerId).toBe('settings:user:user')
   })
 
-  it('clears one plugin statement, leaves every other key, and undoes exactly', async () => {
+  it('refuses clearing a plugin statement without changing settings or history', async () => {
     const file = path.join(workdir, '.claude', 'settings.local.json')
-    const before = await fs.readFile(file, 'utf8')
-
+    const before = await hashTree(world.base)
+    const contents = await fs.readFile(file, 'utf8')
+    const detail = (await api.projectDetail(projectId)).data
     const done = await api.pluginClear('plugin:alpha@acme', `settings:local:${flattened}`)
-    expect(done.errors).toEqual([])
-    expect(done.data).not.toBeNull()
-
-    const after = JSON.parse(await fs.readFile(file, 'utf8')) as Record<string, unknown>
-    expect(after['enabledPlugins']).toEqual({})
-    expect(after['outputStyle']).toBe('loud')
-
+    expect(done.data).toBeNull()
+    expect(done.errors).toEqual([expect.objectContaining({ code: 'not-permitted',
+      message: expect.stringContaining('temporarily unavailable') })])
+    expect(await hashTree(world.base)).toBe(before)
+    expect(await fs.readFile(file, 'utf8')).toBe(contents)
+    expect((await api.journalList()).data).toEqual([])
     const fresh = createWorkspace({ locator: world.locator, platform: process.platform })
-    const detail = await fresh.projectDetail(projectId)
-    const alpha = detail.data?.plugins.find((entry) => entry.name === 'alpha')
-    expect(alpha?.choice).toBe('inherit')
-    // The user layer says true, so that is what stands once the project stops
-    // stating anything — which is the whole point of "follows global".
-    expect(alpha?.effective).toBe(true)
-
-    const undone = await api.journalUndo(done.data?.id as string)
-    expect(undone.errors).toEqual([])
-    expect(await fs.readFile(file, 'utf8')).toBe(before)
+    expect((await fresh.projectDetail(projectId)).data).toEqual(detail)
   })
 
   it('refuses to clear a layer that already says nothing, and writes nothing', async () => {

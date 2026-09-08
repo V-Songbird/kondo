@@ -342,15 +342,13 @@ describe('resolved mutation boundaries', () => {
     }
   }
 
-  const splice = (store: string, at: string): MutationPlan => ({
+  const boundaryRemoval = (store: string, at: string): MutationPlan => ({
     op: 'settings-edit',
     kind: 'settings',
     entityId: 'settings:boundary',
     summary: 'Exercise resolved boundary',
-    steps: [{
-      type: 'splice', store, at, expectDigest: digestSource(contents),
-      edits: [{ at: contents.indexOf('quiet'), remove: 5, insert: 'loud' }]
-    }]
+    // Use a permitted operation so path confinement still runs under 098.
+    steps: [{ type: 'trash', store, from: at }]
   })
 
   const refusesWithoutIo = async (
@@ -380,7 +378,7 @@ describe('resolved mutation boundaries', () => {
     const at = directory ? 'linked/settings.json' : 'settings.json'
     await link(context, directory ? outside : target, path.join(world.userRoot, directory ? 'linked' : at), directory)
 
-    await refusesWithoutIo(() => createMutations(world.locator).mutate(splice('user', at)))
+    await refusesWithoutIo(() => createMutations(world.locator).mutate(boundaryRemoval('user', at)))
     expect(await fsp.readFile(target, 'utf8')).toBe(contents)
     expect(await fsp.readdir(outside)).toEqual(['settings.json'])
   })
@@ -389,8 +387,9 @@ describe('resolved mutation boundaries', () => {
     const outside = path.join(world.base, 'outside')
     await writeFileTree(outside, { 'sentinel.txt': 'unchanged' })
     await link(context, outside, path.join(world.userRoot, 'linked'), true)
-    const plan = splice('user', 'unused')
-    plan.steps = [{ type: 'write', store: 'user', at: 'linked/new/nested/settings.json', content: contents }]
+    const plan = boundaryRemoval('user', 'unused')
+    await writeFileTree(world.userRoot, { 'source.txt': contents })
+    plan.steps = [{ type: 'move', store: 'user', from: 'source.txt', to: 'linked/new/nested/settings.json' }]
 
     await refusesWithoutIo(() => createMutations(world.locator).mutate(plan))
     expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
@@ -402,8 +401,9 @@ describe('resolved mutation boundaries', () => {
     await writeFileTree(outside, { 'sentinel.txt': 'unchanged' })
     const directory = kind === 'parent'
     await link(context, path.join(outside, 'absent'), path.join(world.userRoot, 'dangling'), directory)
-    const plan = splice('user', 'unused')
-    plan.steps = [{ type: 'write', store: 'user', at: directory ? 'dangling/nested/settings.json' : 'dangling', content: contents }]
+    const plan = boundaryRemoval('user', 'unused')
+    await writeFileTree(world.userRoot, { 'source.txt': contents })
+    plan.steps = [{ type: 'move', store: 'user', from: 'source.txt', to: directory ? 'dangling/nested/settings.json' : 'dangling' }]
 
     await refusesWithoutIo(() => createMutations(world.locator).mutate(plan), 'read-failed')
     expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
@@ -417,7 +417,7 @@ describe('resolved mutation boundaries', () => {
     await link(context, sibling, world.locator.userConfigFile)
 
     await refusesWithoutIo(() => createMutations(world.locator).mutate(
-      splice('user-config', path.basename(world.locator.userConfigFile))
+      boundaryRemoval('user-config', path.basename(world.locator.userConfigFile))
     ))
     expect(await fsp.readFile(sibling, 'utf8')).toBe(contents)
     expect((await fsp.lstat(world.locator.userConfigFile)).isSymbolicLink()).toBe(true)
@@ -434,7 +434,7 @@ describe('resolved mutation boundaries', () => {
       store === 'project:fixture' ? projectStore : null
     )
 
-    await refusesWithoutIo(() => mutations.mutate(splice('project:fixture', 'settings.json')))
+    await refusesWithoutIo(() => mutations.mutate(boundaryRemoval('project:fixture', 'settings.json')))
     expect(await fsp.readFile(mcp, 'utf8')).toBe(contents)
     expect(await fsp.readdir(project)).toEqual(['.claude', '.mcp.json'])
   })
@@ -445,7 +445,7 @@ describe('resolved mutation boundaries', () => {
     await writeFileTree(parent, { 'settings.json': contents })
     await writeFileTree(outside, { 'settings.json': 'outside bytes' })
     const mutations = createMutations(world.locator)
-    const plan = splice('user', 'unused')
+    const plan = boundaryRemoval('user', 'unused')
     plan.steps = [{ type: 'trash', store: 'user', from: 'restore/settings.json' }]
     const done = await mutations.mutate(plan)
     expect(done.errors).toEqual([])
@@ -513,20 +513,29 @@ describe('resolved mutation boundaries', () => {
     await writeFileTree(outside, { 'sentinel.txt': 'unchanged' })
     await link(context, backing, parent, true)
     const mutations = createMutations(world.locator)
-    const done = await mutations.mutate(splice('user', 'linked/settings.json'))
-    expect(done.errors).toEqual([])
-    expect(done.data).not.toBeNull()
+    const next = contents.replace('quiet', 'loud')
+    const offset = contents.indexOf('quiet')
+    const record = { id: 'historical-splice', at: '2026-09-01T00:00:00.000Z', op: 'settings-edit',
+      kind: 'settings', entityId: 'settings:boundary', summary: 'Historical linked splice', undoOf: null,
+      steps: [{ type: 'splice', store: 'user', from: 'linked/settings.json',
+        expectDigest: digestSource(contents), resultDigest: digestSource(next),
+        edits: [{ at: offset, remove: 5, insert: 'loud' }], undoEdits: [{ at: offset, remove: 4, insert: 'quiet' }] }] }
+    const journal = JSON.stringify(record) + '\n'
+    await writeFileTree(world.kondoDataRoot, { 'journal.jsonl': journal })
+    await fsp.writeFile(path.join(backing, 'settings.json'), next)
+    const done = { data: { id: 'journal:historical-splice' } }
     await fsp.unlink(parent)
     await link(context, path.join(outside, 'absent'), parent, true)
 
     const undone = await mutations.undo(done.data!.id)
     expect(undone.data).toBeNull()
-    expect(undone.errors.map((error) => error.code)).toContain('read-failed')
+    expect(undone.errors.map((error) => error.code)).toContain('not-permitted')
     expect(undone.errors.map((error) => error.message).join(' ')).not.toContain('emptied')
     expect(await fsp.readFile(path.join(backing, 'settings.json'), 'utf8')).toBe(contents.replace('quiet', 'loud'))
     expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
     expect(await fsp.readFile(path.join(outside, 'sentinel.txt'), 'utf8')).toBe('unchanged')
     expect((await fsp.lstat(parent)).isSymbolicLink()).toBe(true)
+    expect(await fsp.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'), 'utf8')).toBe(journal)
   })
 })
 

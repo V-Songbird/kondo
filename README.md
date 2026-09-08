@@ -35,20 +35,21 @@ machine; nothing is ever sent anywhere.
   See [session scope and retained data](#session-scope-and-retained-data).
   (Worked time is still on the roadmap, not in the build.)
 - **Skills** — global and per-project, with what `skillUsage` says about
-  each. Disable with Claude's own `skillOverrides` switch, move a skill
-  between scopes or from one project to another, and thin out a skill kept
-  twice once its copies prove identical.
+  each. Move a skill between scopes when no settings edit is needed, and
+  thin out a skill kept twice once its copies prove identical. Settings-based
+  enable/disable and moves that also edit settings are temporarily unavailable.
 - **Plugins** — what is installed, from which marketplace, at which version,
-  enabled where. Toggle globally or per project; hand one from one scope to
-  another as a single undoable edit.
+  enabled where. Toggles, clearing overrides and scope changes are temporarily
+  unavailable because they edit settings.
 - **Agents, commands, rules, output styles** — listed per scope, movable
   between scopes the way a skill is.
 - **Hooks** — read-only declarations from user settings and verified projects'
   project/local settings, with source attribution and limited script checks.
   Kondo does not move, toggle or remove hook declarations, or prove which hooks
   execute. See the [hook boundary decision](docs/plans/109-hook-layer-boundary.md).
-- **MCP servers** — locally configured connections and the on/off controls
-  their scope supports. Kondo does not test live connectivity or approval.
+- **MCP servers** — locally configured connections and their configured state.
+  On/off changes are temporarily unavailable. Kondo does not test live
+  connectivity or approval.
 - **Settings** — the layered view: user, project, local. See what wins and why.
 - **Clean up** — review files and caches, settings leftovers, or duplicate
   skills. File categories include saved Claude data for throwaway folders, projects that
@@ -60,13 +61,22 @@ machine; nothing is ever sent anywhere.
 - **Settings leftovers**, inside Clean up — entries flagged in Claude's configuration: registry
   entries and MCP declarations for folders that no longer exist, plugin
   switches for plugins no longer installed, skill settings for skills no
-  scanned location supplies. Review the evidence before removing them;
-  supported changes are spliced out byte-exactly and undoable.
-- **History** — every change kondo made, with Undo beside each, and the
-  trash's size. Kondo never hard-deletes until you empty the trash.
+  scanned location supplies. Review the evidence; removal is temporarily
+  unavailable because it edits settings.
+- **History** — changes kondo made, their Undo controls, and the trash's size.
+  Historical settings Undo is temporarily unavailable; its journal and
+  recovery bytes remain intact. Kondo never hard-deletes until you empty the trash.
 - **Themes** — six Signal appearances: Chalk (the default), Parchment, Sage,
   Slate, Carbon and Signal Original. Choose a visual preview; Kondo remembers
   your preference on this computer.
+
+**Settings safety restriction:** on every platform, Kondo refuses the entire
+operation before changing files or recording completion if it includes a
+settings edit. This also applies to creating a settings file and to historical
+settings Undo. Other moves, trash operations and their Undo retain their
+existing checks. This prevents Kondo from overwriting a save made by another
+application between its final read and replacement; safe settings replacement
+is not yet implemented. See [the decision](docs/adr/0010-splice-config-files-never-whole-file-writes.md).
 
 ### Session scope and retained data
 

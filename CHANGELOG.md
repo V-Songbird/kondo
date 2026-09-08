@@ -8,6 +8,15 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Settings changes now refuse before changing files or recording completion,
+  preventing a race that could overwrite another application's save. This
+  temporary restriction applies on all platforms to settings-based skill,
+  plugin and MCP toggles, plugin scope moves and clearing, settings-leftover
+  removal, and skill moves that also edit settings. Creating a missing
+  settings layer is also refused. Historical Undo containing settings edits
+  refuses the whole operation and retains its history and recovery bytes.
+  Unrelated moves, trash and their Undo remain available.
+
 - Corrected the shipped hook-move claim: hook declarations remain read-only.
   Inventory covers the settings layers Kondo reads, with limited script
   diagnostics; it does not establish which hooks execute. No behavior changed.
@@ -136,9 +145,7 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
-- Settings splices sync and close temporary contents before replacement,
-  attempt temporary cleanup on failures, and preserve in-store symlinks.
-  Mutation targets that resolve outside their allowed store are refused,
+- Mutation targets that resolve outside their allowed store are refused,
   including escapes through parent links and the single-file user registry.
 
 - Library now shows failures and unrecognized files from every inventory read

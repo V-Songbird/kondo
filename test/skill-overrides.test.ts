@@ -12,6 +12,7 @@ import {
 import {
   flattenPath,
   healthyTranscript,
+  hashTree,
   makeWorld,
   registerProjects,
   skillManifest,
@@ -21,11 +22,12 @@ import {
   type FixtureWorld
 } from './helpers'
 
+const SETTINGS_REFUSAL = 'Settings changes are temporarily unavailable because Kondo cannot safely exclude concurrent Claude writes. No files were changed.'
+
 /**
  * `skillOverrides` — Claude's documented per-skill switch (entry 029). Claude
- * has two independent per-skill mechanisms and kondo's toggle writes only one
- * of them, so a skill sitting in `skills/` can still be switched off by a
- * settings layer. These pin all three halves of reading it: precedence (local
+ * has two independent per-skill mechanisms, so a skill sitting in `skills/`
+ * can still be switched off by a settings layer. These pin all three halves of reading it: precedence (local
  * over project over user), the effective state that falls out, and the
  * refusal, which has to name the layer that caused it (ADR-0006).
  */
@@ -176,10 +178,7 @@ describe('skillOverrides (entry 029)', () => {
     expect(error?.message).toContain('skillOverrides')
   })
 
-  it('brings a benched skill back into skills/ first, then offers to withdraw the override', async () => {
-    // The bench is kondo's own parking spot (ADR-0006): the way out of it is
-    // the move back, whatever a layer says. Once back, the row is a live
-    // skill switched off by an override, and its enable withdraws that.
+  it('restores a benched skill while refusing to withdraw its settings override', async () => {
     await override('user', { 'beta-skill': 'off' })
     const back = await api.entityMutate('skill:user-disabled:beta-skill', { op: 'enable' })
     expect(back.errors).toEqual([])
@@ -191,87 +190,62 @@ describe('skillOverrides (entry 029)', () => {
     expect(beta.capabilities.enable.allowed).toBe(true)
     expect(beta.capabilities.disable.allowed).toBe(false)
     expect(beta.capabilities.disable.reason).toContain('settings.json')
+    const before = await hashTree(world.base)
+    const history = (await api.journalList()).data
+    expect(history).toHaveLength(1)
 
     const on = await api.entityMutate('skill:user:beta-skill', { op: 'enable' })
-    expect(on.errors).toEqual([])
-    expect(on.data?.op).toBe('settings-edit')
-    expect(byName((await api.skillsList()).data, 'beta-skill').enabled).toBe(true)
+    expect(on.data).toBeNull()
+    expect(on.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
+    expect(byName((await api.skillsList()).data, 'beta-skill').enabled).toBe(false)
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual(history)
   })
 
-  it('lists the global skills a project inherits, and switches one off for that project only (entry 062)', async () => {
+  it('lists inherited global skills and refuses a confirmed project-only settings creation (entry 062)', async () => {
     const projectId = `project:code:${flattenPath(workdir)}`
-    const before = (await api.projectDetail(projectId)).data!
-    const alpha = before.inheritedSkills.find((entry) => entry.skill.name === 'alpha-skill')!
+    const detail = (await api.projectDetail(projectId)).data!
+    const alpha = detail.inheritedSkills.find((entry) => entry.skill.name === 'alpha-skill')!
     expect(alpha.choice).toBe('inherit')
     expect(alpha.enabledHere).toBe(true)
     expect(alpha.capabilities.disable.allowed).toBe(true)
     expect(alpha.capabilities.enable.allowed).toBe(false)
-    // The bench and the project's own skill are not inherited from anywhere.
-    expect(before.inheritedSkills.map((entry) => entry.skill.scope)).toEqual(['user'])
-    expect(before.inheritedSkills.some((entry) => entry.skill.name === 'delta-skill')).toBe(false)
+    expect(detail.inheritedSkills.map((entry) => entry.skill.scope)).toEqual(['user'])
+    expect(detail.inheritedSkills.some((entry) => entry.skill.name === 'delta-skill')).toBe(false)
+    const before = await hashTree(world.base)
 
-    // No local layer file yet: asked first, then written with the user's yes.
     const asked = await api.entityMutate('skill:user:alpha-skill', { op: 'disable', targetId: projectId })
     expect(asked.errors.map((error) => error.code)).toEqual(['needs-confirmation'])
     const off = await api.entityMutate('skill:user:alpha-skill', {
-      op: 'disable',
-      targetId: projectId,
-      confirm: true
+      op: 'disable', targetId: projectId, confirm: true
     })
-    expect(off.errors).toEqual([])
-    expect(off.data?.summary).toContain('off for')
-    expect(JSON.parse(await fs.readFile(path.join(workdir, '.claude', 'settings.local.json'), 'utf8')))
-      .toEqual({ skillOverrides: { 'alpha-skill': 'off' } })
-
-    // Off in this project, still on in Global and on its own page.
+    expect(off.data).toBeNull()
+    expect(off.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
     const after = (await api.projectDetail(projectId)).data!
-    const now = after.inheritedSkills.find((entry) => entry.skill.name === 'alpha-skill')!
-    expect(now.choice).toBe('off')
-    expect(now.enabledHere).toBe(false)
-    expect(now.capabilities.enable.allowed).toBe(true)
+    expect(after.inheritedSkills).toEqual(detail.inheritedSkills)
     expect(byName((await api.skillsList()).data, 'alpha-skill').enabled).toBe(true)
-    // The user layer was never touched.
-    expect(await fs.readFile(path.join(world.userRoot, 'settings.json'), 'utf8').catch(() => 'absent')).toBe(
-      'absent'
-    )
-
-    // Follows global again: the project's off goes, and one undo puts it back.
-    const follow = await api.entityMutate('skill:user:alpha-skill', { op: 'enable', targetId: projectId })
-    expect(follow.errors).toEqual([])
-    expect(JSON.parse(await fs.readFile(path.join(workdir, '.claude', 'settings.local.json'), 'utf8')))
-      .toEqual({ skillOverrides: {} })
-    const undone = await api.journalUndo(follow.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(JSON.parse(await fs.readFile(path.join(workdir, '.claude', 'settings.local.json'), 'utf8')))
-      .toEqual({ skillOverrides: { 'alpha-skill': 'off' } })
   })
 
-  // ADR-0010. The layer this lands in is one Claude may be writing too, so
-  // the step names the bytes it changes and the digest it read them at.
-  it('splices the project layer under a digest, and inverts it to undo', async () => {
+  // A project layer may be written concurrently by Claude; both directions
+  // must refuse without touching even unrelated settings members.
+  it('refuses both project-only toggle directions and preserves unrelated settings bytes', async () => {
     const projectId = `project:code:${flattenPath(workdir)}`
     const local = path.join(workdir, '.claude', 'settings.local.json')
-    await writeFileTree(workdir, { '.claude/settings.local.json': writeJson({ theme: 'dark' }) })
-
-    const off = await api.entityMutate('skill:user:alpha-skill', { op: 'disable', targetId: projectId })
-    expect(off.errors).toEqual([])
-
-    const journal = await fs.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'), 'utf8')
-    const record = JSON.parse(journal.trim().split('\n').at(-1) as string)
-    const step = record.steps.at(-1)
-    expect(step.edits).toHaveLength(1)
-    expect(typeof step.expectDigest).toBe('string')
-    expect(step.displaced).toBeUndefined()
-
-    // The key that was already there kept its bytes, and the undo is the
-    // inverse edit rather than a snapshot that would have discarded it.
-    expect(JSON.parse(await fs.readFile(local, 'utf8'))).toEqual({
-      theme: 'dark',
-      skillOverrides: { 'alpha-skill': 'off' }
-    })
-    const undone = await api.journalUndo(off.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(JSON.parse(await fs.readFile(local, 'utf8'))).toEqual({ theme: 'dark' })
+    for (const [op, settings] of [
+      ['disable', writeJson({ theme: 'dark' })],
+      ['enable', writeJson({ theme: 'dark', skillOverrides: { 'alpha-skill': 'off' } })]
+    ] as const) {
+      await writeFileTree(workdir, { '.claude/settings.local.json': settings })
+      const before = await hashTree(world.base)
+      const result = await api.entityMutate('skill:user:alpha-skill', { op, targetId: projectId })
+      expect(result.data).toBeNull()
+      expect(result.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
+      expect(await fs.readFile(local, 'utf8')).toBe(settings)
+      expect(await hashTree(world.base)).toBe(before)
+      expect((await api.journalList()).data).toEqual([])
+    }
   })
   it('never withdraws a Global off from a project page', async () => {
     await override('user', { 'alpha-skill': 'off' })
@@ -289,40 +263,28 @@ describe('skillOverrides (entry 029)', () => {
     expect((await api.journalList()).data).toEqual([])
   })
 
-  it('enables by withdrawing every off in the chain, in one undoable plan (entry 045)', async () => {
+  it('refuses a multi-layer enable before withdrawing any override (entry 045)', async () => {
     await override('user', { 'delta-skill': 'off', 'alpha-skill': 'name-only' })
     await override('local', { 'delta-skill': 'off' })
     const id = `skill:project/${flattenPath(workdir)}:delta-skill`
     expect(byName((await api.skillsList()).data, 'delta-skill').enabled).toBe(false)
-
-    const before = {
-      user: await fs.readFile(path.join(world.userRoot, 'settings.json'), 'utf8'),
-      local: await fs.readFile(path.join(workdir, '.claude', 'settings.local.json'), 'utf8')
-    }
+    const before = await hashTree(world.base)
     const result = await api.entityMutate(id, { op: 'enable' })
-    expect(result.errors).toEqual([])
-    expect(result.data?.stepCount).toBe(2)
-    expect(result.data?.summary).toContain('settings.local.json')
-    expect(result.data?.summary).toContain('settings.json')
-
-    // Both statements gone, every other key kept byte for byte.
-    const user = JSON.parse(await fs.readFile(path.join(world.userRoot, 'settings.json'), 'utf8'))
-    expect(user.skillOverrides).toEqual({ 'alpha-skill': 'name-only' })
-    expect(byName((await api.skillsList()).data, 'delta-skill').enabled).toBe(true)
-
-    const undone = await api.journalUndo(result.data?.id ?? '')
-    expect(undone.errors).toEqual([])
-    expect(await fs.readFile(path.join(world.userRoot, 'settings.json'), 'utf8')).toBe(before.user)
-    expect(await fs.readFile(path.join(workdir, '.claude', 'settings.local.json'), 'utf8')).toBe(
-      before.local
-    )
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
+    expect(byName((await api.skillsList()).data, 'delta-skill').enabled).toBe(false)
   })
 
-  it('still allows the toggle when no override stands in the way', async () => {
+  it('refuses a settings toggle even when no override stands in the way', async () => {
     await override('user', { 'delta-skill': 'off' })
+    const before = await hashTree(world.base)
     const result = await api.entityMutate('skill:user:alpha-skill', { op: 'disable' })
-    expect(result.errors).toEqual([])
-    expect(result.data?.summary).toContain('Disable skill alpha-skill')
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
   it('names the project layer when that is the one that switched it off', async () => {

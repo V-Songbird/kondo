@@ -67,13 +67,37 @@ undo. An archived link is metadata: trash inventory, physical copy verification
 and removal never follow it back into a live store. Undo validates those links
 against the future restored tree before journaling or displacing an occupant.
 Trash size counts physically retained regular-file bytes, excluding referents
-and link metadata. Splice and undo keep their existing in-store link identity.
+and link metadata. Settings mutation and historical settings Undo are currently
+refused before effects; see the execution restriction below (098).
 
 These limits describe access to Claude's data. Kondo's separate
 [application footprint](foundations.md#kondos-own-footprint) also holds its
 journal, trash, caches and appearance preference. The Themes screen stores
 that preference in Kondo's `appearance.json`; it does not read or write
 Claude's own `theme` setting to select Kondo's appearance.
+
+## Current settings execution restriction (098)
+
+✅ **Kondo policy, established by source and synthetic fixtures:** every apply
+plan containing a `write` or `splice` is refused on all platforms before step
+preparation, journaling or filesystem effects. Historical Undo entries with
+either step are also refused whole. This includes mixed plans, so a settings
+refusal cannot leave an accompanying move or trash step partly applied.
+Existing history, inverse edits and recovery bytes remain unchanged; Kondo
+records no completion or successful Undo for the refused operation.
+
+The settings conventions and planner behavior described below remain the
+basis for inventory and future planning, not permission to execute a settings
+change today. The restriction covers settings-based skill, plugin and MCP
+toggles, plugin clearing and scope moves, configuration-leftover removal, and
+skill moves that also edit settings. Confirming creation of an absent layer
+does not bypass it. Unrelated moves, trash and their Undo remain available.
+Kondo's own appearance preference is unaffected.
+
+A digest check followed by a rename cannot preserve a competing write made
+between them. This release introduces no native preservation backend; another
+hash check, closing Claude or an advisory lock cannot enable an exception.
+See [ADR-0010](adr/0010-splice-config-files-never-whole-file-writes.md).
 
 ## User store: `~/.claude`
 
@@ -83,10 +107,10 @@ usage):
 | Entry | What it is |
 |---|---|
 | `projects/` | Session transcripts, one subdirectory per working directory. The heart of kondo's session features. |
-| `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'name-only' \| 'user-invocable-only' \| 'off' }` ✅ — the four values Claude Code's own settings schema admits, read off the 2.1.258 binary (entry 029). Its description, verbatim: `name-only` lists the skill without its description, `user-invocable-only` hides it from the model but keeps `/name`, `off` hides it from both, absent = on. **Only `off` is a disabling**; the middle two leave the skill loaded. Precedence is the ordinary local > project > user ✅, and `/skills` writes the key into the *local* layer. It does **not** reach plugin-shipped skills ✅: Claude pins those to `on` before consulting it, and only managed-policy and CLI-flag settings override that — neither of which kondo reads. Kondo resolves it per skill and carries the winner as `SkillInfo.override`, with `enabled` false when it says `off` (entry 029); a key naming a skill no scope ships is also a configuration orphan it offers to splice out (ADR-0010). **It is also what kondo's skill toggle writes** (entry 045): `disable` splices `<skill>: "off"` into the scope's layer — the one already naming the skill, else `settings.local.json`, the file `/skills` writes — and `enable` removes the member from every layer in the chain that says `off`. A project page switches a *global* skill off for that project alone the same way (entry 062): the `off` lands in the project's own layer and only that project's layers are ever withdrawn from, so `ProjectDetail.inheritedSkills` reads each global skill against the project's local and project layers and reports `off here` apart from `off in Global`. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
-| `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo writes to disable; a key that is simply absent is silence, not a false. A legacy array form is read (a listed key is enabled) but never written. |
+| `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'name-only' \| 'user-invocable-only' \| 'off' }` ✅ — the four values Claude Code's own settings schema admits, read off the 2.1.258 binary (entry 029). Its description, verbatim: `name-only` lists the skill without its description, `user-invocable-only` hides it from the model but keeps `/name`, `off` hides it from both, absent = on. **Only `off` is a disabling**; the middle two leave the skill loaded. Precedence is the ordinary local > project > user ✅, and `/skills` writes the key into the *local* layer. It does **not** reach plugin-shipped skills ✅: Claude pins those to `on` before consulting it, and only managed-policy and CLI-flag settings override that — neither of which kondo reads. Kondo resolves it per skill and carries the winner as `SkillInfo.override`, with `enabled` false when it says `off` (entry 029); a key naming a skill no scope ships is also a configuration orphan it offers to splice out (ADR-0010). **It is also what kondo's skill toggle plans** (entry 045; execution refused under 098): `disable` splices `<skill>: "off"` into the scope's layer — the one already naming the skill, else `settings.local.json`, the file `/skills` writes — and `enable` removes the member from every layer in the chain that says `off`. A project page switches a *global* skill off for that project alone the same way (entry 062): the `off` lands in the project's own layer and only that project's layers are ever withdrawn from, so `ProjectDetail.inheritedSkills` reads each global skill against the project's local and project layers and reports `off here` apart from `off in Global`. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
+| `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo plans to disable (execution refused under 098); a key that is simply absent is silence, not a false. A legacy array form is read (a listed key is enabled) but never written. |
 | `skills/` | User-scope skills, one directory per skill with a `SKILL.md`. |
-| `skills.disabled/` | **Kondo's parking spot, not Claude's convention** ✅. The directory exists on the owner's machine, but the string `skills.disabled` occurs nowhere in the Claude Code 2.1.255 or 2.1.258 binaries (entry 029) — nothing reads it. A skill moved here does stop loading, for the plain reason that it is no longer in `skills/`, which is the "remove from `.claude/skills`" half of Claude's own advice. Claude's *named* per-skill switch is `skillOverrides` above, and since entry 045 that is what the toggle writes: nothing new is moved here. Kondo still reads the directory back as the `user-disabled` scope and offers each skill in it the way back into `skills/` (ADR-0006). |
+| `skills.disabled/` | **Kondo's parking spot, not Claude's convention** ✅. The directory exists on the owner's machine, but the string `skills.disabled` occurs nowhere in the Claude Code 2.1.255 or 2.1.258 binaries (entry 029) — nothing reads it. A skill moved here does stop loading, for the plain reason that it is no longer in `skills/`, which is the "remove from `.claude/skills`" half of Claude's own advice. Claude's *named* per-skill switch is `skillOverrides` above, and since entry 045 that is what the toggle plans (execution refused under 098): nothing new is moved here. Kondo still reads the directory back as the `user-disabled` scope and offers each skill in it the way back into `skills/` (ADR-0006). |
 | `plugins/cache/<mp>/<plugin>/<ver>/skills/` | Skills a plugin ships ✅. These belong to the plugin, not the user: kondo's skills catalogue deliberately excludes them, because benching or relocating one leaves the plugin referring to a directory that is no longer there. They belong to the plugins view, alongside the plugin that owns them, where `pluginSkills(pluginId)` reads them on demand when a plugin's row is opened. The `plugin` skill scope and its capability-matrix row keep that listing read-only. |
 | `plugins/` | Plugin machinery ✅: `installed_plugins.json` (`version: 2`, `plugins[<name>@<marketplace>]` = array of `{ scope, installPath, version, installedAt, lastUpdated, gitCommitSha }`), `known_marketplaces.json`, `plugin-catalog-cache.json` (holds keys differing only by case — parse case-sensitively), `cache/<marketplace>/<plugin>/<version>/` (the installed code), `marketplaces/`, `data/<plugin>-<marketplace>/`, `.install-manifests/<id>.json`, `.last_inuse_sweep`. Residue accumulates ✅: 28 of 39 cached version directories were not the installed version, `.in_use` markers sat on every version (so the marker does not mean "current"), 4 install manifests and 47 of 55 `data/` directories belonged to plugins no longer installed. Kondo sweeps both (entry 033): `superseded-plugin-versions` offers every `cache/<mp>/<plugin>/<version>/` tree that is **not** the `installPath` its manifest entry names — the installed version is never a candidate, and the walk starts from the manifest outwards so that holds by construction rather than by a check — and `orphan-plugin-residue` offers the `data/` directories and `.install-manifests/` files whose `<name>@<marketplace>` id the manifest does not declare. `data/` slugs are derived forwards from each declared id (`@` → `-`), because reading a directory name backwards into an id is ambiguous the moment either half holds a dash. An `installed_plugins.json` that is missing, unreadable or malformed offers **nothing** rather than treating every plugin as uninstalled (ADR-0005); an empty `plugins: {}` is a different answer and does mean everything under `data/` is residue. A cache tree for a plugin absent from the manifest entirely falls under neither category — none was observed, since every cached marketplace/plugin pair was still installed. |
 | `commands/` | User-scope slash commands (`.md` files) ✅. Read as placed entries — see below. |
@@ -149,22 +173,18 @@ is seen without a restart:
 - Everything else (`oauthAccount`, `userID`, `machineID`, experiment caches)
   is identity or telemetry and is **read-never**.
 
-Kondo writes this file by splice only — never whole (ADR-0010): a step names
-the bytes it changes and the digest they were read from, and refuses when
-Claude has written the file since. `configOrphansPreview` /
-`configOrphansRemove` are the first callers, taking out `projects` entries
-whose directory is gone and the `mcpServers` declared inside them.
+The registry and settings planners express existing-file changes as narrow
+`splice` steps with the digest of the bytes read (ADR-0010). Configuration
+leftover plans remove dead `projects` entries and the `mcpServers` declared
+inside them; settings plans edit only the members needed for a toggle or
+scope move. An absent settings layer is represented by a whole-file `write`
+after the creation confirmation. Historical splice journal entries carry
+inverse edits rather than whole-file snapshots.
 
-A settings layer is written the same way, and for the same reason in
-miniature: a `settings.json` the user has open in an editor, or that Claude
-writes mid-session, is not kondo's to replace wholesale. Every toggle that
-edits a layer already on disk — a skill switched off or back on, a global
-skill silenced for one project, a plugin enabled, disabled, handed to another
-scope or withdrawn — plans one `splice` per file, carrying the digest of the
-bytes it read and an edit no wider than the member it changes. Only a layer
-that does not exist yet is written whole, and kondo asks before creating one.
-The undo is the inverse edits against the file as it stands, never a snapshot
-taken before the change (ADR-0001, ADR-0010).
+These formats preserve intended edits and support historical inspection;
+they do not make replacement atomic with the digest check. All such apply
+plans and historical settings Undo are currently refused before effects,
+including confirmed creation of a missing layer (098).
 
 ### MCP servers — three scopes, two files
 
@@ -187,11 +207,13 @@ the dead-project signal in its MCP form, and what `configOrphansPreview`
 offers to splice out (ADR-0010). Discovery is tier-1 (ADR-0007): one registry
 parse, one `stat` per registry entry that actually declares a server, one
 `.mcp.json` read per verified project. The two disable lists are also what
-kondo's toggle writes (entry 061): `disable` adds the name to the project's
+kondo's toggle plans (entry 061; execution refused under 098): `disable` adds
+the name to the project's
 `disabledMcpServers` (a `local` declaration) or `disabledMcpjsonServers` (a
 `project` one) and `enable` takes it out, each as one splice of that list's
-value under the ADR-0010 digest guard, so a registry Claude rewrote in
-between refuses rather than loses. The user scope has no list and stays
+value carrying its planned digest (ADR-0010). The digest alone cannot close
+the final replacement race; the execution gate currently refuses the change.
+The user scope has no list and stays
 read-only; a declaration is never moved between files and `.mcp.json` is
 never written (ADR-0002).
 
@@ -423,7 +445,7 @@ and the accepted [ADR-0016](adr/0016-desktop-session-boundary.md).
 - `skills.disabled/` ◇ — the project-scope counterpart of the user store's
   parking spot. Unobserved in the wild, and entry 029 settled why: no Claude
   Code build reads it in *any* scope, so there was no project-scope convention
-  to be unobserved. Kondo writes it and reads it back as the
+  to be unobserved. Kondo historically wrote it and reads it back as the
   `project-disabled` skill scope; the per-skill switch Claude actually honours
   here is `skillOverrides` in this project's settings layers (ADR-0006).
 - Settings precedence: local > project > user ◇. The settings viewer renders
@@ -441,16 +463,17 @@ and the accepted [ADR-0016](adr/0016-desktop-session-boundary.md).
   the way back to silence is removing the member from `enabledPlugins`
   (`pluginClear`), which is a splice like the toggle rather than a rewrite —
   the member's span and one separating comma are all that leave the file.
-  Which file a position writes is chosen in the main process:
+  These edits are currently refused by the execution gate (098).
+  Which file a position plans to edit is chosen in the main process:
   the highest-precedence layer of that scope that *already states a value*,
   and `settings.local.json` when none does.
 - Handing a plugin to another scope is those same statements twice, never a
-  relocation: nothing installed moves on disk. Kondo writes `false` in the
+  relocation: nothing installed moves on disk. Kondo plans `false` in the
   layer that enabled it and `true` in the destination scope's layer, as one
-  reversible operation (`pluginMove`) carrying one splice per file, each with
-  its own digest — so a move refuses whole if either layer has moved on. A
-  destination that does not exist yet is the one write, and it is asked about
-  first. The destination *file* is chosen by the same rule as a toggle's.
+  plan (`pluginMove`) carrying one splice per file, each with its own digest.
+  A destination that does not exist yet is a write, with a creation
+  confirmation. Both forms are currently refused whole before any effects
+  (098). The destination *file* is chosen by the same rule as a toggle's.
 
 ## Desktop store
 
@@ -546,21 +569,22 @@ mechanisms. Names and sizes remain available to store reports.
 - All JSON/JSONL reads assume partial corruption is possible (interrupted
   writes). A bad line is skipped and reported, never fatal.
 - Settings can be reached through filesystem links ◇; this is a supported
-  layout, not a newly observed Claude convention. Splices edit the resolved
-  file and preserve in-store file and parent-link identity. Mutation targets
+  layout, not a newly observed Claude convention. Settings execution is
+  currently refused before any link or target is changed (098). Other mutation
+  targets
   must stay inside their resolved store root; missing destinations resolve
   through existing ancestors and dangling links refuse. The registry remains
   one named file under its resolved parent, not permission to follow a link
-  into another home file. Temporary splice contents are synced and closed
-  before rename; handled failures attempt cleanup without masking the original
-  error. See ADR-0010 for concurrency and power-loss limits.
+  into another home file. Historical splice synchronization and target
+  resolution did not close the final replacement race; see ADR-0010.
 - Journal shape validation is covered by fixtures ✅: a line is accepted only
   when its record and every step have the fields the operation needs, including
   inverse splice edits and undo/failure links. Valid JSON with the wrong shape
   is skipped as one whole entry and reported as `parse-failed` at
-  `journal.jsonl:<line>`. Other entries remain listed and reversible, with those
-  read errors still returned. Optional historical fields and additional metadata
-  are accepted; the journal is never rewritten to repair a line (095). Readable
+  `journal.jsonl:<line>`. Other entries remain listed, with those
+  read errors still returned. Entries containing `write` or `splice` remain
+  readable but their Undo is refused before effects (098). Optional historical
+  fields and additional metadata are accepted; the journal is never rewritten to repair a line (095). Readable
   `undoOf`/`failedOf` references in rejected entries conservatively block undo of
   the related change, without supplying steps or claiming a completed undo.
 - Bytes kondo displaces leave their store entirely: they land in
@@ -577,9 +601,9 @@ mechanisms. Names and sizes remain available to store reports.
   a following marker line names that entry as failed; `journalList` reports it
   as `failed` and never lists the marker itself. Undo of such an entry skips
   any step whose effect is absent while its source is still in place, and puts
-  back only what actually ran. A `write` is the exception it cannot skip: its
-  target is there whether or not the step ran, so undo refuses the whole entry
-  rather than displace bytes it has nothing to put back.
+  back only what actually ran for entries without settings steps. Historical
+  entries containing a `write` or `splice`, whether failed or not, are refused
+  whole before Undo effects and retain their journal and recovery bytes (098).
 - An undo never renames over a path that is occupied. The time between an
   operation and its undo belongs to whoever else writes there — Claude
   saving a transcript at the same uuid a sweep trashed is the ordinary case

@@ -75,30 +75,36 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      queued startup focus, minimized-window restoration and window reopening
      with one workspace/IPC registration. These are mocked lifecycle checks,
      not evidence of native window-manager behavior on every platform.
-   - Every mutation journals before it touches the store, its undo restores
-     the fixture byte-for-byte, nothing is unlinked, and no write lands
-     outside a known store root or `<kondo-data>` —
-     `test/mutation.test.ts` (ADR-0001). A mutation PR that does not extend
-     these is incomplete — the skill toggle extends them in
-     `test/skill-toggle.test.ts` (journal before the move, both scopes, the
-     matrix refusal, and the digest-guarded splice its undo inverts), the
-     plugin toggle in
-     `test/plugin-toggle.test.ts` (the splice leaves every other byte of the
-     settings file alone, layer precedence, the confirmation gate on
-     creating a layer that is not there, and an undo refused onto bytes
-     something else has since written), and the cross-scope move in
-     `test/skill-move.test.ts` (all three directions, the name-collision and
-     plugin-owned refusals, undo removing the copy as well as restoring the
-     source, and — the one that matters most — a copy that does not verify
-     leaving the source untouched). Trashing a chosen set of sessions extends
-     them in `test/session-duplicates.test.ts` (one entry for the whole
-     selection, sidecars carried with their transcripts, undo restoring the
-     fixture byte-for-byte, and a refusal that moves nothing when one id in
-     the set no longer resolves).
-     A settings toggle against a file already on disk is a `splice` carrying
-     the digest it was planned at (ADR-0010), so its test asserts the journal
-     holds edits and no snapshot; `test/skill-overrides.test.ts` pins the same
-     for a global skill switched off inside one project.
+   - Every permitted mutation journals before it touches the store, its Undo
+     restores the fixture byte-for-byte, nothing is unlinked, and no write
+     lands outside a known store root or `<kondo-data>` —
+     `test/mutation.test.ts` (ADR-0001). A mutation PR must extend the relevant
+     invariants. Cross-scope move checks in `test/skill-move.test.ts` cover
+     supported moves, name collisions, plugin-owned refusals, verified copies
+     and Undo. Session selection checks in `test/session-duplicates.test.ts`
+     cover one journal entry for the whole selection, sidecars, restoration
+     and refusal when any chosen id no longer resolves.
+   - Settings execution is currently refused on every platform (098,
+     ADR-0010). Tests must exercise the production gate for both `write` and
+     `splice`, before step preparation, journaling or filesystem effects.
+     Mixed plans must refuse whole, even if a move or trash step appears
+     first. Confirmed creation of a missing layer must also refuse. Assert
+     unchanged target and recovery bytes, unchanged or absent journal, no
+     temporary artifacts and no success result. Historical Undo fixtures must
+     include write, splice and mixed records and prove no completion is
+     appended and no recovery evidence is consumed. Preserve coverage for
+     permitted moves, trash and their Undo.
+   - `test/mutation.test.ts` retains the pure check "retains reversible byte
+     edits without permitting publication" for `applyEdits`, `invertEdits`
+     and `digestSource`. This establishes only helper behavior, not exhaustive
+     planner coverage or safe filesystem replacement. Per-feature suites
+     retain discovery and precedence checks and now assert workspace refusal
+     with unchanged stores and history. Re-enabling settings execution must
+     restore successful per-feature planning, publication and Undo coverage.
+     A pre-replacement competing write reproduced the old apply/Undo data
+     loss; refusal prevents entry into that replacement path. Re-enabling it
+     requires native concurrency and recovery evidence beyond digest checks,
+     temporary-file synchronization or injected-error tests.
 5. **End-to-end**: `npm run test:e2e` (`test/e2e/smoke.mjs`, node's own test
    runner) builds the run-kondo fixture in a fresh temp directory, launches
    the built app against it through the three `KONDO_*_ROOT` overrides with

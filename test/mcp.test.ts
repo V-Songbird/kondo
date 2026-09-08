@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { slashed } from '../electron/main/workspace/display'
-import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { KondoApi } from '../shared/contract'
 import { capabilitiesFor } from '../electron/main/workspace/capabilities'
@@ -9,6 +8,7 @@ import { createWorkspace } from '../electron/main/workspace/workspace'
 import { scanMcpServers, type VerifiedProject } from '../electron/main/workspace/user-store'
 import {
   flattenPath,
+  hashTree,
   makeWorld,
   mcpServer,
   registerMcp,
@@ -23,6 +23,8 @@ import {
  * matrix row is asserted here as well, because it is what keeps the kind
  * read-only until entry 031.
  */
+
+const SETTINGS_REFUSAL = 'Settings changes are temporarily unavailable because Kondo cannot safely exclude concurrent Claude writes. No files were changed.'
 
 describe('mcp server discovery', () => {
   let world: FixtureWorld
@@ -162,9 +164,8 @@ describe('mcp server discovery', () => {
 })
 
 /**
- * The MCP toggle (entry 061): Claude's per-project disable lists in
- * `~/.claude.json`, written as one splice each, guarded by the digest of the
- * text the plan was made against (ADR-0010), and put back whole by undo.
+ * MCP toggle plans target per-project disable lists in ~/.claude.json.
+ * Entry 098 refuses those settings edits before touching registry or history.
  */
 describe('mcp server toggle (entry 061)', () => {
   let world: FixtureWorld
@@ -195,45 +196,37 @@ describe('mcp server toggle (entry 061)', () => {
     await world.cleanup()
   })
 
-  const registry = async (): Promise<string> => fs.readFile(world.locator.userConfigFile, 'utf8')
-  const entry = async (): Promise<Record<string, unknown>> =>
-    (JSON.parse(await registry()) as { projects: Record<string, Record<string, unknown>> }).projects[live]!
-
-  it('disables a registry-declared server by adding it to disabledMcpServers, touching nothing else', async () => {
-    const before = await registry()
-    const done = await api.entityMutate(`mcp:local:${flattenPath(live)}/live-local`, { op: 'disable' })
-    expect(done.errors).toEqual([])
-    expect(done.data?.op).toBe('settings-edit')
-    expect(done.data?.summary).toContain('Disable MCP server live-local')
-
-    const after = await entry()
-    expect(after['disabledMcpServers']).toEqual(['benched', 'live-local'])
-    // Every other member kept its bytes: the file differs only in that one span.
-    expect(after['lastCost']).toBe(1.23)
-    expect((await registry()).replace('["benched","live-local"]', '')).toBe(
-      before.replace(/\[\s*"benched"\s*\]/, '')
-    )
-    const servers = (await api.entityList('mcp')).data
-    expect(servers.find((s) => s.id.endsWith('/live-local'))).toMatchObject({ enabled: false })
-
-    const undone = await api.journalUndo(done.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(await registry()).toBe(before)
+  it('refuses a registry-declared server toggle without changing registry or history', async () => {
+    const before = await hashTree(world.base)
+    const result = await api.entityMutate(`mcp:local:${flattenPath(live)}/live-local`, { op: 'disable' })
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
-  it('enables by taking the name out of the list, leaving an empty list rather than none', async () => {
-    const done = await api.entityMutate(`mcp:local:${flattenPath(live)}/benched`, { op: 'enable' })
-    expect(done.errors).toEqual([])
-    expect((await entry())['disabledMcpServers']).toEqual([])
+  it('preserves the disabled server list when enabling is refused', async () => {
+    const before = await hashTree(world.base)
+    const result = await api.entityMutate(`mcp:local:${flattenPath(live)}/benched`, { op: 'enable' })
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
-  it('gates a .mcp.json declaration through disabledMcpjsonServers and never writes .mcp.json', async () => {
-    const mcpFile = path.join(live, '.mcp.json')
-    const fileBefore = await fs.readFile(mcpFile, 'utf8')
-    const done = await api.entityMutate(`mcp:project:${flattenPath(live)}/committed`, { op: 'disable' })
-    expect(done.errors).toEqual([])
-    expect((await entry())['disabledMcpjsonServers']).toEqual(['committed'])
-    expect(await fs.readFile(mcpFile, 'utf8')).toBe(fileBefore)
+  it('preserves both registry and .mcp.json when a project server toggle is refused', async () => {
+    const before = await hashTree(world.base)
+    const result = await api.entityMutate(`mcp:project:${flattenPath(live)}/committed`, { op: 'disable' })
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
   it('refuses the direction the list already answers, and the user scope entirely', async () => {

@@ -131,9 +131,10 @@ export type PlannedStep =
   | { type: 'copy'; store: string; from: string; toStore: string; to: string }
   /** Displace into `<kondo-data>/trash/<journal-id>/`; never an unlink. */
   | { type: 'trash'; store: string; from: string }
-  /** Write a file, keeping any bytes it displaces. */
+  /** Historical/planned whole-file write; execution is suspended by 098. */
   | { type: 'write'; store: string; at: string; content: string }
   /**
+   * Historical/planned splice; execution is suspended by 098.
    * Change only the spans `edits` name, and only while the file still holds
    * the bytes `expectDigest` was taken from (ADR-0010). A file Claude has
    * rewritten since the plan was made refuses the step rather than losing
@@ -280,6 +281,18 @@ const isJournalRecord = (value: unknown): value is JournalRecord =>
   Array.isArray(value.steps) && value.steps.every(isJournalStep)
 
 const ID_PREFIX = 'journal:'
+
+/**
+ * ADR-0010 / 098: Node cannot atomically replace a file while retaining an
+ * arbitrary external writer's intervening version. No platform backend has
+ * established that guarantee yet. This restriction also covers whole-file
+ * creation: the supposedly absent path may be occupied by publication time.
+ */
+const SETTINGS_WRITE_UNAVAILABLE =
+  'Settings changes are temporarily unavailable because Kondo cannot safely exclude concurrent Claude writes. No files were changed.'
+
+const includesSettingsWrite = (steps: readonly { type: string }[]): boolean =>
+  steps.some((step) => step.type === 'splice' || step.type === 'write')
 
 export interface Mutations {
   /** Journal, then act. The only way anything in this app writes. */
@@ -883,12 +896,23 @@ export function createMutations(
   const operations: Mutations = {
     async mutate(plan: MutationPlan): Promise<Scan<JournalEntryInfo | null>> {
       if (nested) return misconfigured()
+      // Check the whole plan before preflight, journaling, or an earlier move.
+      // A refused mixed operation must never leave a partially applied plan.
+      if (includesSettingsWrite(plan.steps)) {
+        return refuse('not-permitted', plan.entityId, SETTINGS_WRITE_UNAVAILABLE)
+      }
       const id = newId()
       let steps: JournalStep[]
       try {
         steps = await planSteps(id, plan.steps)
         const refusal = await plan.preflight?.()
         if (refusal) return refuse(refusal.code, refusal.path, refusal.message)
+        // Planning and the internal preflight can yield. Recheck both lists
+        // before the journal append so a mutable caller cannot add a settings
+        // step during those awaits and slip it into an otherwise allowed plan.
+        if (includesSettingsWrite(plan.steps) || includesSettingsWrite(steps)) {
+          return refuse('not-permitted', plan.entityId, SETTINGS_WRITE_UNAVAILABLE)
+        }
       } catch (cause) {
         // A source can disappear during planSteps, before the last preflight.
         // Prefer the operation-specific stale review refusal in that case.
@@ -947,6 +971,13 @@ export function createMutations(
       }
       if (undoLinks(records, blockedUndoIds).has(key)) {
         return refuseUndo('bad-request', journalId, 'That entry has already been undone.')
+      }
+
+      // Historical settings edits remain readable, with all recovery bytes
+      // retained. Refuse before preflight or append so retries cannot create
+      // a completed Undo link, even for a partially applied mixed entry.
+      if (includesSettingsWrite(original.steps)) {
+        return refuseUndo('not-permitted', journalId, SETTINGS_WRITE_UNAVAILABLE)
       }
 
       const id = newId()

@@ -8,6 +8,9 @@ import { createLocator } from '../electron/main/workspace/locator'
 import {
   createMutations,
   digestSource,
+  applyEdits,
+  invertEdits,
+  type MutationPlan,
   type Mutations
 } from '../electron/main/workspace/mutations'
 import { createWorkspace } from '../electron/main/workspace/workspace'
@@ -27,6 +30,26 @@ import {
  * mutation. These tests must never be deleted: they are the whole of the
  * promise that every mutation kondo performs can be undone.
  */
+
+/** Synthetic pre-098 history; never enable the blocked runtime to build fixtures. */
+async function settingsHistory(world: FixtureWorld, type: 'write' | 'splice' = 'splice') {
+  const source = await fsp.readFile(path.join(world.userRoot, 'settings.json'), 'utf8')
+  const edits = [{ at: source.indexOf('quiet'), remove: 5, insert: 'loud' }]
+  const next = applyEdits(source, edits)!
+  const step = type === 'splice'
+    ? { type, store: 'user', from: 'settings.json', edits, undoEdits: invertEdits(source, edits),
+        expectDigest: digestSource(source), resultDigest: digestSource(next) }
+    : { type, store: 'user', from: 'settings.json', displaced: 'user/settings.json' }
+  const record = { id: 'fixture-settings', at: '2026-09-01T00:00:00.000Z',
+    op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user',
+    summary: 'Historical settings edit', steps: [step], undoOf: null }
+  await writeFileTree(world.kondoDataRoot, {
+    'journal.jsonl': JSON.stringify(record) + '\n',
+    ...(type === 'write' ? { 'trash/fixture-settings/user/settings.json': source } : {})
+  })
+  await fsp.writeFile(path.join(world.userRoot, 'settings.json'), next)
+  return { id: 'journal:fixture-settings', record, source, next }
+}
 
 describe('mutation safety invariants (ADR-0001)', () => {
   let world: FixtureWorld
@@ -107,12 +130,11 @@ describe('mutation safety invariants (ADR-0001)', () => {
       op: 'move',
       kind: 'skill',
       entityId: 'skill:user:alpha-skill',
-      summary: 'Move alpha-skill, trash beta-skill, rewrite settings',
+      summary: 'Move alpha-skill, copy then trash beta-skill',
       steps: [
         { type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills.disabled/alpha-skill' },
-        { type: 'trash', store: 'user', from: 'skills/beta-skill' },
-        { type: 'write', store: 'user', at: 'settings.json', content: '{ "outputStyle": "loud" }' },
-        { type: 'write', store: 'user', at: 'brand-new.json', content: '{}' }
+        { type: 'copy', store: 'user', from: 'skills/beta-skill', toStore: 'user', to: 'copies/beta-skill' },
+        { type: 'trash', store: 'user', from: 'skills/beta-skill' }
       ]
     })
     expect(done.errors).toEqual([])
@@ -296,303 +318,247 @@ describe('mutation safety invariants (ADR-0001)', () => {
     expect(result.errors[0]!.message).toContain('emptied')
   })
 
-  it('leaves a write target in place when the bytes it displaced are not there', async () => {
-    const before = await hashTree(world.userRoot)
-    const rename = fsp.rename.bind(fsp)
-    const failing = vi
-      .spyOn(fsp, 'rename')
-      .mockImplementation(async (from: PathLike, to: PathLike): Promise<void> => {
-        if (String(from).includes('beta-skill')) throw new Error('the volume went away')
-        return rename(from, to)
-      })
-
-    const done = await mutations.mutate({
-      op: 'move',
-      kind: 'skill',
-      entityId: 'skill:user:beta-skill',
-      summary: 'Trash beta-skill, then rewrite settings',
-      steps: [
-        { type: 'trash', store: 'user', from: 'skills/beta-skill' },
-        { type: 'write', store: 'user', at: 'settings.json', content: '{ "outputStyle": "loud" }' }
-      ]
-    })
-    expect(done.data).toBeNull()
-    failing.mockRestore()
-
-    const listed = await mutations.list()
-    const entry = listed.data.find((row) => !row.isUndo)!
-    expect(entry.failed).toBe(true)
-
-    // The write never ran, so nothing was displaced into the trash. The undo
-    // refuses rather than skipping in silence, and — the invariant — leaves
-    // the store exactly as it found it instead of taking settings.json away.
-    const undone = await mutations.undo(entry.id)
-    expect(undone.data).toBeNull()
-    expect(undone.errors[0]!.message).toContain('emptied')
-    expect(await hashTree(world.userRoot)).toBe(before)
-  })
-
-  it('keeps the written bytes when an emptied trash has nothing to restore', async () => {
-    const done = await mutations.mutate({
-      op: 'move',
-      kind: 'skill',
-      entityId: 'skill:user:settings',
-      summary: 'Rewrite settings',
-      steps: [{ type: 'write', store: 'user', at: 'settings.json', content: '{ "outputStyle": "loud" }' }]
-    })
-    expect(done.errors).toEqual([])
-    await mutations.emptyTrash()
-
-    const result = await mutations.undo(done.data!.id)
-    expect(result.data).toBeNull()
-    expect(result.errors[0]!.message).toContain('emptied')
-    // Worse than not undoing at all would be losing the current bytes too.
-    expect(await fsp.readFile(path.join(world.userRoot, 'settings.json'), 'utf8')).toBe(
-      '{ "outputStyle": "loud" }'
-    )
-  })
-
-  // -------------------------------------------------------------------------
-  // The splice step (ADR-0010)
-
+  // Settings writes are suspended. Historical state is built directly in the
+  // fixture so recovery coverage never bypasses the production restriction.
   const settingsFile = (): string => path.join(world.userRoot, 'settings.json')
   const readSettings = (): Promise<string> => fsp.readFile(settingsFile(), 'utf8')
+  const spliceQuietToLoud = (source: string, expectDigest = digestSource(source)) =>
+    mutations.mutate({ op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user',
+      summary: 'Splice outputStyle', steps: [{ type: 'splice', store: 'user', at: 'settings.json',
+        expectDigest, edits: [{ at: source.indexOf('quiet'), remove: 5, insert: 'loud' }] }] })
+  const expectUnavailable = (result: Awaited<ReturnType<Mutations['mutate']>>) => {
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([expect.objectContaining({ code: 'not-permitted',
+      message: expect.stringContaining('temporarily unavailable') })])
+  }
 
-  const spliceQuietToLoud = async (
-    source: string,
-    expectDigest = digestSource(source)
-  ): Promise<Awaited<ReturnType<Mutations['mutate']>>> =>
-    mutations.mutate({
-      op: 'settings-edit',
-      kind: 'settings',
-      entityId: 'settings:user:user',
-      summary: 'Splice outputStyle',
-      steps: [
-        {
-          type: 'splice',
-          store: 'user',
-          at: 'settings.json',
-          expectDigest,
-          edits: [{ at: source.indexOf('quiet'), remove: 'quiet'.length, insert: 'loud' }]
-        }
-      ]
-    })
-
-  it('changes only the span a splice names, and undoes by inverting it', async () => {
-    const before = await readSettings()
-    const beforeTree = await hashTree(world.userRoot)
-
-    const done = await spliceQuietToLoud(before)
-    expect(done.errors).toEqual([])
-    expect(await readSettings()).toBe(before.replace('quiet', 'loud'))
-
-    const undone = await mutations.undo(done.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(await readSettings()).toBe(before)
-    // The inverse went onto the file's current bytes, and nothing was parked
-    // in the trash to restore from: undo is the edits run backwards.
-    expect(await hashTree(world.userRoot)).toBe(beforeTree)
-    expect((await mutations.trashSize()).data.entryCount).toBe(0)
+  it('retains reversible byte edits without permitting publication', async () => {
+    const source = await readSettings()
+    const edits = [{ at: source.indexOf('quiet'), remove: 5, insert: 'loud' }]
+    const next = applyEdits(source, edits)!
+    expect(next).toBe(source.replace('quiet', 'loud'))
+    expect(applyEdits(next, invertEdits(source, edits)!)).toBe(source)
+    const before = await hashTree(world.base)
+    expectUnavailable(await spliceQuietToLoud(source))
+    expect(await hashTree(world.base)).toBe(before)
   })
 
-  it('syncs and closes temporary contents before publishing, after the journal sync', async () => {
+  it.each(['write', 'splice'] as const)('refuses a %s before any journal or temporary I/O (A2)', async (type) => {
     const source = await readSettings()
-    const events: string[] = []
-    const open = fsp.open.bind(fsp)
-    const rename = fsp.rename.bind(fsp)
-    vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
-      const handle = await open(...args)
-      const temporary = String(args[0]).includes('.kondo-')
-      const sync = handle.sync.bind(handle)
-      vi.spyOn(handle, 'sync').mockImplementation(async () => {
-        await sync()
-        events.push(temporary ? 'temporary synced' : 'journal synced')
-      })
-      if (temporary) {
-        expect(args[1]).toBe('wx')
-        events.push('temporary opened')
-        const close = handle.close.bind(handle)
-        vi.spyOn(handle, 'close').mockImplementation(async () => {
-          await close()
-          events.push('temporary closed')
-        })
-      }
-      return handle
+    // These are the old race/failure phases. None is reachable under refusal.
+    const open = vi.spyOn(fsp, 'open').mockRejectedValue(new Error('journal/temp open must not run'))
+    const write = vi.spyOn(fsp, 'writeFile').mockRejectedValue(new Error('write must not run'))
+    const rename = vi.spyOn(fsp, 'rename').mockRejectedValue(new Error('publication must not run'))
+    const rm = vi.spyOn(fsp, 'rm').mockRejectedValue(new Error('cleanup must not run'))
+    const before = await hashTree(world.base)
+    const result = type === 'splice' ? await spliceQuietToLoud(source) : await mutations.mutate({
+      op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user', summary: 'Write settings',
+      steps: [{ type, store: 'user', at: 'settings.json', content: '{}' }]
     })
-    vi.spyOn(fsp, 'rename').mockImplementation(async (from, to) => {
-      expect(await fsp.readFile(from, 'utf8')).toBe(source.replace('quiet', 'loud'))
-      events.push('rename')
-      await rename(from, to)
-    })
-    expect((await spliceQuietToLoud(source)).errors).toEqual([])
-    expect(events).toEqual([
-      'journal synced', 'temporary opened', 'temporary synced', 'temporary closed', 'rename'
-    ])
-    expect((await fsp.readdir(world.userRoot)).filter((name) => name.includes('.kondo-'))).toEqual([])
-  })
-
-  it.each(['write', 'sync', 'close', 'rename'] as const)(
-    'closes handles and removes temporary bytes after a %s failure',
-    async (failure) => {
-      const source = await readSettings()
-      const open = fsp.open.bind(fsp)
-      let temporaryHandle: Awaited<ReturnType<typeof fsp.open>> | undefined
-      vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
-        const handle = await open(...args)
-        if (String(args[0]).includes('.kondo-')) {
-          temporaryHandle = handle
-          if (failure === 'write') {
-            const write = handle.writeFile.bind(handle)
-            vi.spyOn(handle, 'writeFile').mockImplementationOnce(async () => {
-              // Create real partial contents before the simulated I/O failure.
-              await write('partial', 'utf8')
-              throw new Error('temporary write failed')
-            })
-          } else if (failure === 'sync') {
-            vi.spyOn(handle, 'sync').mockRejectedValueOnce(new Error('temporary sync failed'))
-          } else if (failure === 'close') {
-            vi.spyOn(handle, 'close').mockRejectedValueOnce(new Error('temporary close failed'))
-          }
-        }
-        return handle
-      })
-      const rename = vi.spyOn(fsp, 'rename')
-      if (failure === 'rename') rename.mockRejectedValueOnce(new Error('temporary rename failed'))
-
-      const result = await spliceQuietToLoud(source)
-      expect(result.data).toBeNull()
-      expect(result.errors[0]!.message).toContain(`temporary ${failure} failed`)
-      expect(temporaryHandle).toBeDefined()
-      expect(temporaryHandle!.fd).toBe(-1)
-      expect(await readSettings()).toBe(source)
-      expect((await fsp.readdir(world.userRoot)).filter((name) => name.includes('.kondo-'))).toEqual([])
-      if (failure !== 'rename') expect(rename).not.toHaveBeenCalled()
-      const failed = (await mutations.list()).data[0]!
-      expect(failed.failed).toBe(true)
-      // The failed splice has no effect to reverse.
-      expect((await mutations.undo(failed.id)).errors).toEqual([])
-      expect(await readSettings()).toBe(source)
-    }
-  )
-
-  it('keeps the write error when temporary cleanup also fails', async () => {
-    const source = await readSettings()
-    const open = fsp.open.bind(fsp)
-    let temporaryHandle: Awaited<ReturnType<typeof fsp.open>> | undefined
-    vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
-      const handle = await open(...args)
-      if (String(args[0]).includes('.kondo-')) {
-        temporaryHandle = handle
-        const write = handle.writeFile.bind(handle)
-        vi.spyOn(handle, 'writeFile').mockImplementationOnce(async () => {
-          await write('partial', 'utf8')
-          throw new Error('original write failure')
-        })
-      }
-      return handle
-    })
-    const rm = vi.spyOn(fsp, 'rm').mockRejectedValueOnce(new Error('cleanup failure'))
-    const result = await spliceQuietToLoud(source)
-    expect(result.errors[0]!.message).toContain('original write failure')
-    expect(result.errors[0]!.message).not.toContain('cleanup failure')
-    expect(temporaryHandle!.fd).toBe(-1)
-    expect(rm).toHaveBeenCalledOnce()
-    expect(await readSettings()).toBe(source)
-    // Cleanup cannot promise removal when the filesystem refuses it.
-    expect((await fsp.readdir(world.userRoot)).filter((name) => name.includes('.kondo-'))).toHaveLength(1)
-  })
-
-  it('does not remove an existing temporary file when exclusive open fails', async () => {
-    const source = await readSettings()
-    const open = fsp.open.bind(fsp)
-    let collision = ''
-    vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
-      if (String(args[0]).includes('.kondo-')) {
-        collision = String(args[0])
-        await fsp.writeFile(collision, 'someone else owns this')
-      }
-      return open(...args)
-    })
-    const rm = vi.spyOn(fsp, 'rm')
-    expect((await spliceQuietToLoud(source)).data).toBeNull()
-    expect(await fsp.readFile(collision, 'utf8')).toBe('someone else owns this')
+    expectUnavailable(result)
+    expect(open).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+    expect(rename).not.toHaveBeenCalled()
     expect(rm).not.toHaveBeenCalled()
-    expect(await readSettings()).toBe(source)
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await mutations.list()).data).toEqual([])
   })
 
-  it.for(['file', 'directory'] as const)('preserves an in-store %s link through splice and undo', async (kind, ctx) => {
+  it.each(['write', 'splice'] as const)('refuses missing %s targets without creating ancestors', async (type) => {
+    const before = await hashTree(world.base)
+    const result = await mutations.mutate({ op: 'settings-edit', kind: 'settings',
+      entityId: 'settings:user:user', summary: 'Create missing settings',
+      steps: [type === 'write'
+        ? { type, store: 'user', at: 'new/nested/settings.json', content: '{}' }
+        : { type, store: 'user', at: 'new/nested/settings.json', expectDigest: digestSource('{}'), edits: [] }]
+    })
+    expectUnavailable(result)
+    expect(await hashTree(world.base)).toBe(before)
+    expect(await exists(path.join(world.userRoot, 'new'))).toBe(false)
+  })
+
+  it.each(['write', 'splice'] as const)('refuses the whole mixed %s plan before a move or preflight', async (type) => {
     const source = await readSettings()
+    const settingsStep = type === 'write'
+      ? { type, store: 'user', at: 'settings.json', content: '{}' }
+      : { type, store: 'user', at: 'settings.json', expectDigest: digestSource(source), edits: [] }
+    const move = { type: 'move' as const, store: 'user', from: 'skills/alpha-skill', to: 'skills/moved' }
+    const before = await hashTree(world.base)
+    const preflight = vi.fn(async () => null)
+    for (const steps of [[move, settingsStep], [settingsStep, move]]) {
+      expectUnavailable(await mutations.mutate({ op: 'move', kind: 'skill',
+        entityId: 'skill:user:alpha-skill', summary: 'Mixed move and settings edit', steps, preflight }))
+    }
+    expect(preflight).not.toHaveBeenCalled()
+    expect(await hashTree(world.base)).toBe(before)
+  })
+
+  it.each(['planning', 'preflight'] as const)('refuses settings steps appended during %s before journaling', async (phase) => {
+    const plan: MutationPlan = { op: 'move', kind: 'skill', entityId: 'skill:user:alpha-skill',
+      summary: 'Mutable internal request', steps: [{ type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills/moved' }] }
+    let appended = false
+    const append = () => {
+      if (appended) return
+      appended = true
+      plan.steps.push({ type: 'write', store: 'user', at: 'settings.json', content: '{}' })
+    }
+    if (phase === 'preflight') plan.preflight = async () => { append(); return null }
+    else {
+      const lstat = fsp.lstat.bind(fsp)
+      vi.spyOn(fsp, 'lstat').mockImplementation(async (...args: Parameters<typeof fsp.lstat>) => {
+        const info = await lstat(...args)
+        append()
+        return info
+      })
+    }
+    const before = await hashTree(world.base)
+    // Hashing must precede the watched planning seam.
+    appended = false
+    if (plan.steps.length > 1) plan.steps.pop()
+    expectUnavailable(await mutations.mutate(plan))
+    expect(appended).toBe(true)
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await mutations.list()).data).toEqual([])
+  })
+
+  it('retains unrelated history read errors alongside the settings refusal', async () => {
+    const historical = await settingsHistory(world)
+    const journal = path.join(world.kondoDataRoot, 'journal.jsonl')
+    await fsp.appendFile(journal, 'broken history line\n')
+    const before = await hashTree(world.base)
+    const result = await mutations.undo(historical.id)
+    expect(result.data).toBeNull()
+    expect(result.errors.map((error) => error.code)).toEqual(['parse-failed', 'not-permitted'])
+    expect(await hashTree(world.base)).toBe(before)
+  })
+
+  it.each(['in-place', 'atomic'] as const)('preserves a queued external %s write and permits the unrelated move and Undo', async (mode) => {
+    const source = await readSettings()
+    let release!: () => void
+    let entered!: () => void
+    const paused = new Promise<void>((resolve) => { release = resolve })
+    const ready = new Promise<void>((resolve) => { entered = resolve })
+    const moving = mutations.mutate({ op: 'move', kind: 'skill', entityId: 'skill:user:alpha-skill',
+      summary: 'Unrelated move', steps: [{ type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills/moved' }],
+      preflight: async () => { entered(); await paused; return null } })
+    await ready
+    const denied = spliceQuietToLoud(source)
+    const external = '{ "outputStyle": "external", "other": 999 }\n'
+    try {
+      if (mode === 'atomic') {
+        const temp = settingsFile() + '.external'
+        await fsp.writeFile(temp, external)
+        await fsp.rename(temp, settingsFile())
+      } else await fsp.writeFile(settingsFile(), external)
+    } finally { release() }
+    const moved = await moving
+    expect(moved.errors).toEqual([])
+    expectUnavailable(await denied)
+    expect(await readSettings()).toBe(external)
+    expect((await mutations.list()).data).toHaveLength(1)
+    expect((await mutations.undo(moved.data!.id)).errors).toEqual([])
+    expect(await readSettings()).toBe(external)
+    expect(await exists(path.join(world.userRoot, 'skills/alpha-skill'))).toBe(true)
+  })
+
+  it.each(['write', 'splice'] as const)('retains historical %s recovery and leaves retries unrecorded', async (type) => {
+    const historical = await settingsHistory(world, type)
+    const before = await hashTree(world.base)
+    const listed = await mutations.list()
+    expect(listed.data[0]).toMatchObject({ id: historical.id, undoneBy: null, failed: false })
+    for (let retry = 0; retry < 3; retry++) expectUnavailable(await mutations.undo(historical.id))
+    expect(await hashTree(world.base)).toBe(before)
+    expect(await mutations.list()).toEqual(listed)
+  })
+
+  it.each(['write', 'splice'] as const)('refuses historical %s Undo before publication after an external write during history read (A2)', async (type) => {
+    const historical = await settingsHistory(world, type)
+    const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const journal = await fsp.readFile(journalFile, 'utf8')
+    const external = '{ "outputStyle": "external", "other": 999 }\n'
+    const readFile = fsp.readFile.bind(fsp)
+    let injected = false
+    vi.spyOn(fsp, 'readFile').mockImplementation(async (...args: Parameters<typeof fsp.readFile>) => {
+      const bytes = await readFile(...args)
+      if (String(args[0]) === journalFile && !injected) {
+        injected = true
+        const candidate = settingsFile() + '.external'
+        await fsp.writeFile(candidate, external)
+        await fsp.rename(candidate, settingsFile())
+      }
+      return bytes
+    })
+    const open = vi.spyOn(fsp, 'open')
+    expectUnavailable(await mutations.undo(historical.id))
+    expect(injected).toBe(true)
+    expect(open).not.toHaveBeenCalled()
+    expect(await readSettings()).toBe(external)
+    expect(await fsp.readFile(journalFile, 'utf8')).toBe(journal)
+    expect((await mutations.list()).data[0]?.undoneBy).toBeNull()
+  })
+
+  it.each(['not-run', 'partial', 'emptied'] as const)('leaves a historical %s settings operation intact on Undo refusal', async (phase) => {
+    const historical = await settingsHistory(world, 'write')
+    if (phase === 'not-run') {
+      await fsp.writeFile(settingsFile(), historical.source)
+      await fsp.rm(path.join(world.kondoDataRoot, 'trash'), { recursive: true })
+    } else if (phase === 'partial') {
+      const kept = path.join(world.kondoDataRoot, 'trash/fixture-settings/user/skills/beta-skill')
+      await fsp.mkdir(path.dirname(kept), { recursive: true })
+      await fsp.rename(path.join(world.userRoot, 'skills/beta-skill'), kept)
+      const record = { ...historical.record, steps: [
+        { type: 'trash', store: 'user', from: 'skills/beta-skill', displaced: 'user/skills/beta-skill' },
+        ...historical.record.steps] }
+      await fsp.writeFile(path.join(world.kondoDataRoot, 'journal.jsonl'),
+        JSON.stringify(record) + '\n' + JSON.stringify({ ...record, id: 'fixture-failure', steps: [], failedOf: record.id }) + '\n')
+    } else await mutations.emptyTrash()
+    const before = await hashTree(world.base)
+    expectUnavailable(await mutations.undo(historical.id))
+    expect(await hashTree(world.base)).toBe(before)
+    if (phase === 'partial') expect((await mutations.list()).data[0]?.failed).toBe(true)
+  })
+
+  it('does not clean up an old temporary sibling or existing recovery bytes on refusal', async () => {
+    const historical = await settingsHistory(world)
+    const temporary = settingsFile() + '.kondo-old-attempt'
+    await fsp.writeFile(temporary, 'unclassified recovery bytes')
+    const before = await hashTree(world.base)
+    expectUnavailable(await spliceQuietToLoud(historical.source))
+    expectUnavailable(await mutations.undo(historical.id))
+    expect(await hashTree(world.base)).toBe(before)
+  })
+
+  it.for(['file', 'directory'] as const)('preserves an in-store %s link and referent through refused apply and Undo', async (kind, ctx) => {
+    const historical = await settingsHistory(world)
     const backing = path.join(world.userRoot, 'backing')
     await fsp.mkdir(backing)
     await fsp.rename(settingsFile(), path.join(backing, 'settings.json'))
     const link = kind === 'file' ? settingsFile() : path.join(world.userRoot, 'linked')
     const referent = kind === 'file' ? path.join(backing, 'settings.json') : backing
-    try {
-      await fsp.symlink(referent, link, kind === 'file' ? 'file' : process.platform === 'win32' ? 'junction' : 'dir')
-    } catch (cause) {
-      if (['EPERM', 'EACCES', 'ENOSYS'].includes((cause as NodeJS.ErrnoException).code ?? '')) {
-        ctx.skip(`Platform cannot create ${kind} symlink: ${String(cause)}`)
-      }
+    try { await fsp.symlink(referent, link, kind === 'file' ? 'file' : process.platform === 'win32' ? 'junction' : 'dir') }
+    catch (cause) {
+      if (['EPERM', 'EACCES', 'ENOSYS'].includes((cause as NodeJS.ErrnoException).code ?? '')) ctx.skip('Fixture symlink unavailable')
       throw cause
     }
     const originalLink = await fsp.readlink(link)
-    const done = kind === 'file' ? await spliceQuietToLoud(source) : await mutations.mutate({
-      op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user', summary: 'Splice linked settings',
-      steps: [{ type: 'splice', store: 'user', at: 'linked/settings.json', expectDigest: digestSource(source),
-        edits: [{ at: source.indexOf('quiet'), remove: 5, insert: 'loud' }] }]
-    })
-    expect(done.errors).toEqual([])
-    expect(await fsp.readFile(path.join(backing, 'settings.json'), 'utf8')).toBe(source.replace('quiet', 'loud'))
-    expect((await fsp.lstat(link)).isSymbolicLink()).toBe(true)
-    expect(await fsp.readlink(link)).toBe(originalLink)
-    expect((await mutations.undo(done.data!.id)).errors).toEqual([])
-    expect(await fsp.readFile(path.join(backing, 'settings.json'), 'utf8')).toBe(source)
+    expectUnavailable(await mutations.mutate({ op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user',
+      summary: 'Linked settings', steps: [{ type: 'splice', store: 'user', at: kind === 'file' ? 'settings.json' : 'linked/settings.json',
+        expectDigest: digestSource(historical.next), edits: [] }] }))
+    expectUnavailable(await mutations.undo(historical.id))
+    expect(await fsp.readFile(path.join(backing, 'settings.json'), 'utf8')).toBe(historical.next)
     expect((await fsp.lstat(link)).isSymbolicLink()).toBe(true)
     expect(await fsp.readlink(link)).toBe(originalLink)
     expect(await fsp.readdir(backing)).toEqual(['settings.json'])
   })
 
-  it('still refuses an absent splice and creates an ordinary missing write destination', async () => {
+  it('refuses stale settings without requiring a digest or a successful filesystem read', async () => {
     const source = await readSettings()
-    await fsp.rm(settingsFile())
-    const missing = await spliceQuietToLoud(source)
-    expect(missing.errors[0]!.code).toBe('read-failed')
-    expect(missing.errors[0]!.message).toContain('Nothing to splice')
-    const done = await mutations.mutate({
-      op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user', summary: 'Create nested fixture',
-      steps: [{ type: 'write', store: 'user', at: 'new/nested/settings.json', content: source }]
-    })
-    expect(done.errors).toEqual([])
-    expect(await fsp.readFile(path.join(world.userRoot, 'new/nested/settings.json'), 'utf8')).toBe(source)
-    expect((await mutations.undo(done.data!.id)).errors).toEqual([])
-    expect(await exists(path.join(world.userRoot, 'new'))).toBe(false)
-  })
-
-  it('refuses a splice whose file has moved on, writing nothing at all', async () => {
-    const before = await readSettings()
-    const beforeTree = await hashTree(world.userRoot)
-
-    const result = await spliceQuietToLoud(before, digestSource('{}\n'))
-    expect(result.data).toBeNull()
-    expect(result.errors.map((error) => error.code)).toContain('stale-file')
-    expect(await hashTree(world.userRoot)).toBe(beforeTree)
-    // Refused before the journal, so there is no entry claiming it happened.
-    expect(await exists(path.join(world.kondoDataRoot, 'journal.jsonl'))).toBe(false)
-  })
-
-  it('refuses to undo a splice onto bytes something else has since written', async () => {
-    const done = await spliceQuietToLoud(await readSettings())
-    expect(done.errors).toEqual([])
-
-    // Claude, mid-session, rewriting the same file.
-    const theirs = '{\n  "outputStyle": "loud",\n  "theme": "dark"\n}\n'
-    await fsp.writeFile(settingsFile(), theirs, 'utf8')
-
-    const undone = await mutations.undo(done.data!.id)
-    expect(undone.data).toBeNull()
-    expect(undone.errors.map((error) => error.code)).toContain('stale-file')
-    // The whole point: their bytes are still there.
-    expect(await readSettings()).toBe(theirs)
+    const before = await hashTree(world.base)
+    const read = vi.spyOn(fsp, 'readFile').mockRejectedValue(new Error('fixture read failure'))
+    expectUnavailable(await spliceQuietToLoud(source, digestSource('{}')))
+    expect(read).not.toHaveBeenCalled()
+    read.mockRestore()
+    expect(await hashTree(world.base)).toBe(before)
   })
 
   it('holds the user-config store to the one file it is (ADR-0003)', async () => {
@@ -604,11 +570,9 @@ describe('mutation safety invariants (ADR-0001)', () => {
       summary: 'Reach past the registry',
       steps: [
         {
-          type: 'splice',
+          type: 'trash',
           store: 'user-config',
-          at: '.bashrc',
-          expectDigest: digestSource('{}\n'),
-          edits: []
+          from: '.bashrc'
         }
       ]
     })
@@ -627,21 +591,20 @@ describe('mutation safety invariants (ADR-0001)', () => {
         op: 'move',
         kind: 'skill',
         entityId: 'skill:user:alpha-skill',
-        summary: 'A sweep across every step kind',
+        summary: 'A sweep across available step kinds',
         steps: [
           { type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills.disabled/alpha-skill' },
-          { type: 'trash', store: 'user', from: 'skills/beta-skill' },
-          { type: 'write', store: 'user', at: 'settings.json', content: '{}' },
-          {
-            type: 'splice',
-            store: 'user-config',
-            at: path.basename(world.locator.userConfigFile),
-            expectDigest: digestSource(registry),
-            edits: [{ at: registry.indexOf('41'), remove: 2, insert: '42' }]
-          }
+          { type: 'copy', store: 'user', from: 'skills/beta-skill', toStore: 'user', to: 'copies/beta-skill' },
+          { type: 'trash', store: 'user', from: 'skills/beta-skill' }
         ]
       })
-      await mutations.undo(done.data!.id)
+      expect(done.errors).toEqual([])
+      expect((await mutations.undo(done.data!.id)).errors).toEqual([])
+      const refused = await mutations.mutate({ op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user',
+        summary: 'Refused registry splice', steps: [{ type: 'splice', store: 'user-config',
+          at: path.basename(world.locator.userConfigFile), expectDigest: digestSource(registry), edits: [] }] })
+      expectUnavailable(refused)
+
       await mutations.list()
       await mutations.trashSize()
     } finally {
@@ -657,15 +620,10 @@ describe('mutation safety invariants (ADR-0001)', () => {
       const allowed =
         inside(target, world.userRoot) ||
         inside(target, world.desktopRoot) ||
-        inside(target, world.kondoDataRoot) ||
-        // The registry, and the temporary sibling a splice replaces it
-        // through — it has to share a filesystem with the file, so it lives
-        // beside it and is renamed or removed within the step (ADR-0010).
-        target.startsWith(world.locator.userConfigFile)
+        inside(target, world.kondoDataRoot)
       expect(allowed, `escaped the write boundary: ${target}`).toBe(true)
     }
-    // And the temporary is gone: nothing kondo wrote outlives the step but
-    // the registry itself.
+    // Refused settings writes never create a temporary sibling.
     expect(
       (await fsp.readdir(world.home)).filter((name) => name.includes('.kondo-'))
     ).toEqual([])
@@ -817,44 +775,29 @@ describe('mutation safety invariants (ADR-0001)', () => {
   })
 
   it('keeps historical optional fields and extra metadata compatible across all step kinds', async () => {
-    await writeFileTree(world.userRoot, { 'other-settings.json': '{ "mode": "quiet" }' })
-    const before = await hashTree(world.userRoot)
-    const source = await fsp.readFile(path.join(world.userRoot, 'other-settings.json'), 'utf8')
-    const done = await mutations.mutate({
-      op: 'move', kind: 'skill', entityId: 'skill:user:alpha-skill', summary: 'Historical mixed entry',
-      steps: [
-        { type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills/moved-skill' },
-        { type: 'copy', store: 'user', from: 'skills/beta-skill', toStore: 'user', to: 'skills/copied-skill' },
-        { type: 'trash', store: 'user', from: 'skills/beta-skill' },
-        { type: 'write', store: 'user', at: 'settings.json', content: '{}' },
-        { type: 'write', store: 'user', at: 'new-settings.json', content: '{}' },
-        {
-          type: 'splice', store: 'user', at: 'other-settings.json', expectDigest: digestSource(source),
-          edits: [{ at: source.indexOf('quiet'), remove: 5, insert: 'loud' }]
-        }
-      ]
-    })
-    expect(done.errors).toEqual([])
+    const historical = await settingsHistory(world)
     const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
-    const record = JSON.parse(await fsp.readFile(journalFile, 'utf8')) as {
-      steps: Array<Record<string, unknown>>
-    }
-    for (const step of record.steps) delete step.created
-    await fsp.writeFile(journalFile, JSON.stringify({ ...record, extraMetadata: 'preserved' }) + '\n')
-
-    const undone = await mutations.undo(done.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(await hashTree(world.userRoot)).toBe(before)
+    const record = { ...historical.record, extraMetadata: 'preserved', steps: [
+      { type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills/moved-skill' },
+      { type: 'copy', store: 'user', from: 'skills/beta-skill', toStore: 'user', to: 'skills/copied-skill' },
+      { type: 'trash', store: 'user', from: 'skills/beta-skill', displaced: 'user/skills/beta-skill' },
+      { type: 'write', store: 'user', from: 'settings.json' },
+      ...historical.record.steps
+    ] }
+    await fsp.writeFile(journalFile, JSON.stringify(record) + '\n')
+    const before = await hashTree(world.base)
     const listed = await mutations.list()
     expect(listed.errors).toEqual([])
-    expect(listed.data[0]?.isUndo).toBe(true)
-    expect(listed.data[1]?.undoneBy).toBe(undone.data!.id)
+    expect(listed.data[0]).toMatchObject({ id: historical.id, stepCount: 5, undoneBy: null })
+    expectUnavailable(await mutations.undo(historical.id))
+    expect(await hashTree(world.base)).toBe(before)
+    expect(await mutations.list()).toEqual(listed)
   })
 
   it('does not repeat a completed undo when its journal summary becomes corrupt', async () => {
     const done = await mutations.mutate({
-      op: 'settings-edit', kind: 'settings', entityId: 'settings:user:user', summary: 'Write settings',
-      steps: [{ type: 'write', store: 'user', at: 'settings.json', content: '{}' }]
+      op: 'trash', kind: 'skill', entityId: 'skill:user:alpha-skill', summary: 'Trash alpha-skill',
+      steps: [{ type: 'trash', store: 'user', from: 'skills/alpha-skill' }]
     })
     const undone = await mutations.undo(done.data!.id)
     expect(undone.errors).toEqual([])
@@ -911,12 +854,14 @@ describe('mutation safety invariants (ADR-0001)', () => {
   })
 
   it('follows a damaged marker failure link to the operation its undo could not finish', async () => {
-    const done = await spliceQuietToLoud(await readSettings())
+    const historical = await settingsHistory(world)
+    const done = { data: { id: historical.id } }
     await fsp.writeFile(settingsFile(), '{ "theme": "a later edit" }')
-    expect((await mutations.undo(done.data!.id)).errors[0]?.code).toBe('stale-file')
     const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
-    const records = (await fsp.readFile(journalFile, 'utf8')).trim().split('\n')
-      .map((line) => JSON.parse(line) as Record<string, unknown>)
+    const undo = { ...historical.record, id: 'fixture-undo', undoOf: historical.record.id, steps: [] }
+    const failure = { ...undo, id: 'fixture-undo-failure', failedOf: undo.id }
+    const records: Array<Record<string, unknown>> = [historical.record, undo, failure]
+
     // Only failedOf remains readable: it names the undo, whose valid entry
     // still identifies the original operation that must stay protected.
     records[2]!.summary = null
@@ -1095,90 +1040,52 @@ describe('configuration orphans (ADR-0010)', () => {
     expect(plugins.data.find((row) => row.id === 'plugin:alpha@acme')?.installed).toBe(true)
   })
 
-  it('splices a dead registry entry out and leaves every other byte alone', async () => {
-    const before = await readRegistry()
-    const result = await api.configOrphansRemove([await orphan('project-entry', slashed(dead))])
-    expect(result.errors).toEqual([])
-    expect(result.data?.stepCount).toBe(1)
-
-    const after = await readRegistry()
-    // The whole member and the comma that joined it to the live entry, and
-    // not one byte more: every other key keeps its place and its spacing.
-    const live_end = '{ "allowedTools": [] }'
-    expect(after).toBe(
-      before.slice(0, before.indexOf(live_end) + live_end.length) +
-        before.slice(before.indexOf('\n  },\n  "mcpServers"'))
-    )
-    expect(JSON.parse(after)).toMatchObject({ numStartups: 41 })
-
-    const undone = await api.journalUndo(result.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(await readRegistry()).toBe(before)
-  })
-
-  it('removes two adjacent members of one object in one step', async () => {
-    const result = await api.configOrphansRemove([
-      await orphan('enabled-plugin', 'ghost@acme'),
-      await orphan('enabled-plugin', 'phantom@acme')
-    ])
-    expect(result.errors).toEqual([])
-    expect(await readSettings()).toBe(
-      USER_SETTINGS.replace(
-        '        "alpha@acme": true,\n        "ghost@acme": true,\n        "phantom@acme": false\n',
-        '        "alpha@acme": true\n'
-      )
-    )
-
-    const undone = await api.journalUndo(result.data!.id)
-    expect(undone.errors).toEqual([])
+  it.each([
+    ['project-entry'],
+    ['enabled-plugin', 'enabled-plugin'],
+    ['project-entry', 'mcp-declaration'],
+    ['project-entry', 'skill-override']
+  ])('refuses settings leftovers %j without changing any selected file or history', async (...kinds) => {
+    const names: Record<string, string[]> = { 'project-entry': [slashed(dead)],
+      'enabled-plugin': ['ghost@acme', 'phantom@acme'], 'mcp-declaration': ['ghost-server'],
+      'skill-override': ['vanished-skill'] }
+    const ids: string[] = []
+    for (const kind of kinds) ids.push(await orphan(kind, names[kind]!.shift()!))
+    const before = await hashTree(world.base)
+    const result = await api.configOrphansRemove(ids)
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([expect.objectContaining({ code: 'not-permitted',
+      message: expect.stringContaining('temporarily unavailable') })])
+    expect(await hashTree(world.base)).toBe(before)
     expect(await readSettings()).toBe(USER_SETTINGS)
+    expect((await api.journalList()).data).toEqual([])
   })
 
-  it('takes a project entry and its declaration out as one member, not two', async () => {
-    const result = await api.configOrphansRemove([
-      await orphan('project-entry', slashed(dead)),
-      await orphan('mcp-declaration', 'ghost-server')
-    ])
-    expect(result.errors).toEqual([])
-    // One step over one file: the wider member covered the narrower one.
-    expect(result.data?.stepCount).toBe(1)
-    expect(await readRegistry()).not.toContain('ghost-server')
-    expect(await readRegistry()).toContain('"keeper"')
-  })
-
-  it('spans two files in one journal entry, so one undo puts both back', async () => {
-    const registry = await readRegistry()
-    const settings = await readSettings()
-
-    const result = await api.configOrphansRemove([
-      await orphan('project-entry', slashed(dead)),
-      await orphan('skill-override', 'vanished-skill')
-    ])
-    expect(result.errors).toEqual([])
-    expect(result.data?.stepCount).toBe(2)
-    expect(await readRegistry()).not.toBe(registry)
-    expect(await readSettings()).not.toBe(settings)
-
-    const undone = await api.journalUndo(result.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(await readRegistry()).toBe(registry)
-    expect(await readSettings()).toBe(settings)
-  })
-
-  it('refuses to undo onto a registry Claude has since rewritten', async () => {
-    const result = await api.configOrphansRemove([await orphan('project-entry', slashed(dead))])
-    expect(result.errors).toEqual([])
-
-    // Claude, mid-session, writing the same 2 MB file (ADR-0009).
-    const theirs = (await readRegistry()).replace('"numStartups": 41', '"numStartups": 42')
-    await fsp.writeFile(world.locator.userConfigFile, theirs, 'utf8')
-
-    const undone = await api.journalUndo(result.data!.id)
-    expect(undone.data).toBeNull()
-    expect(undone.errors.map((error) => error.code)).toContain('stale-file')
-    // Their bytes stand. The entry stays in the journal, honest about why it
-    // could not be reversed rather than reversing onto bytes it never saw.
+  it('refuses historical registry Undo while preserving Claude updates and its inverse edits', async () => {
+    const source = await readRegistry()
+    const at = source.indexOf('41')
+    const next = source.slice(0, at) + '42' + source.slice(at + 2)
+    const rawId = 'f1111111-1111-4111-8111-111111111111'
+    const record = { id: rawId, at: '2026-09-01T00:00:00.000Z', op: 'settings-edit', kind: 'settings',
+      entityId: 'settings:user:user', summary: 'Historical registry edit', undoOf: null,
+      steps: [{ type: 'splice', store: 'user-config', from: path.basename(world.locator.userConfigFile),
+        expectDigest: digestSource(source), resultDigest: digestSource(next),
+        edits: [{ at, remove: 2, insert: '42' }], undoEdits: [{ at, remove: 2, insert: '41' }] }] }
+    await writeFileTree(world.kondoDataRoot, { 'journal.jsonl': JSON.stringify(record) + '\n' })
+    const theirs = next.replace('"numStartups": 42', '"numStartups": 99')
+    await fsp.writeFile(world.locator.userConfigFile, theirs)
+    const before = await hashTree(world.base)
+    const listed = await api.journalList()
+    expect(listed.errors).toEqual([])
+    expect(listed.data).toHaveLength(1)
+    for (let retry = 0; retry < 2; retry++) {
+      const undone = await api.journalUndo(listed.data[0]!.id)
+      expect(undone.data).toBeNull()
+      expect(undone.errors.map((error) => error.code)).toEqual(['not-permitted'])
+    }
+    expect(await hashTree(world.base)).toBe(before)
     expect(await readRegistry()).toBe(theirs)
+    expect(await api.journalList()).toEqual(listed)
   })
 
   it('reports an id the current scan does not hold rather than guessing', async () => {

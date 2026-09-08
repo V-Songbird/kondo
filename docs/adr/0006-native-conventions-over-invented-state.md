@@ -1,5 +1,17 @@
 # Native conventions over invented state
 
+**Current execution amendment (098):** the settings conventions and historical
+implementations below remain useful for reading and planning. Their execution
+is temporarily suspended on every platform by
+[ADR-0010](0010-splice-config-files-never-whole-file-writes.md): any plan
+containing a `write` or `splice`, including creation of a missing layer, refuses
+whole before journal or filesystem effects. Historical Undo containing either
+step also refuses whole and retains its history and recovery bytes. A native
+convention and a digest check do not establish safe replacement in the presence
+of another writer. This applies to settings-based skill, plugin and MCP
+toggles, plugin clearing and scope moves, and skill moves that edit settings.
+Unrelated file moves and their Undo retain their existing checks.
+
 Kondo could track "disabled" skills and plugins in its own database and
 manipulate stores accordingly. But Claude already has conventions:
 `~/.claude/skills.disabled/` (a skill moved there stops loading — observed in

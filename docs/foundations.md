@@ -90,8 +90,9 @@ entity through the kind registry. Structure:
   cannot, and the same kind is writable in one scope and read-only in
   another. Rows combine Claude's native conventions (ADR-0006) with Kondo's
   implementation limits. A row saying `allowed` is a precondition for a plan
-  builder, not proof one exists. An unrecognized
-  scope refuses every operation rather than throwing (ADR-0005).
+  builder, not proof one exists or can currently execute. The mutation layer
+  independently refuses every settings write/splice plan under 098.
+  An unrecognized scope refuses every operation rather than throwing (ADR-0005).
   Hook rows deny enable, disable, move and trash in user/project/local layers;
   `kinds.hook.plan` returns that refusal without building mutation steps.
   The hook display projection flattens groups and truncates commands, so it
@@ -110,10 +111,16 @@ entity through the kind registry. Structure:
 - **`analysis.ts`** — staleness (`STALE_AFTER_DAYS`, `isStale`), a pure
   function over scanned data. Orphan-sidecar detection lives in
   `sessions.ts`; duplicate logic does not exist yet (ROADMAP).
-- **`mutations.ts`** — the write path (ADR-0001): `mutate(plan)` journals,
-  then runs `move` / `copy` / `trash` / `write` steps; `undo` reverses an
-  entry; `emptyTrash` is the one unlink. Store roots are `user` and
-  `desktop` from the locator, plus any `project:<flat>` root the workspace
+- **`mutations.ts`** — the write path (ADR-0001): `mutate(plan)` currently
+  refuses any plan containing `write` or `splice` on every platform, before
+  step preparation, journaling or filesystem effects (098, ADR-0010). This
+  includes missing-file creation and mixed plans. Permitted plans are
+  journaled before their `move` / `copy` / `trash` steps run. `undo` likewise
+  refuses historical entries containing `write` or `splice` before effects,
+  preserving existing history, inverse edits and recovery bytes; other entries
+  retain the existing reversal checks. `emptyTrash` is the one unlink.
+  Store roots are `user` and `desktop` from the locator, plus any
+  `project:<flat>` root the workspace
   resolves to a verified project's `.claude` through the `extraRoot`
   callback — never the project itself (ADR-0002).
   `relocation.ts` preserves physical link entries through trash and undo;
@@ -194,13 +201,13 @@ operation lookup rather than a boolean. The snapshot-cache, error-isolation
 and id-allow-list skeleton stayed exactly as it was — that skeleton is the
 part proven by skilldex; the registry is where kondo goes one level up.
 
-Where the write path stands (v0.2):
+Historical write-path structure (v0.2; settings execution is now suspended under 098):
 
 - **Three mutations are wired.** The skill toggle fills the `skill` entry's
   `enable` / `disable` seats. The skill move (`skillMovePlan`) and the plugin
   toggle (`pluginTogglePlan`) sit *beside* the registry as standalone
   planners, because the seat's shape — `enable(entity)` — cannot carry the
-  destination a move needs or the settings layer a plugin toggle writes.
+  destination a move needs or the settings layer a plugin toggle plans to edit.
   Every other entry spreads `noPlanYet`. That divergence is the registry's
   open design question: the vision's next kinds (MCP servers, agents,
   commands, rules) each need a toggle and a move, and each as a standalone

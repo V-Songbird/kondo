@@ -7,6 +7,7 @@ import type {
   PluginScopeState,
   ToggleOperation
 } from '../shared/contract'
+import { digestSource } from '../electron/main/workspace/mutations'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   exists,
@@ -23,18 +24,17 @@ import {
 } from './helpers'
 
 /**
- * Enable and disable a plugin through Claude's own convention (ADR-0006):
- * the `enabledPlugins` key of one settings layer, edited in place so the
- * file's other keys and its formatting survive byte-for-byte, journaled
- * first and therefore reversible (ADR-0001).
+ * Settings planning and discovery remain available, but entry 098 refuses
+ * apply and historical Undo before changing any fixture files or journal.
  */
+
+const SETTINGS_REFUSAL = 'Settings changes are temporarily unavailable because Kondo cannot safely exclude concurrent Claude writes. No files were changed.'
 
 const ALPHA = 'plugin:alpha@acme'
 const GAMMA = 'plugin:gamma@acme'
 const USER_LAYER = 'settings:user:user'
 
-// Four-space indent, a key before and a key after, and a nested object: any
-// reserialize would visibly rewrite this, so equality proves the splice.
+// Non-default formatting makes accidental settings rewrites visible.
 const USER_SETTINGS = `{
     "theme": "dark",
     "env": {
@@ -107,58 +107,50 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
   })
 
   // -------------------------------------------------------------------------
-  // The edit touches enabledPlugins and nothing else
+  // Refusal leaves the entire fixture unchanged
 
-  it('flips one value and leaves every other byte of the file alone', async () => {
-    const before = await readUserSettings()
+  it('refuses an existing plugin toggle without changing any fixture bytes', async () => {
+    const before = await hashTree(world.base)
     const result = await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
-    expect(result.errors).toEqual([])
-    expect(result.data?.op).toBe('settings-edit')
-
-    expect(await readUserSettings()).toBe(
-      before.replace('"alpha@acme": true', '"alpha@acme": false')
-    )
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
-  it('inserts a plugin the layer never mentioned, in the file own indentation', async () => {
-    const before = await readUserSettings()
+  it('refuses inserting an unmentioned plugin without creating history', async () => {
+    const before = await hashTree(world.base)
     const result = await api.pluginToggle(GAMMA, USER_LAYER, 'enable')
-    expect(result.errors).toEqual([])
-
-    expect(await readUserSettings()).toBe(
-      before.replace(
-        '"beta@acme": false',
-        '"beta@acme": false,\n        "gamma@acme": true'
-      )
-    )
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
-  it('keeps every unrelated key, value and ordering intact', async () => {
-    const before = JSON.parse(await readUserSettings()) as Record<string, unknown>
-    await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
-    const after = JSON.parse(await readUserSettings()) as Record<string, unknown>
-
-    expect(Object.keys(after)).toEqual(Object.keys(before))
-    for (const key of Object.keys(before)) {
-      if (key === 'enabledPlugins') continue
-      expect(after[key]).toEqual(before[key])
-    }
-    // And inside enabledPlugins, only the one plugin moved.
-    expect(after['enabledPlugins']).toEqual({ 'alpha@acme': false, 'beta@acme': false })
+  it('refuses enabling an explicitly disabled plugin without changing its settings', async () => {
+    const before = await hashTree(world.base)
+    const result = await api.pluginToggle('plugin:beta@acme', USER_LAYER, 'enable')
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
-  it('adds enabledPlugins to a layer that has no such key', async () => {
-    const file = path.join(claudeDir, 'settings.json')
-    const before = await fs.readFile(file, 'utf8')
+  it('refuses adding enabledPlugins to a project settings file', async () => {
+    const before = await hashTree(world.base)
     const result = await api.pluginToggle(ALPHA, `settings:project:${dirName}`, 'disable')
-    expect(result.errors).toEqual([])
-
-    expect(await fs.readFile(file, 'utf8')).toBe(
-      before.replace(
-        '"permissions": { "allow": ["Bash(ls:*)"] }',
-        '"permissions": { "allow": ["Bash(ls:*)"] },\n  "enabledPlugins": { "alpha@acme": false }'
-      )
-    )
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
   // -------------------------------------------------------------------------
@@ -198,7 +190,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     expect(at(first, null)).toBe(USER_LAYER)
     expect(at(first, owner)).toBe(USER_LAYER)
 
-    await api.pluginToggle(ALPHA, `settings:project:${dirName}`, 'disable')
+    await fs.writeFile(path.join(claudeDir, 'settings.json'), writeJson({ enabledPlugins: { 'alpha@acme': false } }))
     const withProject = await plugin(ALPHA)
     // The project override wins inside that project and nowhere else: the
     // user scope's own answer is untouched.
@@ -209,7 +201,7 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     expect(at(withProject, null)).toBe(USER_LAYER)
     expect(withProject.scopes.find((scope) => scope.layer === 'user')?.enabled).toBe(true)
 
-    await api.pluginToggle(ALPHA, `settings:local:${dirName}`, 'enable', true)
+    await fs.writeFile(path.join(claudeDir, 'settings.local.json'), writeJson({ enabledPlugins: { 'alpha@acme': true } }))
     const withLocal = await plugin(ALPHA)
     expect(at(withLocal, owner)).toBe(`settings:local:${dirName}`)
     expect(withLocal.effectiveIn.find((state) => state.projectId === owner)?.enabled).toBe(true)
@@ -235,108 +227,123 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     expect((await api.journalList()).data).toEqual([])
   })
 
-  it('creates the layer once confirmed, holding only that key', async () => {
-    const local = path.join(claudeDir, 'settings.local.json')
+  it('refuses creating a missing settings layer even after confirmation', async () => {
+    const before = await hashTree(world.base)
     const result = await api.pluginToggle(ALPHA, `settings:local:${dirName}`, 'enable', true)
-    expect(result.errors).toEqual([])
-
-    expect(await fs.readFile(local, 'utf8')).toBe(
-      '{\n  "enabledPlugins": {\n    "alpha@acme": true\n  }\n}\n'
-    )
-    expect((await api.journalList()).data).toHaveLength(1)
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
   // -------------------------------------------------------------------------
-  // Reversibility (ADR-0001)
+  // Refused applies and preserved historical Undo entries
 
-  it('restores the settings file byte-for-byte when the edit is undone', async () => {
-    const before = await hashTree(world.userRoot)
-    const done = await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
-    expect(await hashTree(world.userRoot)).not.toBe(before)
-
-    const undone = await api.journalUndo(done.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(await hashTree(world.userRoot)).toBe(before)
+  it('preserves existing recovery history when a new toggle is refused', async () => {
+    await writeFileTree(world.kondoDataRoot, {
+      'journal.jsonl': JSON.stringify({
+        id: UUID_A, at: '2026-09-08T00:00:00.000Z', op: 'settings-edit', kind: 'plugin',
+        entityId: ALPHA, summary: 'Historical settings creation', undoOf: null,
+        steps: [{ type: 'write', store: 'user', from: 'settings.json' }]
+      }) + '\n'
+    })
+    const before = await hashTree(world.base)
+    const history = await api.journalList()
+    expect(history.errors).toEqual([])
+    expect(history.data.map((entry) => entry.id)).toEqual(['journal:' + UUID_A])
+    const result = await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect(await api.journalList()).toEqual(history)
   })
 
-  // ADR-0010. A whole-file write would discard whatever Claude appended
-  // between the scan and the write, and undo it a second time by restoring a
-  // snapshot taken before that. The step carries a digest instead.
-  it('journals the edit rather than a snapshot, so the undo can invert it', async () => {
-    const done = await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
-    expect(done.errors).toEqual([])
-
-    const journal = await fs.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'), 'utf8')
-    const record = JSON.parse(journal.trim().split('\n').at(-1) as string)
-    const step = record.steps.at(-1)
-    expect(step.edits).toHaveLength(1)
-    expect(typeof step.expectDigest).toBe('string')
-    expect(step.undoEdits).toHaveLength(1)
-    // Nothing was parked in the trash, so there is no snapshot to go stale.
-    expect(step.displaced).toBeUndefined()
-    expect((await api.trashSize()).data.entryCount).toBe(0)
+  // Refusal must not create a success record or a displaced-file snapshot.
+  it('does not create a journal or trash snapshot for a refused toggle', async () => {
+    const before = await hashTree(world.base)
+    const result = await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
-  it('refuses to undo onto a settings file something else has since written', async () => {
-    const done = await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
-    expect(done.errors).toEqual([])
-
-    // Claude, mid-session, adding a key of its own to the same file.
-    const theirs = (await readUserSettings()).replace('{', '{\n  "theme": "dark",')
-    await fs.writeFile(userSettingsFile(), theirs, 'utf8')
-
-    const undone = await api.journalUndo(done.data!.id)
+  it.each([false, true])('refuses historical splice Undo with external changes: %s', async (externalChange) => {
+    const applied = USER_SETTINGS.replace('"alpha@acme": true', '"alpha@acme": false')
+    const current = externalChange ? applied.replace('"dark"', '"external-theme"') : applied
+    await fs.writeFile(userSettingsFile(), current)
+    await writeFileTree(world.kondoDataRoot, {
+      'journal.jsonl': JSON.stringify({
+        id: UUID_A, at: '2026-09-08T00:00:00.000Z', op: 'settings-edit', kind: 'plugin',
+        entityId: ALPHA, summary: 'Disable alpha', undoOf: null,
+        steps: [{ type: 'splice', store: 'user', from: 'settings.json',
+          expectDigest: digestSource(USER_SETTINGS), resultDigest: digestSource(applied),
+          edits: [{ at: 0, remove: USER_SETTINGS.length, insert: applied }],
+          undoEdits: [{ at: 0, remove: applied.length, insert: USER_SETTINGS }] }]
+      }) + '\n'
+    })
+    const before = await hashTree(world.base)
+    expect((await api.journalList()).data.map((entry) => entry.id)).toEqual(['journal:' + UUID_A])
+    const undone = await api.journalUndo('journal:' + UUID_A)
     expect(undone.data).toBeNull()
-    expect(undone.errors.map((error) => error.code)).toContain('stale-file')
-    // The whole point of the guard: their key is still there.
-    expect(await readUserSettings()).toBe(theirs)
+    expect(undone.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect(await readUserSettings()).toBe(current)
+    expect((await api.journalList()).data.map((entry) => entry.id)).toEqual(['journal:' + UUID_A])
   })
-  it('undoes a created layer back out of existence', async () => {
-    const before = await hashTree(claudeDir)
-    const done = await api.pluginToggle(ALPHA, `settings:local:${dirName}`, 'enable', true)
-    expect(done.errors).toEqual([])
-
-    const undone = await api.journalUndo(done.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(await exists(path.join(claudeDir, 'settings.local.json'))).toBe(false)
-    expect(await hashTree(claudeDir)).toBe(before)
-  })
-
-  it('appends the journal entry before the settings file changes', async () => {
-    const ordered: string[] = []
-    const restores = recordWrites(ordered)
-    try {
-      const result = await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
-      expect(result.errors).toEqual([])
-    } finally {
-      for (const restore of restores) restore()
-    }
-
-    const journalAt = ordered.indexOf(path.join(world.kondoDataRoot, 'journal.jsonl'))
-    const storeAt = ordered.findIndex((target) => target.startsWith(userSettingsFile()))
-    expect(journalAt, 'the journal file was never opened').toBeGreaterThanOrEqual(0)
-    expect(storeAt, 'the settings file was never touched').toBeGreaterThanOrEqual(0)
-    expect(journalAt).toBeLessThan(storeAt)
+  it('preserves a historically created layer and its Undo history', async () => {
+    const local = path.join(claudeDir, 'settings.local.json')
+    await fs.writeFile(local, writeJson({ enabledPlugins: { 'alpha@acme': true } }))
+    await writeFileTree(world.kondoDataRoot, {
+      'journal.jsonl': JSON.stringify({
+        id: UUID_A, at: '2026-09-08T00:00:00.000Z', op: 'settings-edit', kind: 'plugin',
+        entityId: ALPHA, summary: 'Enable alpha', undoOf: null,
+        steps: [{ type: 'write', store: 'project:' + dirName, from: 'settings.local.json' }]
+      }) + '\n'
+    })
+    const before = await hashTree(world.base)
+    const undone = await api.journalUndo('journal:' + UUID_A)
+    expect(undone.data).toBeNull()
+    expect(undone.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await exists(local)).toBe(true)
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data.map((entry) => entry.id)).toEqual(['journal:' + UUID_A])
   })
 
-  it('never writes outside the project .claude directory', async () => {
+  it('refuses before opening any settings or journal file for writing', async () => {
     const touched: string[] = []
     const restores = recordWrites(touched)
     try {
-      await api.pluginToggle(ALPHA, `settings:project:${dirName}`, 'disable')
+      const result = await api.pluginToggle(ALPHA, USER_LAYER, 'disable')
+      expect(result.data).toBeNull()
+      expect(result.errors[0]?.message).toBe(SETTINGS_REFUSAL)
     } finally {
       for (const restore of restores) restore()
     }
+    expect(touched).toEqual([])
+  })
 
-    const inside = (target: string, root: string): boolean => {
-      const rel = path.relative(root, target)
-      return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+  it('does not write inside or outside the project when its settings toggle is refused', async () => {
+    const touched: string[] = []
+    const restores = recordWrites(touched)
+    try {
+      const result = await api.pluginToggle(ALPHA, 'settings:project:' + dirName, 'disable')
+      expect(result.data).toBeNull()
+      expect(result.errors[0]?.message).toBe(SETTINGS_REFUSAL)
+    } finally {
+      for (const restore of restores) restore()
     }
-    expect(touched.length).toBeGreaterThan(0)
-    for (const target of touched) {
-      const allowed = inside(target, claudeDir) || inside(target, world.kondoDataRoot)
-      expect(allowed, `escaped the boundary: ${target}`).toBe(true)
-    }
+    expect(touched).toEqual([])
   })
 
   // -------------------------------------------------------------------------

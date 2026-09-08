@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { KondoApi, ToggleOperation } from '../shared/contract'
 import { capabilitiesFor } from '../electron/main/workspace/capabilities'
+import { digestSource } from '../electron/main/workspace/mutations'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   exists,
@@ -19,15 +20,10 @@ import {
   type FixtureWorld
 } from './helpers'
 
-/**
- * Enable and disable a skill through Claude's own convention (ADR-0006,
- * entry 045): `skillOverrides[<name>] = "off"` spliced into a settings layer
- * of the skill's scope, and the member taken away again to enable — journaled
- * first and therefore reversible (ADR-0001). A skill already parked in
- * `skills.disabled/` (kondo's old bench) is offered the way back into
- * `skills/`. Plugin-shipped skills are refused by the capability matrix, not
- * by the UI.
+/** Settings toggles refuse until concurrency-safe replacement is available.
+ * The old directory bench remains reversible through ordinary moves.
  */
+const SETTINGS_REFUSAL = 'Settings changes are temporarily unavailable because Kondo cannot safely exclude concurrent Claude writes. No files were changed.'
 
 const PLUGIN_SKILL = 'skill:plugin/alpha@acme:gamma-skill'
 
@@ -77,77 +73,60 @@ describe('skill enable/disable (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // User scope
 
-  it('disables a user skill by writing skillOverrides off into settings.json, moving nothing', async () => {
-    const settings = path.join(world.userRoot, 'settings.json')
-    const before = await fs.readFile(settings, 'utf8')
+  it('refuses disabling a user skill without changing settings or moving its directory', async () => {
+    const before = await hashTree(world.base)
     const result = await api.skillToggle('skill:user:alpha-skill', 'disable')
-    expect(result.errors).toEqual([])
-    expect(result.data?.op).toBe('settings-edit')
-    expect(result.data?.summary).toContain('settings.json')
-
-    // The directory did not move: Claude's switch is the settings key.
-    expect(await exists(path.join(world.userRoot, 'skills', 'alpha-skill', 'SKILL.md'))).toBe(true)
-    expect(await exists(path.join(world.userRoot, 'skills.disabled', 'alpha-skill'))).toBe(false)
-
-    // One member added; the key that was there keeps its bytes.
-    const after = await fs.readFile(settings, 'utf8')
-    expect(JSON.parse(after)).toEqual({
-      enabledPlugins: { 'alpha@acme': true },
-      skillOverrides: { 'alpha-skill': 'off' }
-    })
-    expect(after).toContain(before.slice(before.indexOf('"enabledPlugins"'), before.indexOf('}')))
-
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
     const alpha = (await api.skillsList()).data.find((skill) => skill.id === 'skill:user:alpha-skill')
-    expect(alpha?.enabled).toBe(false)
-    expect(alpha?.override?.value).toBe('off')
-    // The row now offers the way back, which is the withdrawal of that member.
-    expect(alpha?.capabilities.enable.allowed).toBe(true)
-    expect(alpha?.capabilities.disable.allowed).toBe(false)
-
-    const on = await api.skillToggle('skill:user:alpha-skill', 'enable')
-    expect(on.errors).toEqual([])
-    expect(JSON.parse(await fs.readFile(settings, 'utf8'))).toEqual({
-      enabledPlugins: { 'alpha@acme': true },
-      skillOverrides: {}
-    })
+    expect(alpha?.enabled).toBe(true)
+    expect(alpha?.override).toBeNull()
   })
 
-  // ADR-0010. The toggle used to plan a whole-file write, which discards
-  // whatever another writer appended between the scan and the write, and
-  // undoes by restoring a snapshot that is stale by construction.
-  it('journals the edit rather than a snapshot, so the undo can invert it', async () => {
-    const done = await api.skillToggle('skill:user:alpha-skill', 'disable')
-    expect(done.errors).toEqual([])
-
-    const journal = await fs.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'), 'utf8')
-    const record = JSON.parse(journal.trim().split('\n').at(-1) as string)
-    const step = record.steps.find((candidate: { from: string }) => candidate.from === 'settings.json')
-    expect(step.edits).toHaveLength(1)
-    expect(typeof step.expectDigest).toBe('string')
-    expect(step.undoEdits).toHaveLength(1)
-    // A splice displaces nothing, so there is no snapshot to go stale.
-    expect(step.displaced).toBeUndefined()
+  // Both directions edit settings, so enabling an overridden skill must
+  // preserve the same refusal guarantee as disabling it.
+  it('refuses enabling an overridden skill without withdrawing its settings member', async () => {
+    await writeFileTree(world.userRoot, {
+      'settings.json': writeJson({ enabledPlugins: { 'alpha@acme': true }, skillOverrides: { 'alpha-skill': 'off' } })
+    })
+    const before = await hashTree(world.base)
+    const result = await api.skillToggle('skill:user:alpha-skill', 'enable')
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
+    expect((await api.skillsList()).data.find((skill) => skill.id === 'skill:user:alpha-skill')?.enabled).toBe(false)
     expect((await api.trashSize()).data.entryCount).toBe(0)
   })
 
-  it('refuses to undo onto a settings file something else has since written', async () => {
+  it('refuses a historical settings Undo and preserves the external write and recovery history', async () => {
     const settings = path.join(world.userRoot, 'settings.json')
-    const done = await api.skillToggle('skill:user:alpha-skill', 'disable')
-    expect(done.errors).toEqual([])
-
-    // Claude, mid-session, adding a key of its own to the same file.
-    const theirs = writeJson({
-      enabledPlugins: { 'alpha@acme': true },
-      skillOverrides: { 'alpha-skill': 'off' },
-      theme: 'dark'
-    })
+    const original = await fs.readFile(settings, 'utf8')
+    const applied = writeJson({ enabledPlugins: { 'alpha@acme': true }, skillOverrides: { 'alpha-skill': 'off' } })
+    const record = {
+      id: 'historical-skill-toggle', at: '2026-09-01T00:00:00.000Z', op: 'settings-edit', kind: 'skill',
+      entityId: 'skill:user:alpha-skill', summary: 'Disable skill alpha-skill', undoOf: null,
+      steps: [{ type: 'splice', store: 'user', from: 'settings.json',
+        expectDigest: digestSource(original), resultDigest: digestSource(applied),
+        edits: [{ at: 0, remove: original.length, insert: applied }],
+        undoEdits: [{ at: 0, remove: applied.length, insert: original }] }]
+    }
+    await writeFileTree(world.kondoDataRoot, { 'journal.jsonl': JSON.stringify(record) + '\n' })
+    const theirs = writeJson({ enabledPlugins: { 'alpha@acme': true }, skillOverrides: { 'alpha-skill': 'off' }, theme: 'dark' })
     await fs.writeFile(settings, theirs, 'utf8')
+    const before = await hashTree(world.base)
+    const history = await api.journalList()
+    expect(history.errors).toEqual([])
+    expect(history.data).toHaveLength(1)
 
-    const undone = await api.journalUndo(done.data!.id)
+    const undone = await api.journalUndo('journal:historical-skill-toggle')
     expect(undone.data).toBeNull()
-    expect(undone.errors.map((error) => error.code)).toContain('stale-file')
-    // The whole point of the guard: their key is still there.
+    expect(undone.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
     expect(await fs.readFile(settings, 'utf8')).toBe(theirs)
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual(history.data)
   })
   it('moves a skill parked in skills.disabled back into skills', async () => {
     const result = await api.skillToggle('skill:user-disabled:beta-skill', 'enable')
@@ -158,9 +137,10 @@ describe('skill enable/disable (ADR-0006)', () => {
     expect(await idsFrom()).toContain('skill:user:beta-skill')
   })
 
-  it('restores the store byte-for-byte when the toggle is undone', async () => {
+  it('restores the store byte-for-byte when enabling a benched skill is undone', async () => {
     const before = await hashTree(world.userRoot)
-    const done = await api.skillToggle('skill:user:alpha-skill', 'disable')
+    const done = await api.skillToggle('skill:user-disabled:beta-skill', 'enable')
+    expect(done.errors).toEqual([])
     expect(await hashTree(world.userRoot)).not.toBe(before)
 
     const undone = await api.journalUndo(done.data!.id)
@@ -171,62 +151,38 @@ describe('skill enable/disable (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // Project scope
 
-  it('toggles a project skill in its own settings.local.json, asking before creating it', async () => {
-    const projectId = 'skill:project/X--work-proj:delta-skill'.replace(
-      'X--work-proj',
-      flattenPath(workdir)
-    )
+  it('refuses a confirmed project toggle without creating its missing settings layer', async () => {
+    const projectId = `skill:project/${flattenPath(workdir)}:delta-skill`
     expect(await idsFrom()).toContain(projectId)
     const local = path.join(claudeDir, 'settings.local.json')
-
-    // No layer file yet: nothing licenses conjuring one out of a toggle.
-    const userBefore = await hashTree(world.userRoot)
+    const before = await hashTree(world.base)
     const asked = await api.skillToggle(projectId, 'disable')
     expect(asked.data).toBeNull()
     expect(asked.errors.map((error) => error.code)).toEqual(['needs-confirmation'])
     expect(await exists(local)).toBe(false)
 
     const disabled = await api.entityMutate(projectId, { op: 'disable', confirm: true })
-    expect(disabled.errors).toEqual([])
-    expect(JSON.parse(await fs.readFile(local, 'utf8'))).toEqual({
-      skillOverrides: { 'delta-skill': 'off' }
-    })
-    // Still in skills/, still the same id; the user scope was not touched.
-    expect(await exists(path.join(claudeDir, 'skills', 'delta-skill', 'SKILL.md'))).toBe(true)
-    expect(await idsFrom()).toContain(projectId)
-    expect(await hashTree(world.userRoot)).toBe(userBefore)
-    const delta = (await api.skillsList()).data.find((skill) => skill.id === projectId)
-    expect(delta?.enabled).toBe(false)
-
-    const enabled = await api.skillToggle(projectId, 'enable')
-    expect(enabled.errors).toEqual([])
-    expect(JSON.parse(await fs.readFile(local, 'utf8'))).toEqual({ skillOverrides: {} })
-    expect((await api.skillsList()).data.find((skill) => skill.id === projectId)?.enabled).toBe(
-      true
-    )
+    expect(disabled.data).toBeNull()
+    expect(disabled.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
+    expect(await exists(local)).toBe(false)
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
+    expect((await api.skillsList()).data.find((skill) => skill.id === projectId)?.enabled).toBe(true)
   })
 
-  it('never writes outside the project .claude directory', async () => {
+  it('opens no write paths for a refused project settings creation', async () => {
     const touched: string[] = []
     const restores = recordWrites(touched)
     try {
-      await api.entityMutate(`skill:project/${flattenPath(workdir)}:delta-skill`, {
-        op: 'disable',
-        confirm: true
+      const result = await api.entityMutate(`skill:project/${flattenPath(workdir)}:delta-skill`, {
+        op: 'disable', confirm: true
       })
+      expect(result.data).toBeNull()
+      expect(result.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
     } finally {
       for (const restore of restores) restore()
     }
-
-    const inside = (target: string, root: string): boolean => {
-      const rel = path.relative(root, target)
-      return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
-    }
-    expect(touched.length).toBeGreaterThan(0)
-    for (const target of touched) {
-      const allowed = inside(target, claudeDir) || inside(target, world.kondoDataRoot)
-      expect(allowed, `escaped the boundary: ${target}`).toBe(true)
-    }
+    expect(touched).toEqual([])
   })
 
   // -------------------------------------------------------------------------
@@ -260,24 +216,18 @@ describe('skill enable/disable (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // Ordering (ADR-0001) and the seam (ADR-0008)
 
-  it('appends the journal entry before the settings file is written', async () => {
+  it('refuses an existing settings edit before opening the journal or store for writing', async () => {
     const ordered: string[] = []
     const restores = recordWrites(ordered)
     try {
       const result = await api.skillToggle('skill:user:alpha-skill', 'disable')
-      expect(result.errors).toEqual([])
+      expect(result.data).toBeNull()
+      expect(result.errors).toEqual([expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })])
     } finally {
       for (const restore of restores) restore()
     }
-
-    const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
-    const journalAt = ordered.indexOf(journalFile)
-    const storeAt = ordered.findIndex((target) =>
-      target.startsWith(path.join(world.userRoot, 'settings.json'))
-    )
-    expect(journalAt, 'the journal file was never opened').toBeGreaterThanOrEqual(0)
-    expect(storeAt, 'the settings file was never touched').toBeGreaterThanOrEqual(0)
-    expect(journalAt).toBeLessThan(storeAt)
+    expect(ordered).toEqual([])
+    expect((await api.journalList()).data).toEqual([])
   })
 
   it('refuses a free-form path, an unknown id, and an unknown operation', async () => {

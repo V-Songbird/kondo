@@ -6,10 +6,12 @@ import { STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   exists,
+  flattenPath,
   hashTree,
   healthyTranscript,
   makeWorld,
   recordWrites,
+  registerProjects,
   skillManifest,
   UUID_A,
   UUID_B,
@@ -41,6 +43,7 @@ describe('the journal and trash surface (ADR-0001)', () => {
   let api: KondoApi
   let trashRoot: string
   let journalFile: string
+  let destinationId: string
 
   const reviewedSweep = async (categories: TidyCategory[]) => {
     const preview = await api.tidyPreview()
@@ -66,6 +69,10 @@ describe('the journal and trash surface (ADR-0001)', () => {
     world = await makeWorld()
     trashRoot = path.join(world.kondoDataRoot, 'trash')
     journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const workdir = path.join(world.base, 'work', 'destination')
+    destinationId = 'project:code:' + flattenPath(workdir)
+    await writeFileTree(workdir, { '.claude/skills/.keep': '' })
+    await registerProjects(world, [workdir])
 
     await writeFileTree(world.userRoot, {
       'skills/alpha-skill/SKILL.md': skillManifest('alpha-skill', 'First skill'),
@@ -86,7 +93,8 @@ describe('the journal and trash surface (ADR-0001)', () => {
       locator: world.locator,
       platform: process.platform,
       now: () => (clock += 1000),
-      guessExists: async () => 'absent'
+      guessExists: async (target) =>
+        target === workdir || target === path.join(workdir, '.claude') ? 'present' : 'absent'
     })
   })
   afterEach(async () => {
@@ -98,8 +106,8 @@ describe('the journal and trash surface (ADR-0001)', () => {
   // The list
 
   it('lists entries newest first, each saying what it did', async () => {
-    const first = await api.skillToggle('skill:user:alpha-skill', 'disable')
-    const second = await api.skillToggle('skill:user:beta-skill', 'disable')
+    const first = await api.skillMove('skill:user:alpha-skill', destinationId)
+    const second = await api.skillMove('skill:user:beta-skill', destinationId)
     expect(first.errors).toEqual([])
     expect(second.errors).toEqual([])
 
@@ -114,14 +122,14 @@ describe('the journal and trash surface (ADR-0001)', () => {
     expect(newest.summary).toContain('beta-skill')
     expect(newest.entityId).toBe('skill:user:beta-skill')
     expect(newest.kind).toBe('skill')
-    expect(newest.op).toBe('settings-edit')
+    expect(newest.op).toBe('move')
     expect(newest.stepCount).toBeGreaterThan(0)
     expect(newest.undoneBy).toBeNull()
     expect(newest.isUndo).toBe(false)
   })
 
   it('puts an undo at the head and marks the entry it reversed', async () => {
-    const done = await api.skillToggle('skill:user:alpha-skill', 'disable')
+    const done = await api.skillMove('skill:user:alpha-skill', destinationId)
     const undone = await api.journalUndo(done.data!.id)
     expect(undone.errors).toEqual([])
 
@@ -138,7 +146,7 @@ describe('the journal and trash surface (ADR-0001)', () => {
 
   it('undoes an entry taken from the list, restoring the store byte-for-byte', async () => {
     const before = await hashTree(world.userRoot)
-    expect((await api.skillToggle('skill:user:alpha-skill', 'disable')).errors).toEqual([])
+    expect((await api.skillMove('skill:user:alpha-skill', destinationId)).errors).toEqual([])
     expect(await hashTree(world.userRoot)).not.toBe(before)
 
     // The id the view would hand back — straight off the listing, never a path.
@@ -230,7 +238,10 @@ describe('the journal and trash surface (ADR-0001)', () => {
       await api.sessionList(`project:code:${DIR}`)
       await api.desktopSessions()
       await api.skillsList()
-      await api.skillToggle('skill:user:alpha-skill', 'disable')
+      const refused = await api.skillToggle('skill:user:alpha-skill', 'disable')
+      expect(refused.data).toBeNull()
+      expect(refused.errors[0]?.code).toBe('not-permitted')
+      await api.skillMove('skill:user:alpha-skill', destinationId)
       await api.pluginsList()
       await api.hooksList()
       await api.settingsLayers()

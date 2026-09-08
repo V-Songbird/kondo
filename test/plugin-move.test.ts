@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { KondoApi, PluginInfo } from '../shared/contract'
 import { capabilitiesFor } from '../electron/main/workspace/capabilities'
+import { digestSource } from '../electron/main/workspace/mutations'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   exists,
@@ -19,13 +20,11 @@ import {
 } from './helpers'
 
 /**
- * Handing a plugin from one scope to another (ADR-0006): not a relocation —
- * nothing installed moves — but the two statements Claude's `enabledPlugins`
- * convention is made of, a `false` where it was and a `true` where it goes.
- *
- * Both edits are one plan and therefore one journal entry, so ADR-0001's undo
- * puts the pair of files back together or not at all.
+ * A plugin move plans settings edits in two scopes. Entry 098 refuses the
+ * complete plan, including confirmed creation, before either layer changes.
  */
+
+const SETTINGS_REFUSAL = 'Settings changes are temporarily unavailable because Kondo cannot safely exclude concurrent Claude writes. No files were changed.'
 
 const ALPHA = 'plugin:alpha@acme'
 const BETA = 'plugin:beta@acme'
@@ -51,7 +50,6 @@ const PROJECT_SETTINGS = `{
 describe('moving a plugin between scopes (ADR-0006)', () => {
   let world: FixtureWorld
   let workdir: string
-  let claudeDir: string
   let dirName: string
   let blankClaude: string
   let blankName: string
@@ -59,7 +57,6 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
 
   const userSettingsFile = (): string => path.join(world.userRoot, 'settings.json')
   const readUserSettings = (): Promise<string> => fs.readFile(userSettingsFile(), 'utf8')
-  const projectSettingsFile = (): string => path.join(claudeDir, 'settings.json')
   const blankLocalFile = (): string => path.join(blankClaude, 'settings.local.json')
 
   const plugin = async (id: string): Promise<PluginInfo> => {
@@ -71,7 +68,6 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
   beforeEach(async () => {
     world = await makeWorld()
     workdir = path.join(world.base, 'work', 'proj')
-    claudeDir = path.join(workdir, '.claude')
     dirName = flattenPath(workdir)
     const blankDir = path.join(world.base, 'work', 'blank')
     blankClaude = path.join(blankDir, '.claude')
@@ -107,53 +103,65 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
   // -------------------------------------------------------------------------
   // The two-step plan
 
-  it('writes false where it was and true where it goes, in one entry', async () => {
-    const userBefore = await readUserSettings()
-    const projectBefore = await fs.readFile(projectSettingsFile(), 'utf8')
-
-    const done = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${dirName}`)
-    expect(done.errors).toEqual([])
-    expect(done.data?.op).toBe('settings-edit')
-    expect(done.data?.kind).toBe('plugin')
-    // One plan, two writes — the whole point of ADR-0001 here.
-    expect(done.data?.stepCount).toBe(2)
-
-    expect(await readUserSettings()).toBe(
-      userBefore.replace('"alpha@acme": true', '"alpha@acme": false')
-    )
-    expect(await fs.readFile(projectSettingsFile(), 'utf8')).toBe(
-      projectBefore.replace('"alpha@acme": false', '"alpha@acme": true')
-    )
-    // One operation, so one entry to undo.
-    expect((await api.journalList()).data).toHaveLength(1)
+  it('refuses both settings edits without modifying either scope', async () => {
+    const before = await hashTree(world.base)
+    const result = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${dirName}`)
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
-  it('leaves every other key in both files alone', async () => {
-    const before = JSON.parse(await readUserSettings()) as Record<string, unknown>
-    await api.pluginMove(ALPHA, USER_LAYER, `project:code:${dirName}`)
-    const after = JSON.parse(await readUserSettings()) as Record<string, unknown>
-
-    expect(after['theme']).toEqual(before['theme'])
-    expect(after['enabledPlugins']).toEqual({ 'alpha@acme': false, 'beta@acme': false })
-    const project = JSON.parse(await fs.readFile(projectSettingsFile(), 'utf8')) as Record<
-      string,
-      unknown
-    >
-    expect(project['permissions']).toEqual({ allow: ['Bash(ls:*)'] })
+  it('preserves every key and formatting in both refused move layers', async () => {
+    const before = await hashTree(world.base)
+    const result = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${dirName}`)
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
-  it('restores both files byte-for-byte when the move is undone', async () => {
-    const userBefore = await hashTree(world.userRoot)
-    const projectBefore = await hashTree(claudeDir)
-
-    const done = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${dirName}`)
-    expect(done.errors).toEqual([])
-    expect(await hashTree(claudeDir)).not.toBe(projectBefore)
-
-    const undone = await api.journalUndo(done.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(await hashTree(world.userRoot)).toBe(userBefore)
-    expect(await hashTree(claudeDir)).toBe(projectBefore)
+  it.each([false, true])('preserves both historical move layers during refused Undo, created destination: %s', async (created) => {
+    const userAfter = USER_SETTINGS.replace('"alpha@acme": true', '"alpha@acme": false')
+    const projectAfter = PROJECT_SETTINGS.replace('"alpha@acme": false', '"alpha@acme": true')
+    const destination = created ? blankLocalFile() : path.join(workdir, '.claude', 'settings.json')
+    await fs.writeFile(userSettingsFile(), userAfter)
+    await fs.writeFile(destination, projectAfter)
+    const sourceStep = {
+      type: 'splice', store: 'user', from: 'settings.json',
+      expectDigest: digestSource(USER_SETTINGS), resultDigest: digestSource(userAfter),
+      edits: [{ at: 0, remove: USER_SETTINGS.length, insert: userAfter }],
+      undoEdits: [{ at: 0, remove: userAfter.length, insert: USER_SETTINGS }]
+    }
+    const destinationStep = created
+      ? { type: 'write', store: 'project:' + blankName, from: 'settings.local.json' }
+      : { type: 'splice', store: 'project:' + dirName, from: 'settings.json',
+          expectDigest: digestSource(PROJECT_SETTINGS), resultDigest: digestSource(projectAfter),
+          edits: [{ at: 0, remove: PROJECT_SETTINGS.length, insert: projectAfter }],
+          undoEdits: [{ at: 0, remove: projectAfter.length, insert: PROJECT_SETTINGS }] }
+    await writeFileTree(world.kondoDataRoot, {
+      'journal.jsonl': JSON.stringify({
+        id: UUID_A, at: '2026-09-08T00:00:00.000Z', op: 'settings-edit', kind: 'plugin',
+        entityId: ALPHA, summary: 'Move alpha', undoOf: null,
+        steps: [sourceStep, destinationStep]
+      }) + '\n'
+    })
+    const before = await hashTree(world.base)
+    const history = await api.journalList()
+    expect(history.errors).toEqual([])
+    expect(history.data.map((entry) => entry.id)).toEqual(['journal:' + UUID_A])
+    const undone = await api.journalUndo('journal:' + UUID_A)
+    expect(undone.data).toBeNull()
+    expect(undone.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect(await fs.readFile(destination, 'utf8')).toBe(projectAfter)
+    expect(await api.journalList()).toEqual(history)
   })
 
   // -------------------------------------------------------------------------
@@ -173,29 +181,26 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
     expect((await api.journalList()).data).toEqual([])
   })
 
-  it('creates the destination layer once confirmed, holding only that key', async () => {
-    const before = await readUserSettings()
-    const done = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${blankName}`, true)
-    expect(done.errors).toEqual([])
-    expect(done.data?.stepCount).toBe(2)
-
-    expect(await fs.readFile(blankLocalFile(), 'utf8')).toBe(
-      '{\n  "enabledPlugins": {\n    "alpha@acme": true\n  }\n}\n'
-    )
-    expect(await readUserSettings()).toBe(
-      before.replace('"alpha@acme": true', '"alpha@acme": false')
-    )
+  it('refuses confirmed destination creation before changing the source', async () => {
+    const before = await hashTree(world.base)
+    const result = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${blankName}`, true)
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
-  it('undoes a created destination layer back out of existence', async () => {
-    const userBefore = await hashTree(world.userRoot)
-    const done = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${blankName}`, true)
-    expect(done.errors).toEqual([])
-
-    const undone = await api.journalUndo(done.data!.id)
-    expect(undone.errors).toEqual([])
-    expect(await exists(blankLocalFile())).toBe(false)
-    expect(await hashTree(world.userRoot)).toBe(userBefore)
+  it('leaves the destination absent and history empty after refusal', async () => {
+    const before = await hashTree(world.base)
+    const result = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${blankName}`, true)
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+    ])
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
   // -------------------------------------------------------------------------
@@ -237,11 +242,17 @@ describe('moving a plugin between scopes (ADR-0006)', () => {
     expect(await readUserSettings()).toBe(before)
   })
 
-  it('refuses the same move twice, the source having nothing left', async () => {
-    expect((await api.pluginMove(ALPHA, USER_LAYER, `project:code:${dirName}`)).errors).toEqual([])
-    const again = await api.pluginMove(ALPHA, USER_LAYER, `project:code:${dirName}`)
-    expect(again.data).toBeNull()
-    expect(again.errors.map((error) => error.code)).toEqual(['not-permitted'])
+  it('repeated refused moves preserve the enabled source and empty history', async () => {
+    const before = await hashTree(world.base)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await api.pluginMove(ALPHA, USER_LAYER, 'project:code:' + dirName)
+      expect(result.data).toBeNull()
+      expect(result.errors).toEqual([
+        expect.objectContaining({ code: 'not-permitted', message: SETTINGS_REFUSAL })
+      ])
+    }
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
   })
 
   it('refuses a destination nothing in the scan answers to', async () => {

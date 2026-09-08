@@ -52,8 +52,18 @@ anywhere else. Identity and token files — `.credentials.json` in the user
 store, the desktop store's device and token files, and the account and
 machine keys of `~/.claude.json` — are statted for size but never opened or
 surfaced; of `~/.claude.json` kondo keeps only the project paths and, later,
-MCP server names (ADR-0009). Kondo does not write `~/.claude.json` at all
-until a splice step can prove the bytes it changes are the bytes it read.
+MCP server names (ADR-0009).
+
+Kondo currently refuses every store-mutation plan containing a `write` or
+`splice`, on every platform, before journal or filesystem effects. Historical
+Undo entries containing those steps are also refused whole, retaining their
+existing journal and recovery bytes. This covers `~/.claude.json`, existing
+settings layers and creation of missing settings layers. A digest check
+followed by rename cannot preserve a competing save made between those
+operations. No native settings-preservation backend or bypass is provided;
+see [ADR-0010](docs/adr/0010-splice-config-files-never-whole-file-writes.md).
+Other mutations retain their existing checks; this settings refusal establishes
+no additional concurrency guarantee for them.
 
 ## Supported versions
 

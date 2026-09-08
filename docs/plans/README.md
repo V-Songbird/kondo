@@ -13,6 +13,8 @@ between the two is the part a later reader needs.
 
 ## Index
 
+- [098 — Concurrent settings writes](098-concurrent-settings-writes.md) — **awaiting acceptance**
+
 - [109 — Hook layer boundary and accurate claims](109-hook-layer-boundary.md) — **accepted decision**
 
 - [108 — Desktop session boundary and removal scope](108-desktop-session-boundary.md) — **accepted decision**

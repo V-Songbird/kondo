@@ -16,7 +16,8 @@ an object is not a smaller whole-file write — it is the one edit whose
 correctness depends on the bytes around it still being the bytes that were
 parsed.
 
-Decision: a `splice` step. It names a store, a path, the digest of the bytes
+Original decision (superseded for execution by amendment 098 below): a
+`splice` step. It names a store, a path, the digest of the bytes
 it was planned against, and an ordered list of `{ at, remove, insert }`
 edits. At apply time it re-reads the file, hashes it, and **refuses** unless
 the digest still matches; then it applies the edits and writes the result.
@@ -38,10 +39,12 @@ arithmetic and each edit stays as narrow as the member it removes.
 - **Merge: reparse, apply the change to the parsed object, reserialize.**
   Rejected twice over. It reformats 87 top-level keys the user never asked
   kondo to touch, and it resolves a genuine conflict by guessing.
-- **Splice with a digest refusal (chosen).** The one answer that cannot lose
-  a byte it did not plan to.
+- **Splice with a digest refusal (originally chosen).** Preserves formatting
+  and detects changes before its read, but cannot prevent a writer changing
+  the target between that read and replacement. The original claim that this
+  could not lose an unplanned byte was incorrect; see amendment 098.
 
-## Consequences
+## Original consequences (execution suspended by 098)
 
 - A digest mismatch is a refusal (`stale-file`), not a retry and not a forced
   write. Kondo says the file changed and asks the user to look again. Racing
@@ -67,7 +70,7 @@ arithmetic and each edit stays as narrow as the member it removes.
   (ADR-0005): the splicer answers null and the caller refuses rather than
   reformatting.
 
-## Amendment: resolved targets and temporary durability (074)
+## Historical amendment: resolved targets and temporary durability (074)
 
 Mutation paths are checked lexically and against the resolved store root.
 For a missing destination, resolution walks to the nearest existing ancestor;
@@ -93,3 +96,43 @@ power loss is not guaranteed. A process crash can leave a temporary sibling,
 and a filesystem that refuses cleanup can leave one after a handled failure.
 These target checks do not audit links nested inside recursive copy trees or
 change the separate scanner read paths.
+
+## Amendment: refuse settings replacement until preservation is proven (098)
+
+The digest check and the replacement are separate operations. A writer can
+replace the target after Kondo's final read and before its rename. The rename
+then overwrites bytes Kondo never read. The same race affects inverse splices
+during Undo. Synchronizing the temporary file protects its contents; it does
+not preserve the competing writer's contents. Node's path-based rename does
+not condition replacement on the digest or retain the displaced target for
+recovery.
+
+**Current decision:** refuse every mutation plan containing a `write` or
+`splice` step on every platform. Refuse the whole plan before step preparation,
+journaling, temporary-file creation or any store mutation, including a plan
+that also contains moves or trash steps. Creating a missing settings file is
+not an exception: another process can create it before Kondo publishes its
+planned contents. Confirmation to create a layer does not bypass this gate.
+
+Undo applies the same gate to historical entries containing either step,
+before journal or filesystem effects. Existing journal records, inverse edits
+and recovery bytes remain intact; refusal neither records completion nor
+claims a successful reversal. It also cannot partially reverse the move or
+trash portions of a mixed historical entry. Unrelated moves, trash operations
+and their Undo remain available under their existing checks.
+
+This temporarily disables settings-based skill, plugin and MCP toggles,
+plugin scope moves and clearing overrides, configuration-leftover removal,
+and skill moves that also change settings. Read-only discovery and pure plan
+construction remain useful; a convention-level capability or a returned plan
+does not imply execution is currently permitted. Kondo's own appearance
+preference is outside this store-mutation gate.
+
+The active safety guarantee is refusal before effects, not atomic settings
+replacement. There is no platform-specific preservation backend in this
+amendment. A future backend must demonstrate preservation of competing writes
+and honest recovery on native failure paths before execution is re-enabled.
+Another hash check, an advisory lock that other writers do not share, asking
+the user to close Claude, or a forced-write option cannot substitute for that
+proof. Historical splice and link-handling details above describe the previous
+implementation and planning format, not an available safe execution path.

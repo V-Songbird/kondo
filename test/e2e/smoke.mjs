@@ -867,19 +867,29 @@ test('Library keeps healthy items visible when the MCP read is malformed', async
   }
 })
 
-test('inline undo reports success even when a different history line is malformed', async () => {
+test('settings toggle refusal stays visible and retry preserves fixture bytes and history', async () => {
   await openGlobalSkills()
-  await client.waitFor(`document.querySelector('button[aria-label="Disable commit-writer"]') !== null`)
+  const toggle = `document.querySelector('button[aria-label="Disable commit-writer"]')`
+  const message = 'Settings changes are temporarily unavailable because Kondo cannot safely exclude concurrent Claude writes. No files were changed.'
+  const alert = `[...document.querySelectorAll('main [role="alert"]')].find((element) => element.textContent === ${JSON.stringify(message)})`
+  await client.waitFor(`${toggle} !== null && !${toggle}.disabled`)
   const settings = path.join(base, 'home', '.claude', 'settings.json')
-  const before = await fs.readFile(settings, 'utf8')
-  await keyboardActivate(`document.querySelector('button[aria-label="Disable commit-writer"]')`)
-  await client.waitFor(`document.querySelector('.band-stamp button[aria-label^="Undo "]') !== null`)
-  await fs.appendFile(path.join(base, 'kondo-data', 'journal.jsonl'), '{}\n')
-  await keyboardActivate(`document.querySelector('.band-stamp button[aria-label^="Undo "]')`)
-  await client.waitFor(`document.querySelector('.band-stamp [role="status"]')?.textContent.startsWith('Undone —')`)
-  assert.equal(await client.evaluate(`document.querySelector('.band-stamp button[aria-label^="Undo "]') === null`), true)
-  assert.equal(await fs.readFile(settings, 'utf8'), before)
-  assert.ok((await client.evaluate(`document.querySelector('.band-stamp [role="alert"]').textContent`)).includes('history entry is incomplete'))
+  const beforeSettings = await fs.readFile(settings, 'utf8')
+  const beforeFiles = await fixtureSnapshot()
+  const beforeJournal = await journalBytes()
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await keyboardActivate(toggle)
+    await client.waitFor(`${alert} !== undefined && document.activeElement === ${alert}`)
+    await client.waitFor(`${toggle} !== null && !${toggle}.disabled`)
+    assert.equal(await fs.readFile(settings, 'utf8'), beforeSettings)
+    assert.deepEqual(await fixtureSnapshot(), beforeFiles)
+    assert.equal(await journalBytes(), beforeJournal)
+    assert.equal(await client.evaluate(`document.querySelector('.band-stamp button[aria-label^="Undo "]') === null`), true)
+    assert.equal(await client.evaluate(`document.querySelector('.band-stamp [role="status"]') === null`), true)
+    await assertNoHorizontalOverflow()
+    await assertInViewport(alert)
+  }
+  await capture('settings-toggle-refused')
 })
 
 test('Themes preserves Library and Projects context and remains usable in light and dark at 900px', async () => {
