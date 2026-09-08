@@ -25,6 +25,8 @@ re-asked. Numbered, never renumbered; a superseded ADR stays and gains a
 - [0016 — Keep Desktop sessions read-only and name removal scope](0016-desktop-session-boundary.md) — **accepted**
 - [0017 — Keep hook declarations read-only until semantics are proven](0017-hook-layer-boundary.md) — **accepted**
 
+- [0018 — Confirm Undo effects and resume](0018-confirm-undo-effects-and-resume.md)
+
 ## Template
 
 ```markdown

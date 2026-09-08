@@ -744,13 +744,14 @@ export interface JournalEntryInfo {
   undoneBy: string | null
   /** True when this entry is itself the undo of another. */
   isUndo: boolean
-  /**
-   * True when a step of this operation failed part way through. The entry is
-   * written before its steps run (ADR-0001), so it describes what was
-   * intended; this says the store never got all of it. Undo still applies —
-   * it puts back whatever did happen and skips the rest.
-   */
+  /** Compatibility flag for incomplete/failed execution; use outcome for its effects. */
   failed: boolean
+  /** Confirmed effects; uncertain means a pending action or legacy failure lacks proof. */
+  outcome: 'complete' | 'partial' | 'none' | 'uncertain'
+  /** Undo progress for this original operation, derived from its durable attempt. */
+  recovery: 'available' | 'partial' | 'uncertain' | 'done' | 'blocked'
+  /** Visible explanation from main when Undo cannot safely be offered. */
+  undoBlockedReason: string | null
 }
 
 /**

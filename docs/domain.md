@@ -636,14 +636,22 @@ mechanisms. Names and sizes remain available to store reports.
   ever performs; every other operation moves them. The displaced copy is the
   only copy, so an entry whose bytes were emptied can no longer be reversed —
   `undo` refuses it and says so, rather than half-restoring.
-- A journal entry is written before its steps run (ADR-0001), so an entry
-  describes what was intended, not what happened. When a step fails part way,
-  a following marker line names that entry as failed; `journalList` reports it
-  as `failed` and never lists the marker itself. Undo of such an entry skips
-  any step whose effect is absent while its source is still in place, and puts
-  back only what actually ran for entries without settings steps. Historical
-  entries containing a `write` or `splice`, whether failed or not, are refused
-  whole before Undo effects and retain their journal and recovery bytes (098).
+- ✅ Version 2 Kondo journal behavior, verified with synthetic fixtures (099):
+  intention, pending-action digest, confirmed cursor and completion are separate
+  append-only records. Only a completed Undo sets `undoneBy`; failed or interrupted
+  attempts remain incomplete. A retry reuses the attempt, skips confirmed actions
+  and compares both endpoints of the pending action to its recorded digest.
+  Ambiguous evidence retains all remaining bytes and refuses recovery. Physical
+  file fingerprints stream bytes; archived links remain metadata. The parser
+  checks action identity, order and exact coverage of confirmed forward steps.
+  A torn tail remains in place and a later append begins on a separate line.
+- ✅ Legacy records and failure markers remain readable without migration (099).
+  A failed legacy Undo lacks action evidence, so it cannot consume the original
+  or authorize automatic replay. New partial forward results include the journal
+  entry alongside errors, keeping inline recovery reachable. `none` reports no
+  confirmed action effects; `uncertain` reports missing confirmation. These are
+  Kondo execution facts, not newly observed Claude file conventions. Historical
+  `write`/`splice` Undo remains refused whole under 098.
 - An undo never renames over a path that is occupied. The time between an
   operation and its undo belongs to whoever else writes there — Claude
   saving a transcript at the same uuid a sweep trashed is the ordinary case

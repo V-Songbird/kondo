@@ -26,7 +26,7 @@ import {
   type ReadBoundary
 } from './scan'
 import { tildify } from './display'
-import { inspectPhysicalTree, preflightRelocation, relocateTree } from './relocation'
+import { inspectPhysicalTree, physicalDigest, preflightRelocation, relocateTree } from './relocation'
 
 /**
  * The write path (ADR-0001): every mutation is journaled durably before the
@@ -195,6 +195,28 @@ interface JournalStep {
 /** The store `created` is relative to — the destination for a `copy`. */
 const createdIn = (step: JournalStep): string => step.toStore ?? step.store
 
+interface JournalEndpoint {
+  store: string
+  relative: string
+  /** When present, relative names bytes in this journal entry's trash. */
+  trashId?: string
+}
+
+interface JournalAction {
+  type: 'move' | 'copy'
+  from: JournalEndpoint
+  to: JournalEndpoint
+  /** Index in the original operation's steps. */
+  step: number
+}
+
+interface JournalProgress {
+  next: number
+  /** Source digest synced before the pending action can run. */
+  pending: string | null
+  state: 'running' | 'failed' | 'complete'
+}
+
 interface JournalRecord {
   id: string
   at: string
@@ -212,6 +234,12 @@ interface JournalRecord {
    * lesson), so the correction is a following line, never an edit.
    */
   failedOf?: string
+  /** Version 2 requires explicit progress and completion; absence is legacy. */
+  version?: 2
+  actions?: JournalAction[]
+  progress?: JournalProgress
+  /** Append-only checkpoint, hidden from the operation list. */
+  progressOf?: string
 }
 
 const JOURNAL_KINDS = new Set<string>([
@@ -267,6 +295,31 @@ const isJournalStep = (value: unknown): value is JournalStep => {
   }
 }
 
+const isEndpoint = (value: unknown): value is JournalEndpoint =>
+  isObject(value) && typeof value.store === 'string' && typeof value.relative === 'string' &&
+  (value.trashId === undefined || (typeof value.trashId === 'string' && /^[a-zA-Z0-9_-]+$/.test(value.trashId)))
+
+const isProgress = (value: unknown): value is JournalProgress =>
+  isObject(value) && typeof value.next === 'number' && Number.isSafeInteger(value.next) && value.next >= 0 &&
+  (value.pending === null || (typeof value.pending === 'string' && /^[a-f0-9]{64}$/.test(value.pending))) &&
+  (value.state === 'running' || value.state === 'failed' || value.state === 'complete')
+
+const isExecution = (value: Record<string, unknown>): boolean => {
+  if (value.version === undefined) {
+    return value.actions === undefined && value.progress === undefined && value.progressOf === undefined
+  }
+  if (value.version !== 2 || value.failedOf !== undefined || !isProgress(value.progress)) return false
+  if (value.progressOf !== undefined) {
+    return typeof value.progressOf === 'string' && value.actions === undefined &&
+      Array.isArray(value.steps) && value.steps.length === 0
+  }
+  return Array.isArray(value.actions) && value.actions.every((action: unknown) =>
+    isObject(action) && (action.type === 'move' || action.type === 'copy') &&
+    isEndpoint(action.from) && isEndpoint(action.to) &&
+    typeof action.step === 'number' && Number.isSafeInteger(action.step) && action.step >= 0
+  ) && value.progress.next === 0 && value.progress.pending === null && value.progress.state === 'running'
+}
+
 /** Optional historical fields may be absent; extra metadata is left alone. */
 const isJournalRecord = (value: unknown): value is JournalRecord =>
   isObject(value) &&
@@ -278,7 +331,7 @@ const isJournalRecord = (value: unknown): value is JournalRecord =>
   typeof value.summary === 'string' &&
   (value.undoOf === null || typeof value.undoOf === 'string') &&
   (value.failedOf === undefined || typeof value.failedOf === 'string') &&
-  Array.isArray(value.steps) && value.steps.every(isJournalStep)
+  Array.isArray(value.steps) && value.steps.every(isJournalStep) && isExecution(value)
 
 const ID_PREFIX = 'journal:'
 
@@ -407,14 +460,6 @@ export function createMutations(
     }
   }
 
-  const prepareParent = async (target: string): Promise<void> => {
-    await checked(target, true)
-    // Exact-file exceptions never grant directory creation outside the store.
-    if (typeof boundaryOf(target) === 'string') {
-      await fs.mkdir(await checked(path.dirname(target), true), { recursive: true })
-    }
-  }
-
   const resolveIn = async (store: string, relative: string, dereference = false): Promise<string> => {
     if (store === USER_CONFIG_STORE && relative !== userConfigName) {
       throw new Refused(
@@ -454,8 +499,17 @@ export function createMutations(
   // may hold a colon, so the trash spells it with a dash. The journal keeps
   // the real store name; both the write and its undo come through here, so
   // the two always agree on where the displaced bytes went.
-  const trashPath = (journalId: string, displaced: string): string =>
-    path.join(trashRoot, journalId, ...displaced.replaceAll(':', '-').split('/'))
+  const trashPath = (journalId: string, displaced: string): string => {
+    if (!/^[a-zA-Z0-9_-]+$/.test(journalId)) {
+      throw new Refused('out-of-store', journalId, 'A trash entry must have a single journal identity.')
+    }
+    const root = path.join(trashRoot, journalId)
+    const target = path.join(root, ...displaced.replaceAll(':', '-').split('/'))
+    if (!pathWithin(target, root)) {
+      throw new Refused('out-of-store', displaced, 'Recovery bytes must stay in their trash entry.')
+    }
+    return target
+  }
 
   const exists = async (target: string): Promise<boolean> => {
     try {
@@ -525,42 +579,6 @@ export function createMutations(
     )
   }
 
-  /**
-   * Replace a file's contents through a temporary sibling, so a reader
-   * racing the write sees the old bytes or the new ones and never a torn
-   * file. Only the splice pays for this: it is the one step aimed at a file
-   * something else is writing (ADR-0010).
-   */
-  const replaceAtomically = async (target: string, text: string): Promise<void> => {
-    // The caller read and digest-checked this resolved path. Refuse a new
-    // link introduced since then rather than following a different referent.
-    const resolved = await fs.realpath(target).catch((cause: unknown) => {
-      throw new Refused('read-failed', target, `Cannot resolve the splice target: ${describe(cause)}`)
-    })
-    if (path.relative(target, resolved) !== '') {
-      throw new Refused('out-of-store', target, 'The splice target changed its resolved path.')
-    }
-    const temporary = `${target}.kondo-${randomUUID().slice(0, 8)}`
-    let handle: Awaited<ReturnType<typeof fs.open>> | undefined
-    let owned = false
-    try {
-      handle = await fs.open(temporary, 'wx')
-      owned = true
-      await handle.writeFile(text, 'utf8')
-      await handle.sync()
-      await handle.close()
-      handle = undefined
-      await fs.rename(temporary, target)
-      owned = false
-    } finally {
-      // A remaining handle or owned path means the operation threw. Attempt
-      // both cleanups without masking that error; a failed exclusive open
-      // owns nothing to remove. Successful rename needs neither cleanup.
-      await handle?.close().catch(() => undefined)
-      if (owned) await fs.rm(temporary, { force: true }).catch(() => undefined)
-    }
-  }
-
   /** Apply an edit list, turning "outside the file" into a refusal. */
   const spliced = (text: string, edits: SpliceEdit[], at: string): string => {
     const next = applyEdits(text, edits)
@@ -617,15 +635,70 @@ export function createMutations(
   const appendJournal = async (record: JournalRecord): Promise<void> => {
     await checked(journalFile, true)
     await fs.mkdir(await checked(kondoData, true), { recursive: true })
-    const handle = await fs.open(await checked(journalFile, true), 'a')
+    const handle = await fs.open(await checked(journalFile, true), 'a+')
     try {
-      await handle.write(`${JSON.stringify(record)}\n`)
+      // Preserve a torn final line, but keep the next record independently readable.
+      const size = (await handle.stat()).size
+      if (size > 0) {
+        const tail = Buffer.alloc(1)
+        await handle.read(tail, 0, 1, size - 1)
+        if (tail[0] !== 10) await handle.writeFile('\n')
+      }
+      await handle.writeFile(`${JSON.stringify(record)}\n`)
       // The invariant is ordering, not best effort: the entry is on the
       // platter before a single store byte moves.
       await handle.sync()
     } finally {
       await handle.close()
     }
+  }
+
+  const sameEndpoint = (a: JournalEndpoint, b: JournalEndpoint): boolean =>
+    a.store === b.store && a.relative === b.relative && a.trashId === b.trashId
+
+  const validActions = (record: JournalRecord, records: JournalRecord[]): boolean => {
+    const actions = record.actions!
+    if (includesSettingsWrite(record.steps)) return false
+    if (record.undoOf === null) {
+      const expected = forwardActions(record.id, record.steps)
+      return actions.length === expected.length && actions.every((action, index) => {
+        const other = expected[index]!
+        return action.type === other.type && action.step === index &&
+          sameEndpoint(action.from, other.from) && sameEndpoint(action.to, other.to)
+      })
+    }
+    const original = records.find((candidate) => candidate.id === record.undoOf)
+    if (!original || original.undoOf !== null || includesSettingsWrite(original.steps) || actions.length === 0) return false
+    let previous = original.steps.length
+    let occupant = false
+    for (const action of actions) {
+      const step = original.steps[action.step]
+      if (!step || action.type !== 'move' || action.step > previous) return false
+      const source = { store: step.store, relative: step.from }
+      const destination = step.type === 'trash'
+        ? { store: step.store, relative: step.displaced!, trashId: original.id }
+        : { store: step.toStore ?? step.store, relative: step.to! }
+      const displaced = {
+        store: step.type === 'copy' ? destination.store : source.store,
+        relative: step.type === 'copy' ? `${destination.store}/${destination.relative}` : `${source.store}/${source.relative}`,
+        trashId: record.id
+      }
+      const movingOccupant = step.type !== 'copy' && sameEndpoint(action.from, source) && sameEndpoint(action.to, displaced)
+      const restoring = sameEndpoint(action.from, destination) &&
+        sameEndpoint(action.to, step.type === 'copy' ? displaced : source)
+      if (!movingOccupant && !restoring) return false
+      if (action.step === previous && (!occupant || movingOccupant)) return false
+      if (action.step < previous && occupant) return false
+      occupant = movingOccupant
+      previous = action.step
+    }
+    if (occupant) return false
+    if (original.version === 2) {
+      const expected = new Set(original.actions!.slice(0, original.progress!.next).map((action) => action.step))
+      const covered = new Set(actions.map((action) => action.step))
+      if (expected.size !== covered.size || [...expected].some((step) => !covered.has(step))) return false
+    }
+    return true
   }
 
   const readJournal = async (): Promise<{
@@ -654,8 +727,45 @@ export function createMutations(
           if (isObject(parsed)) {
             if (typeof parsed.undoOf === 'string') blockedUndoIds.add(parsed.undoOf)
             if (typeof parsed.failedOf === 'string') blockedUndoIds.add(parsed.failedOf)
+            if (typeof parsed.progressOf === 'string') blockedUndoIds.add(parsed.progressOf)
           }
           c.fail('parse-failed', `journal.jsonl:${index + 1}`, 'This history entry is incomplete or contains an invalid step.')
+          continue
+        }
+        if (parsed.progressOf !== undefined) {
+          const target = records.find((record) => record.id === parsed.progressOf)
+          const previous = target?.progress
+          const next = parsed.progress!
+          const count = target?.actions?.length ?? -1
+          const sameCursor = previous !== undefined && next.next === previous.next
+          const advanced = previous !== undefined && previous.pending !== null &&
+            next.next === previous.next + 1 && next.pending === null
+          const valid = target?.version === 2 && previous !== undefined && previous.state !== 'complete' &&
+            parsed.undoOf === target.undoOf && parsed.op === target.op && parsed.kind === target.kind &&
+            parsed.entityId === target.entityId && parsed.summary === target.summary && next.next <= count &&
+            (next.pending === null || next.next < count) &&
+            (sameCursor || advanced) &&
+            (next.state !== 'complete' || (next.next === count && next.pending === null)) &&
+            !(sameCursor && previous.pending !== null && next.pending !== null && previous.pending !== next.pending) &&
+            !(sameCursor && previous.pending !== null && next.pending === null && next.state !== 'failed')
+          if (!valid) {
+            blockedUndoIds.add(parsed.progressOf)
+            c.fail('parse-failed', `journal.jsonl:${index + 1}`, 'Invalid history progress; recovery is blocked.')
+          } else {
+            target.progress = next
+          }
+          continue
+        }
+        if (records.some((record) => record.id === parsed.id)) {
+          blockedUndoIds.add(parsed.id)
+          if (parsed.undoOf) blockedUndoIds.add(parsed.undoOf)
+          c.fail('parse-failed', `journal.jsonl:${index + 1}`, 'Duplicate history identity; recovery is blocked.')
+          continue
+        }
+        if (parsed.version === 2 && !validActions(parsed, records)) {
+          blockedUndoIds.add(parsed.id)
+          if (parsed.undoOf) blockedUndoIds.add(parsed.undoOf)
+          c.fail('parse-failed', `journal.jsonl:${index + 1}`, 'History actions do not match their operation.')
           continue
         }
         records.push(parsed)
@@ -670,32 +780,42 @@ export function createMutations(
     return { records, blockedUndoIds, scan: finish(null, c) }
   }
 
+  const outcomeOf = (record: JournalRecord, failed = false): JournalEntryInfo['outcome'] => {
+    if (record.version !== 2) return failed ? 'uncertain' : 'complete'
+    const progress = record.progress!
+    if (progress.pending !== null) return 'uncertain'
+    if (progress.state === 'complete') return 'complete'
+    return progress.next > 0 ? 'partial' : 'none'
+  }
+
   const toInfo = (
     record: JournalRecord,
     undoneBy: string | null,
-    failed = false
+    failed = false,
+    recovery: JournalEntryInfo['recovery'] = 'available',
+    undoBlockedReason: string | null = null
   ): JournalEntryInfo => ({
-    id: `${ID_PREFIX}${record.id}`,
-    at: record.at,
-    op: record.op,
-    kind: record.kind,
-    entityId: record.entityId,
-    summary: record.summary,
-    stepCount: record.steps.length,
-    undoneBy,
-    isUndo: record.undoOf !== null,
-    failed
+    id: `${ID_PREFIX}${record.id}`, at: record.at, op: record.op, kind: record.kind,
+    entityId: record.entityId, summary: record.summary, stepCount: record.steps.length,
+    undoneBy, isUndo: record.undoOf !== null,
+    failed: failed || (record.version === 2 && record.progress!.state !== 'complete'),
+    outcome: outcomeOf(record, failed), recovery,
+    undoBlockedReason: undoBlockedReason ?? (record.undoOf !== null ? 'An undo cannot itself be undone.'
+      : record.version === 2 && record.progress!.next === 0 && record.progress!.pending === null
+        ? 'This operation has no completed changes to undo.' : null)
   })
 
-  /** Ids the following marker lines report as partly run; see `failedOf`. */
   const failedIds = (records: JournalRecord[]): Set<string> =>
     new Set(records.flatMap((record) => (record.failedOf ? [record.failedOf] : [])))
 
-  /** `undoneBy` is derived from the undo entries, so the file stays append-only. */
+  /** An intent or failed legacy Undo never proves completion. */
   const undoLinks = (records: JournalRecord[], blockedUndoIds: Set<string>): Map<string, string> => {
     const links = new Map<string, string>()
+    const failed = failedIds(records)
     for (const record of records) {
-      if (record.undoOf && !blockedUndoIds.has(record.id)) {
+      if (record.undoOf && record.failedOf === undefined && !blockedUndoIds.has(record.id) &&
+        !blockedUndoIds.has(record.undoOf) && !failed.has(record.id) &&
+        (record.version !== 2 || record.progress?.state === 'complete')) {
         links.set(record.undoOf, `${ID_PREFIX}${record.id}`)
       }
     }
@@ -740,51 +860,6 @@ export function createMutations(
 
   // -------------------------------------------------------------------------
   // Execution
-
-  const runSteps = async (
-    journalId: string,
-    planned: PlannedStep[],
-    steps: JournalStep[]
-  ): Promise<void> => {
-    for (const [index, step] of steps.entries()) {
-      if (step.type === 'move') {
-        const destination = await resolveIn(step.store, step.to as string)
-        await relocate(await resolveIn(step.store, step.from), destination)
-      } else if (step.type === 'copy') {
-        const toStore = step.toStore as string
-        const source = await resolveIn(step.store, step.from)
-        const destination = await resolveIn(toStore, step.to as string)
-        await copy(source, destination)
-        const unverified = await verifyCopy(source, destination)
-        if (unverified !== null) {
-          // The half-copy is kondo's own doing and the source has not been
-          // touched, so it goes to this entry's trash rather than an unlink,
-          // and the step fails before anything can release the original.
-          await relocate(destination, trashPath(journalId, `${toStore}/${step.to}`))
-          throw new Refused('read-failed', step.to as string, unverified)
-        }
-      } else if (step.type === 'trash') {
-        await relocate(
-          await resolveIn(step.store, step.from),
-          trashPath(journalId, step.displaced as string)
-        )
-      } else if (step.type === 'splice') {
-        const target = await resolveIn(step.store, step.from, true)
-        // Re-read rather than reuse the plan's read: the journal entry is
-        // already on the platter, and this is the check that counts.
-        const text = await readForSplice(target, step.from)
-        requireDigest(text, step.expectDigest as string, step.from)
-        await replaceAtomically(target, spliced(text, step.edits as SpliceEdit[], step.from))
-      } else {
-        const target = await resolveIn(step.store, step.from)
-        if (step.displaced) {
-          await copy(target, trashPath(journalId, step.displaced))
-        }
-        await prepareParent(target)
-        await fs.writeFile(await checked(target, true), (planned[index] as { content: string }).content, 'utf8')
-      }
-    }
-  }
 
   const planSteps = async (journalId: string, planned: PlannedStep[]): Promise<JournalStep[]> => {
     const steps: JournalStep[] = []
@@ -876,22 +951,114 @@ export function createMutations(
   const newId = (): string =>
     `${now().toString(36).padStart(9, '0')}-${randomUUID().slice(0, 8)}`
 
-  const write = async (record: JournalRecord, act: () => Promise<void>): Promise<void> => {
-    await appendJournal(record)
+  const endpoint = async (at: JournalEndpoint): Promise<string> => {
+    if (at.trashId === undefined) return resolveIn(at.store, at.relative)
+    const target = trashPath(at.trashId, at.relative)
+    if (!pathWithin(target, path.join(trashRoot, at.trashId))) {
+      throw new Refused('out-of-store', at.relative, 'Recovery bytes must stay in their trash entry.')
+    }
+    return target
+  }
+
+  const fingerprint = async (target: string, logical: boolean): Promise<string | null> => {
+    if (!(await entryExists(target))) return null
+    return logical ? digestTree(target, boundaryOf(target)) : physicalDigest(target, boundaryOf(target))
+  }
+
+  class JournalWriteError extends Error {}
+
+  const checkpoint = async (record: JournalRecord, progress: JournalProgress): Promise<void> => {
+    const { actions: _actions, ...metadata } = record
     try {
-      await act()
+      await appendJournal({ ...metadata, id: newId(), steps: [], progressOf: record.id, progress })
     } catch (cause) {
-      // The entry above is already on the platter and now overstates what
-      // happened. One more line says so, so `list` stops offering it as a
-      // finished operation and `undo` knows to expect gaps.
-      try {
-        await appendJournal({ ...record, id: newId(), steps: [], failedOf: record.id })
-      } catch {
-        // Best effort: the step's own failure is the one worth reporting.
-      }
-      throw cause
+      // A failed sync/close may still leave a complete line. Never append a
+      // competing cursor or infer that the preceding filesystem action failed.
+      throw new JournalWriteError(`Could not confirm history progress: ${describe(cause)}. Recovery will recheck the pending action.`)
+    }
+    record.progress = progress
+  }
+
+  /** Classify the one unconfirmed action; completed actions are never inspected again. */
+  const reconcile = async (record: JournalRecord): Promise<void> => {
+    const progress = record.progress!
+    if (progress.pending === null) return
+    const action = record.actions![progress.next]!
+    const source = await endpoint(action.from)
+    const destination = await endpoint(action.to)
+    const before = await fingerprint(source, action.type === 'copy')
+    const after = await fingerprint(destination, action.type === 'copy')
+    if (before === progress.pending && after === null) {
+      await checkpoint(record, { next: progress.next, pending: null, state: 'failed' })
+    } else if (after === progress.pending && (before === null ||
+      (action.type === 'copy' && before === progress.pending))) {
+      await checkpoint(record, { next: progress.next + 1, pending: null, state: 'failed' })
+    } else {
+      throw new Refused('read-failed', record.entityId,
+        'Recovery is uncertain: the pending action no longer matches its saved evidence. All remaining bytes were kept; review the files before retrying.')
     }
   }
+
+  const execute = async (record: JournalRecord, fresh: boolean): Promise<Scan<JournalEntryInfo | null>> => {
+    if (fresh) {
+      try { await appendJournal(record) } catch (cause) {
+        return refuse('read-failed', record.entityId, describe(cause))
+      }
+    }
+    try {
+      await reconcile(record)
+      while (record.progress!.next < record.actions!.length) {
+        const next = record.progress!.next
+        const action = record.actions![next]!
+        const source = await endpoint(action.from)
+        const destination = await endpoint(action.to)
+        // Earlier actions can have supplied this source or vacated this destination.
+        if (await entryExists(destination)) throw new Refused('read-failed', action.to.relative,
+          'The recovery destination is occupied. No files were overwritten; retry after resolving the collision.')
+        const digest = await fingerprint(source, action.type === 'copy')
+        if (digest === null) throw new Refused('read-failed', action.from.relative,
+          'The files needed by this action are missing; its trash may have been emptied.')
+        if (action.type === 'move') await relocation(source, destination, false)
+        else await checkTree(source)
+        await checkpoint(record, { next, pending: digest, state: 'running' })
+        if (action.type === 'move') {
+          await relocate(source, destination)
+        } else {
+          await copy(source, destination)
+          const unverified = await verifyCopy(source, destination)
+          if (unverified !== null) {
+            await relocate(destination, trashPath(record.id, `${action.to.store}/${action.to.relative}`))
+            throw new Refused('read-failed', action.to.relative, unverified)
+          }
+        }
+        await checkpoint(record, { next: next + 1, pending: null, state: 'running' })
+      }
+      await checkpoint(record, { ...record.progress!, state: 'complete' })
+      return { data: toInfo(record, null), errors: [], unknown: [] }
+    } catch (cause) {
+      let uncertain = cause instanceof JournalWriteError
+      if (!uncertain) {
+        try {
+          await reconcile(record)
+          await checkpoint(record, { ...record.progress!, state: 'failed' })
+        } catch { uncertain = true }
+      }
+      const result = cause instanceof Refused
+        ? refuse(cause.code, cause.at, cause.message)
+        : refuse('read-failed', record.entityId, describe(cause))
+      const info = toInfo(record, null)
+      if (uncertain) { info.outcome = 'uncertain'; info.failed = true }
+      return { ...result, data: info }
+    }
+  }
+
+  const forwardActions = (id: string, steps: JournalStep[]): JournalAction[] => steps.map((step, index) => ({
+    type: step.type === 'copy' ? 'copy' : 'move', step: index,
+    from: { store: step.store, relative: step.from },
+    to: step.type === 'trash'
+      ? { store: step.store, relative: step.displaced!, trashId: id }
+      : { store: step.toStore ?? step.store, relative: step.to! }
+  }))
 
   const operations: Mutations = {
     async mutate(plan: MutationPlan): Promise<Scan<JournalEntryInfo | null>> {
@@ -931,18 +1098,10 @@ export function createMutations(
         entityId: plan.entityId,
         summary: plan.summary,
         steps,
-        undoOf: null
+        undoOf: null, version: 2, actions: forwardActions(id, steps),
+        progress: { next: 0, pending: null, state: 'running' }
       }
-      try {
-        await write(record, () => runSteps(id, plan.steps, steps))
-      } catch (cause) {
-        // The entry may already be on disk; that is the point — whatever ran
-        // before the failure is reversible through `undo`. A step that
-        // refused (an unverified copy) carries its own reason and code.
-        if (cause instanceof Refused) return refuse(cause.code, cause.at, cause.message)
-        return refuse('read-failed', plan.entityId, describe(cause))
-      }
-      return { data: toInfo(record, null), errors: [], unknown: [] }
+      return execute(record, true)
     },
 
     async undo(journalId: string): Promise<Scan<JournalEntryInfo | null>> {
@@ -980,186 +1139,95 @@ export function createMutations(
         return refuseUndo('not-permitted', journalId, SETTINGS_WRITE_UNAVAILABLE)
       }
 
+      const failed = failedIds(records)
+      const previous = records.find((record) => record.undoOf === key && record.failedOf === undefined)
+      if (previous && previous.version !== 2) {
+        return refuseUndo('read-failed', journalId,
+          'A previous Undo failed without recording which actions completed. Recovery is uncertain; the saved bytes were kept for review.')
+      }
+      // A forward action may have completed before its checkpoint failed.
+      // Resolve only that action; never continue the forward operation on Undo.
+      if (original.version === 2) {
+        try { await reconcile(original) } catch (cause) {
+          return refuseUndo('read-failed', journalId, describe(cause))
+        }
+      }
+      const finishUndo = async (record: JournalRecord, fresh: boolean): Promise<Scan<JournalEntryInfo | null>> => {
+        const result = await execute(record, fresh)
+        if (result.data?.outcome === 'complete') {
+          for (const step of [...original.steps].reverse()) await dropCreated(step.created, createdIn(step))
+        }
+        return { ...result, errors: [...scan.errors, ...result.errors], unknown: scan.unknown }
+      }
+      if (previous) return finishUndo(previous, false)
+
+      const completed = original.version === 2
+        ? new Set(original.actions!.slice(0, original.progress!.next).map((action) => action.step))
+        : null
+      if (completed?.size === 0) {
+        return refuseUndo('bad-request', journalId, 'This operation has no completed changes to undo.')
+      }
       const id = newId()
-      // Reversing a `write` or a `copy` displaces bytes kondo itself put
-      // there, so the undo has journal steps of its own and its own trash
-      // directory. A `move` and a `trash` put back what was already recorded,
-      // and usually add nothing — but the path they put it back at can have
-      // been taken in the meantime, by Claude writing a transcript at the same
-      // uuid or by the user's own hand. That occupant is displaced rather than
-      // renamed over (ADR-0001), so it earns a step here too. Reading the disk
-      // at this point is what `mutate` already does in `planSteps`: the entry
-      // is appended before `act` runs, so a step it does not carry is a
-      // displacement nothing records.
+      const actions: JournalAction[] = []
       const steps: JournalStep[] = []
+      const saved = (store: string, relative: string, trashId = id): JournalEndpoint =>
+        ({ store, relative, trashId })
+      const add = (from: JournalEndpoint, to: JournalEndpoint, step: number): void => {
+        actions.push({ type: 'move', from, to, step })
+      }
       try {
-        for (const step of original.steps) {
-          // Preflight every tree and endpoint before appending an undo entry
-          // or displacing a healthy occupant. Trash links are metadata until
-          // validated against their future location in the restored store.
-          const target = await resolveIn(step.store, step.from)
-          const targetExists = await exists(target)
-          if (targetExists) await checkTree(target)
-          if (step.type === 'move') {
-            const destination = await resolveIn(step.store, step.to as string)
-            if (await exists(destination)) await relocation(destination, target, false)
-          } else if (step.type === 'copy') {
-            const destination = await resolveIn(step.toStore as string, step.to as string)
-            if (await exists(destination)) {
-              await relocation(destination, trashPath(id, `${step.toStore}/${step.to}`), false)
-            }
-          } else if ((step.type === 'trash' || step.type === 'write') && step.displaced) {
-            const kept = trashPath(original.id, step.displaced)
-            // A saved link can deliberately point back at its original store.
-            // Test the entry itself without following it out of Kondo's trash.
-            if (await entryExists(kept)) {
-              if (step.type === 'trash' && targetExists && failedIds(records).has(key)) {
-                throw new Refused('read-failed', step.from,
-                  'The failed move retains both a source and saved bytes. Their completeness is uncertain; nothing was changed.')
-              }
-              await relocation(kept, target, false)
-            }
-          }
-          if (targetExists && step.type !== 'splice' && step.type !== 'copy') {
-            await relocation(target, trashPath(id, `${step.store}/${step.from}`), false)
-          }
-          if (step.type === 'write') {
-            steps.push({
-              type: 'trash' as const,
-              store: step.store,
-              from: step.from,
-              displaced: `${step.store}/${step.from}`
-            })
-          } else if (step.type === 'copy') {
-            const store = step.toStore as string
-            const from = step.to as string
-            steps.push({ type: 'trash' as const, store, from, displaced: `${store}/${from}` })
-          } else if (step.type === 'move' || step.type === 'trash') {
-            if (await exists(await resolveIn(step.store, step.from))) {
-              steps.push({
-                type: 'trash' as const,
-                store: step.store,
-                from: step.from,
-                displaced: `${step.store}/${step.from}`
-              })
-            }
-          }
-          // A `splice` displaces nothing, so it adds nothing here: what it
-          // took out lives in its own `undoEdits` (ADR-0010).
-        }
-      } catch (cause) {
-        if (cause instanceof Refused) return refuseUndo(cause.code, cause.at, cause.message)
-        return refuseUndo('read-failed', journalId, describe(cause))
-      }
-      const record: JournalRecord = {
-        id,
-        at: new Date(now()).toISOString(),
-        op: original.op,
-        kind: original.kind,
-        entityId: original.entityId,
-        summary: `Undo: ${original.summary}`,
-        steps,
-        undoOf: key
-      }
-
-      const act = async (): Promise<void> => {
-        for (const step of [...original.steps].reverse()) {
-          if (step.type === 'move') {
-            const destination = await resolveIn(step.store, step.to as string)
-            const source = await resolveIn(step.store, step.from)
-            // The step may never have run: nothing arrived at the destination
-            // and the source never left. Reversing that is a no-op, not a
-            // failure. An absent source is the other story, and still throws.
-            if ((await exists(destination)) || !(await exists(source))) {
-              // Something took the path while the move stood. It goes to this
-              // undo's own trash first; nothing is ever renamed over.
-              if (await exists(source)) {
-                await relocate(source, trashPath(id, `${step.store}/${step.from}`))
-              }
-              await relocate(destination, source)
-            }
-          } else if (step.type === 'copy') {
-            // The source came back on the reversed `trash` step before this
-            // one, so the copy is now the spare. It is displaced into the
-            // undo's own trash, never unlinked — and it may not be there at
-            // all if the copy is what failed.
-            const destination = await resolveIn(step.toStore as string, step.to as string)
-            if (await exists(destination)) {
-              await relocate(destination, trashPath(id, `${step.toStore}/${step.to}`))
-            }
-          } else if (step.type === 'splice') {
-            const target = await resolveIn(step.store, step.from, true)
-            const text = await readForSplice(target, step.from)
-            // The file still holding the pre-splice bytes means the step
-            // never ran: the entry was journaled and then failed. Reversing
-            // that is a no-op, exactly as it is for a move.
-            if (digestSource(text) === step.expectDigest) continue
-            requireDigest(text, step.resultDigest as string, step.from)
-            await replaceAtomically(
-              target,
-              spliced(text, step.undoEdits as SpliceEdit[], step.from)
-            )
-          } else if (step.type === 'trash') {
-            const kept = trashPath(original.id, step.displaced as string)
-            const source = await resolveIn(step.store, step.from)
-            // Nothing in the trash and the source still in place means this
-            // step never ran. Nothing in the trash and no source is the
-            // emptied trash, which still throws and is still reported below.
-            if ((await entryExists(kept)) || !(await exists(source))) {
-              // Claude writing a transcript at the same uuid is the ordinary
-              // way this happens, and it is exactly what must not be lost.
-              if (await exists(source)) {
-                await relocate(source, trashPath(id, `${step.store}/${step.from}`))
-              }
-              await relocate(kept, source)
-            }
+        for (const [index, step] of [...original.steps.entries()].reverse()) {
+          if (completed !== null && !completed.has(index)) continue
+          const source: JournalEndpoint = { store: step.store, relative: step.from }
+          const sourcePath = await endpoint(source)
+          const sourceExists = await exists(sourcePath)
+          if (sourceExists) await checkTree(sourcePath)
+          if (step.type === 'copy') {
+            const from = { store: step.toStore!, relative: step.to! }
+            const fromPath = await endpoint(from)
+            if (!(await exists(fromPath)) && failed.has(key)) continue
+            const to = saved(from.store, `${from.store}/${from.relative}`)
+            await relocation(fromPath, await endpoint(to), false)
+            add(from, to, index)
+            steps.push({ type: 'trash', store: from.store, from: from.relative, displaced: to.relative })
           } else {
-            const target = await resolveIn(step.store, step.from)
-            const kept = step.displaced ? trashPath(original.id, step.displaced) : null
-            // Entry 010's guard, one step further. A move and a trash can tell
-            // a step that never ran from an emptied trash by looking at the
-            // source; a write cannot, because its target sits there either
-            // way. So this keeps the half it can decide — never displace bytes
-            // that have nothing to come back — and lets the missing trash path
-            // raise the ENOENT that is already the emptied-trash refusal.
-            // Deliberate, over a per-step signal in the returned errors: a
-            // silent skip would report an undo that succeeded and put nothing
-            // back, which is the worse of the two half-truths, and the store
-            // is untouched either way.
-            if (kept !== null) await fs.stat(await checked(kept))
-            // Nothing is destroyed: the current bytes go to the undo's trash
-            // before whatever they displaced comes back.
-            if (await exists(target)) {
-              await relocate(target, trashPath(id, `${step.store}/${step.from}`))
+            const from = step.type === 'move'
+              ? { store: step.store, relative: step.to! }
+              : saved(step.store, step.displaced!, original.id)
+            const fromPath = await endpoint(from)
+            if (!(await entryExists(fromPath))) {
+              if (completed === null && failed.has(key) && sourceExists) continue
+              throw new Refused('read-failed', step.from,
+                'The files this entry would put back are missing; the trash may have been emptied. Nothing was restored.')
             }
-            if (kept !== null) {
-              await copy(kept, target)
+            if (completed === null && failed.has(key) && sourceExists && step.type === 'trash') {
+              throw new Refused('read-failed', step.from,
+                'The failed move retains both a source and saved bytes. Their completeness is uncertain; nothing was changed.')
             }
+            // Validate every restore before journaling or moving an occupant.
+            await relocation(fromPath, sourcePath, false)
+            if (sourceExists) {
+              const displaced = saved(step.store, `${step.store}/${step.from}`)
+              await relocation(sourcePath, await endpoint(displaced), false)
+              add(source, displaced, index)
+              steps.push({ type: 'trash', store: step.store, from: step.from, displaced: displaced.relative })
+            }
+            add(from, source, index)
           }
-          await dropCreated(step.created, createdIn(step))
         }
-      }
-
-      try {
-        await write(record, act)
       } catch (cause) {
-        // The commonest way an undo fails is the one worth a sentence rather
-        // than an errno: its displaced bytes were emptied out of the trash.
-        // Emptying is the single thing undo cannot survive (ADR-0001), so
-        // say that instead of handing the UI a raw rename failure.
-        if (isEnoent(cause)) {
-          return refuseUndo(
-            'read-failed',
-            journalId,
-            "The files this entry would put back are no longer in kondo's trash — it was emptied, and emptying is the one thing undo cannot survive."
-          )
-        }
-        // A splice that refuses carries its own reason and code — a stale
-        // file is not a read failure, and undo says so (ADR-0010).
         if (cause instanceof Refused) return refuseUndo(cause.code, cause.at, cause.message)
+        if (isEnoent(cause)) return refuseUndo('read-failed', journalId,
+          'The files needed to undo this change are missing; the trash may have been emptied.')
         return refuseUndo('read-failed', journalId, describe(cause))
       }
-      return { data: toInfo(record, null), errors: scan.errors, unknown: scan.unknown }
+      if (actions.length === 0) return refuseUndo('bad-request', journalId, 'No files need restoring.')
+      const record: JournalRecord = {
+        id, at: new Date(now()).toISOString(), op: original.op, kind: original.kind,
+        entityId: original.entityId, summary: `Undo: ${original.summary}`, steps, undoOf: key,
+        version: 2, actions, progress: { next: 0, pending: null, state: 'running' }
+      }
+      return finishUndo(record, true)
     },
 
     async list(): Promise<Scan<JournalEntryInfo[]>> {
@@ -1170,7 +1238,28 @@ export function createMutations(
         // A marker is a correction to the line above it, not an operation of
         // its own, so it is read and never listed.
         .filter((record) => record.failedOf === undefined)
-        .map((record) => toInfo(record, links.get(record.id) ?? null, failed.has(record.id)))
+        .map((record) => {
+          const undoneBy = links.get(record.id) ?? null
+          const attempt = records.find((candidate) => candidate.undoOf === record.id && candidate.failedOf === undefined)
+          const damaged = blockedUndoIds.has(record.id)
+          const legacyFailedUndo = attempt !== undefined && attempt.version !== 2 && failed.has(attempt.id)
+          const empty = record.version === 2 && record.progress!.next === 0 && record.progress!.pending === null
+          const reason = record.undoOf !== null ? 'An undo cannot itself be undone.'
+            : undoneBy !== null ? 'This entry has already been undone.'
+            : damaged ? 'A damaged history entry prevents safe recovery.'
+            : includesSettingsWrite(record.steps) ? SETTINGS_WRITE_UNAVAILABLE
+            : legacyFailedUndo ? 'A previous Undo failed without action evidence. Saved bytes need review.'
+            : empty ? 'This operation has no completed changes to undo.'
+            : null
+          const recovery: JournalEntryInfo['recovery'] = undoneBy !== null ? 'done'
+            : reason !== null ? 'blocked'
+            : attempt?.progress?.pending !== null && attempt?.progress?.pending !== undefined ? 'uncertain'
+            : (attempt?.progress?.next ?? 0) > 0 ? 'partial'
+            : 'available'
+          const info = toInfo(record, undoneBy, failed.has(record.id), recovery, reason)
+          if (damaged) { info.outcome = 'uncertain'; info.failed = true }
+          return info
+        })
         .reverse()
       return { data: entries, errors: scan.errors, unknown: scan.unknown }
     },

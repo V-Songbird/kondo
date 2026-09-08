@@ -1,19 +1,33 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JournalEntryInfo } from '../../shared/contract'
 import { joinErrors } from '../lib/format'
 import { Refusal } from './refusal'
 
-/**
- * What just changed, and the way back — offered where the change was made.
- * ADR-0001 promises every mutation is reversible; a promise you have to
- * navigate to History to collect is one the user does not feel, so the undo
- * sits next to the control that caused it.
- *
- * `entry` is whatever the mutation returned, and null when the call refused
- * or changed nothing — the banner is absent then rather than empty. Give the
- * element `key={entry?.id}` so a second change starts a fresh banner instead
- * of inheriting the first one's "undone".
- */
+/** Shared language for History and the result beside the initiating control. */
+export function changeStatus(entry: JournalEntryInfo): string {
+  if (entry.undoneBy !== null) return 'undone'
+  if (entry.recovery === 'partial') return 'Undo incomplete'
+  if (entry.recovery === 'uncertain') return 'recovery uncertain'
+  if (entry.outcome === 'none') return 'no changes applied'
+  if (entry.outcome === 'uncertain') return 'result uncertain'
+  if (entry.outcome === 'partial') return entry.isUndo ? 'Undo incomplete' : 'partly applied'
+  return entry.isUndo ? 'restored' : 'applied'
+}
+
+export function changeReason(entry: JournalEntryInfo): string | null {
+  if (entry.undoneBy !== null) return null
+  if (entry.recovery === 'partial' || (entry.isUndo && entry.outcome === 'partial')) {
+    return 'Undo stopped before finishing. Retry continues from the remaining actions.'
+  }
+  if (entry.outcome === 'uncertain' || entry.recovery === 'uncertain') {
+    return 'Kondo could not confirm every effect. Remaining bytes were kept for recovery.'
+  }
+  if (entry.outcome === 'none') return 'This attempt did not apply any file changes.'
+  if (entry.outcome === 'partial') return 'Some changes were applied before a step failed. Undo restores those changes.'
+  return null
+}
+
+/** Pass key={entry?.id} so another operation starts a fresh result. */
 export function LastChange({
   entry,
   onUndone
@@ -22,8 +36,11 @@ export function LastChange({
   onUndone: () => void
 }) {
   const [busy, setBusy] = useState(false)
+  const [hasAttempt, setHasAttempt] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [undone, setUndone] = useState(false)
+  const [attempt, setAttempt] = useState<JournalEntryInfo | null>(null)
+  const focusResult = useRef(false)
   const status = useRef<HTMLSpanElement>(null)
 
   // Applying or undoing can remove the originating control. Give keyboard
@@ -32,19 +49,29 @@ export function LastChange({
     if (entry !== null) status.current?.focus()
   }, [entry?.id, undone])
 
+  useLayoutEffect(() => {
+    if (!busy && focusResult.current) {
+      status.current?.focus()
+      focusResult.current = false
+    }
+  })
+
   const undo = async (): Promise<void> => {
     const api = window.kondo
     if (!api || entry === null) return
     setBusy(true)
+    setHasAttempt(true)
     setProblem(null)
     try {
       const done = await api.journalUndo(entry.id)
       const failure = joinErrors(done.errors)
-      setProblem(failure)
-      if (done.data?.isUndo && !done.data.failed) setUndone(true)
+      setAttempt(done.data)
+      setProblem(failure ?? (done.data === null ? 'Undo did not confirm a result. Check History before retrying.' : null))
+      if (done.data?.isUndo && done.data.outcome === 'complete') setUndone(true)
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
     } finally {
+      focusResult.current = true
       setBusy(false)
       // The store is the state (ADR-0006): whether the undo landed or not,
       // what the view is showing came from before it, so it is re-read.
@@ -54,33 +81,31 @@ export function LastChange({
 
   if (entry === null) return null
 
-  // A green-ruled band is the ledger's "posted" stamp: the change is on the
-  // books, and the way back sits at the end of the same line.
+  const label = attempt ? changeStatus(attempt) : changeStatus(entry)
+  const reason = attempt ? changeReason(attempt) : changeReason(entry)
+  const warning = label !== 'applied' && label !== 'restored'
   return (
     <div className="band band-stamp">
-      {/* A change is an addition to the journal, so the band's gutter mark is
-          `+`; undone is aged-out rather than broken, so it becomes the amber
-          `~`. The sigil is what separates the two, not the hue. */}
-      <span ref={status} tabIndex={-1} role="status" className={undone ? 'stamp-off' : 'stamp-ok'} data-sigil={undone ? 'undone' : undefined}>
-        {undone ? `Undone — ${entry.summary}` : entry.summary}
+      <span ref={status} tabIndex={-1} role="status"
+        className={undone ? 'stamp-off' : warning ? 'stamp-bad' : 'stamp-ok'}
+        data-sigil={undone ? 'undone' : undefined}>
+        {undone ? `Undone — ${entry.summary}` : `${label.charAt(0).toUpperCase() + label.slice(1)} — ${entry.summary}`}
       </span>
-      {entry.failed && (
-        <span className="stamp-bad">
-          partly applied
-        </span>
-      )}
-      <Refusal reason={entry.failed && !undone ? 'A step of this change failed. Undo restores the steps that were applied.' : null} />
+      {!undone && <Refusal reason={reason} />}
       {problem !== null && <span role="alert" className="text-pencil">{problem}</span>}
       {!undone && (
-        <button
-          type="button"
-          aria-label={`Undo ${entry.summary}`}
-          disabled={busy}
-          className="btn btn-quiet btn-sm ml-auto"
-          onClick={() => void undo()}
-        >
-          {busy ? 'Undoing…' : 'Undo'}
-        </button>
+        <>
+          <button
+            type="button"
+            aria-label={`Undo ${entry.summary}`}
+            disabled={busy || entry.undoBlockedReason !== null}
+            className="btn btn-quiet btn-sm ml-auto"
+            onClick={() => void undo()}
+          >
+            {busy ? 'Undoing…' : hasAttempt || entry.recovery === 'partial' || entry.recovery === 'uncertain' ? 'Retry Undo' : 'Undo'}
+          </button>
+          <Refusal reason={entry.undoBlockedReason} />
+        </>
       )}
     </div>
   )

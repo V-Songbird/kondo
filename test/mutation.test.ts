@@ -236,6 +236,180 @@ describe('mutation safety invariants (ADR-0001)', () => {
     expect(twice.errors.map((error) => error.code)).toContain('bad-request')
   })
 
+  it('keeps an Undo with no effects retryable after restarting (099)', async () => {
+    const before = await hashTree(world.userRoot)
+    const done = await mutations.mutate({ op: 'trash', kind: 'skill',
+      entityId: 'skill:user:beta-skill', summary: 'Trash beta-skill',
+      steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }] })
+    const rename = vi.spyOn(fsp, 'rename').mockRejectedValue(new Error('fixture restore denied'))
+    const refused = await mutations.undo(done.data!.id)
+    expect(refused.errors).not.toEqual([])
+    rename.mockRestore()
+    mutations = createMutations(world.locator)
+    expect((await mutations.list()).data.find((entry) => entry.id === done.data!.id)?.undoneBy).toBeNull()
+    expect((await mutations.undo(done.data!.id)).errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('resumes a partial Undo without touching an already restored and subsequently edited file', async () => {
+    const done = await mutations.mutate({ op: 'trash', kind: 'skill',
+      entityId: 'skill:user:alpha-skill', summary: 'Trash two skills',
+      steps: ['alpha-skill', 'beta-skill'].map((name) => ({ type: 'trash' as const, store: 'user', from: `skills/${name}` })) })
+    const rename = fsp.rename.bind(fsp)
+    const stop = vi.spyOn(fsp, 'rename').mockImplementation(async (from, to) => {
+      if (String(to) === path.join(world.userRoot, 'skills', 'alpha-skill')) throw new Error('fixture second restore denied')
+      return rename(from, to)
+    })
+    const partial = await mutations.undo(done.data!.id)
+    expect(partial.data).toMatchObject({ isUndo: true, outcome: 'partial', failed: true })
+    expect((await mutations.list()).data.find((row) => row.id === done.data!.id)).toMatchObject({ undoneBy: null, recovery: 'partial' })
+    stop.mockRestore()
+    const changed = path.join(world.userRoot, 'skills', 'beta-skill', 'SKILL.md')
+    await fsp.writeFile(changed, 'external edit after completed restore')
+    mutations = createMutations(world.locator)
+    const resumed = await mutations.undo(done.data!.id)
+    expect(resumed.data).toMatchObject({ id: partial.data!.id, outcome: 'complete', failed: false })
+    expect(resumed.errors).toEqual([])
+    expect(await fsp.readFile(changed, 'utf8')).toBe('external edit after completed restore')
+    expect(await exists(path.join(world.userRoot, 'skills', 'alpha-skill'))).toBe(true)
+    expect((await mutations.list()).data).toHaveLength(2)
+  })
+
+  it('resumes after displacing an occupant without displacing it again or losing either version', async () => {
+    const original = path.join(world.userRoot, 'skills', 'beta-skill', 'SKILL.md')
+    const originalBytes = await fsp.readFile(original, 'utf8')
+    const done = await mutations.mutate({ op: 'trash', kind: 'skill', entityId: 'skill:user:beta-skill',
+      summary: 'Trash beta', steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }] })
+    await writeFileTree(world.userRoot, { 'skills/beta-skill/SKILL.md': 'new occupant' })
+    const rename = fsp.rename.bind(fsp)
+    const stop = vi.spyOn(fsp, 'rename').mockImplementation(async (from, to) => {
+      if (String(from).includes(done.data!.id.slice(8))) throw new Error('fixture saved restore denied')
+      return rename(from, to)
+    })
+    const partial = await mutations.undo(done.data!.id)
+    expect(partial.data?.outcome).toBe('partial')
+    const occupant = path.join(world.kondoDataRoot, 'trash', partial.data!.id.slice(8), 'user', 'skills', 'beta-skill', 'SKILL.md')
+    expect(await fsp.readFile(occupant, 'utf8')).toBe('new occupant')
+    expect(await exists(original)).toBe(false)
+    stop.mockRestore()
+    const resumed = await createMutations(world.locator).undo(done.data!.id)
+    expect(resumed.errors).toEqual([])
+    expect(await fsp.readFile(original, 'utf8')).toBe(originalBytes)
+    expect(await fsp.readFile(occupant, 'utf8')).toBe('new occupant')
+  })
+
+  it.each(['pending', 'effect', 'close'] as const)('recovers a restart at Undo %s without assuming a journal error means no effects', async (phase) => {
+    const before = await hashTree(world.userRoot)
+    const done = await mutations.mutate({ op: 'trash', kind: 'skill', entityId: 'skill:user:beta-skill',
+      summary: 'Trash beta', steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }] })
+    const journal = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const open = fsp.open.bind(fsp)
+    const rename = fsp.rename.bind(fsp)
+    let moved = false
+    let injected = false
+    vi.spyOn(fsp, 'rename').mockImplementation(async (from, to) => {
+      await rename(from, to)
+      moved = true
+    })
+    vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
+      if (String(args[0]) !== journal) return open(...args)
+      const lines = (await fsp.readFile(journal, 'utf8')).trim().split('\n')
+      const last = JSON.parse(lines.at(-1)!) as { undoOf: string | null; progress?: { next: number; pending: string | null } }
+      if ((phase === 'effect' && moved) || (phase === 'close' && last.undoOf && last.progress?.next === 1)) {
+        injected = true
+        throw new Error('fixture interrupted before checkpoint publication')
+      }
+      const handle = await open(...args)
+      if (phase === 'pending') {
+        const sync = handle.sync.bind(handle)
+        vi.spyOn(handle, 'sync').mockImplementation(async () => {
+          await sync()
+          const raw = (await fsp.readFile(journal, 'utf8')).trim().split('\n')
+          const current = JSON.parse(raw.at(-1)!) as { undoOf: string | null; progress?: { pending: string | null } }
+          if (current.undoOf && current.progress?.pending) {
+            injected = true
+            throw new Error('fixture interrupted after pending intent sync')
+          }
+        })
+      }
+      return handle
+    })
+    const interrupted = await mutations.undo(done.data!.id)
+    expect(injected).toBe(true)
+    expect(interrupted.data).toMatchObject({ outcome: 'uncertain', failed: true })
+    expect(moved).toBe(phase !== 'pending')
+    vi.restoreAllMocks()
+    mutations = createMutations(world.locator)
+    expect((await mutations.list()).data.find((entry) => entry.id === done.data!.id)?.undoneBy).toBeNull()
+    const observed = vi.spyOn(fsp, 'rename')
+    const resumed = await mutations.undo(done.data!.id)
+    expect(resumed.errors).toEqual([])
+    expect(resumed.data?.outcome).toBe('complete')
+    expect(observed).toHaveBeenCalledTimes(phase === 'pending' ? 1 : 0)
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('keeps ambiguous pending Undo bytes and refuses replay after restart', async () => {
+    const done = await mutations.mutate({ op: 'trash', kind: 'skill', entityId: 'skill:user:beta-skill',
+      summary: 'Trash beta', steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }] })
+    const rename = fsp.rename.bind(fsp)
+    vi.spyOn(fsp, 'rename').mockImplementation(async (from, to) => {
+      await rename(from, to)
+      await writeFileTree(world.userRoot, { 'skills/beta-skill/SKILL.md': 'external changed restored bytes' })
+      throw new Error('fixture lost acknowledgement after restore')
+    })
+    const interrupted = await mutations.undo(done.data!.id)
+    expect(interrupted.data?.outcome).toBe('uncertain')
+    vi.restoreAllMocks()
+    const before = await hashTree(world.base)
+    const moves = vi.spyOn(fsp, 'rename')
+    const retry = await createMutations(world.locator).undo(done.data!.id)
+    expect(retry.data?.outcome).toBe('uncertain')
+    expect(retry.errors[0]?.message).toContain('Recovery is uncertain')
+    expect(moves).not.toHaveBeenCalled()
+    expect(await hashTree(world.base)).toBe(before)
+  })
+
+  it('recovers an uncheckpointed forward effect without executing remaining forward steps', async () => {
+    const before = await hashTree(world.userRoot)
+    const open = fsp.open.bind(fsp)
+    const rename = fsp.rename.bind(fsp)
+    let moved = false
+    vi.spyOn(fsp, 'rename').mockImplementation(async (from, to) => { await rename(from, to); moved = true })
+    vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
+      if (moved && String(args[0]).endsWith('journal.jsonl')) throw new Error('fixture journal unavailable after move')
+      return open(...args)
+    })
+    const done = await mutations.mutate({ op: 'trash', kind: 'skill', entityId: 'skill:user:alpha-skill',
+      summary: 'Trash two skills', steps: ['alpha-skill', 'beta-skill'].map((name) =>
+        ({ type: 'trash' as const, store: 'user', from: `skills/${name}` })) })
+    expect(done.data?.outcome).toBe('uncertain')
+    expect(await exists(path.join(world.userRoot, 'skills', 'beta-skill'))).toBe(true)
+    vi.restoreAllMocks()
+    const observed = vi.spyOn(fsp, 'rename')
+    const undone = await createMutations(world.locator).undo(done.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(observed).toHaveBeenCalledOnce()
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('does not consume an original through a failed legacy Undo or its failure marker', async () => {
+    const journal = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const legacy = { id: 'legacy', at: '2026-09-01T00:00:00Z', op: 'trash', kind: 'skill',
+      entityId: 'skill:user:beta-skill', summary: 'Legacy trash', undoOf: null,
+      steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill', displaced: 'user/skills/beta-skill' }] }
+    const undo = { ...legacy, id: 'legacy-undo', undoOf: legacy.id, steps: [] }
+    await writeFileTree(world.kondoDataRoot, { 'journal.jsonl': [legacy, undo,
+      { ...undo, id: 'failure', failedOf: undo.id }].map((row) => JSON.stringify(row)).join('\n') + '\n' })
+    const before = await hashTree(world.base)
+    const listed = await mutations.list()
+    expect(listed.data).toHaveLength(2)
+    expect(listed.data.find((row) => row.id === 'journal:legacy')).toMatchObject({ undoneBy: null, recovery: 'blocked' })
+    expect((await mutations.undo('journal:legacy')).errors[0]?.message).toContain('without recording')
+    expect(await hashTree(world.base)).toBe(before)
+    expect(await fsp.readFile(journal, 'utf8')).toContain('"failedOf":"legacy-undo"')
+  })
+
   it('undoes a mutation whose later step failed, leaving nothing half-done', async () => {
     const before = await hashTree(world.userRoot)
     const rename = fsp.rename.bind(fsp)
@@ -256,7 +430,7 @@ describe('mutation safety invariants (ADR-0001)', () => {
         { type: 'move', store: 'user', from: 'skills/alpha-skill', to: 'skills.disabled/alpha-skill' }
       ]
     })
-    expect(done.data).toBeNull()
+    expect(done.data).toMatchObject({ outcome: 'partial', failed: true })
     expect(done.errors).not.toEqual([])
     failing.mockRestore()
 
@@ -290,7 +464,7 @@ describe('mutation safety invariants (ADR-0001)', () => {
         { type: 'trash', store: 'user', from: 'skills/beta-skill' }
       ]
     })
-    expect(done.data).toBeNull()
+    expect(done.data).toMatchObject({ outcome: 'partial', failed: true })
     failing.mockRestore()
 
     const listed = await mutations.list()
@@ -680,7 +854,8 @@ describe('mutation safety invariants (ADR-0001)', () => {
       steps: [{ type: 'trash', store: 'user', from: 'skills/alpha-skill' }]
     })
     const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
-    const record = JSON.parse(await fsp.readFile(journalFile, 'utf8')) as Record<string, unknown>
+    const record = JSON.parse((await fsp.readFile(journalFile, 'utf8')).split('\n')[0]!) as Record<string, unknown>
+    const priorLines = (await fsp.readFile(journalFile, 'utf8')).trim().split('\n').length
     const malformed: unknown[] = [
       null, false, 7, 'history', [], {},
       { ...record, id: 7 },
@@ -703,7 +878,7 @@ describe('mutation safety invariants (ADR-0001)', () => {
     const listed = await mutations.list()
     expect(listed.data.map((entry) => entry.id)).toEqual([second.data!.id, first.data!.id])
     expect(listed.errors.map((error) => [error.code, error.path])).toEqual(
-      malformed.map((_, index) => ['parse-failed', `journal.jsonl:${index + 2}`])
+      malformed.map((_, index) => ['parse-failed', `journal.jsonl:${index + priorLines + 1}`])
     )
 
     for (const entry of listed.data) {
@@ -728,7 +903,7 @@ describe('mutation safety invariants (ADR-0001)', () => {
       steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }]
     })
     const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
-    const record = JSON.parse(await fsp.readFile(journalFile, 'utf8')) as Record<string, unknown>
+    const record = JSON.parse((await fsp.readFile(journalFile, 'utf8')).split('\n')[0]!) as Record<string, unknown>
     const writeStep = { type: 'write', store: 'user', from: 'settings.json' }
     const spliceStep = {
       ...writeStep, type: 'splice', expectDigest: digestSource('a'), resultDigest: digestSource('b'),
@@ -806,7 +981,7 @@ describe('mutation safety invariants (ADR-0001)', () => {
     const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
     const records = (await fsp.readFile(journalFile, 'utf8')).trim().split('\n')
       .map((line) => JSON.parse(line) as Record<string, unknown>)
-    records[1]!.summary = null
+    records.find((record) => record.undoOf !== null && record.progressOf === undefined)!.summary = null
     const damaged = records.map((record) => JSON.stringify(record) + '\n').join('')
     await fsp.writeFile(journalFile, damaged)
 
@@ -836,7 +1011,7 @@ describe('mutation safety invariants (ADR-0001)', () => {
       op: 'trash', kind: 'skill', entityId: 'skill:user:beta-skill', summary: 'Trash beta-skill',
       steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }]
     })
-    expect(failed.data).toBeNull()
+    expect(failed.data).toMatchObject({ outcome: 'none', failed: true })
     failing.mockRestore()
     const journalFile = path.join(world.kondoDataRoot, 'journal.jsonl')
     const records = (await fsp.readFile(journalFile, 'utf8')).trim().split('\n')
@@ -877,6 +1052,64 @@ describe('mutation safety invariants (ADR-0001)', () => {
     expect(refused.errors.map((error) => error.code)).toEqual(['parse-failed', 'read-failed'])
     expect(await hashTree(world.userRoot)).toBe(before)
     expect(await fsp.readFile(journalFile, 'utf8')).toBe(damaged)
+  })
+
+  it('rejects an Undo whose actions omit a completed forward step even with an adjusted close', async () => {
+    const done = await mutations.mutate({ op: 'trash', kind: 'skill', entityId: 'skill:user:alpha-skill',
+      summary: 'Trash two skills', steps: ['alpha-skill', 'beta-skill'].map((name) =>
+        ({ type: 'trash' as const, store: 'user', from: `skills/${name}` })) })
+    const undone = await mutations.undo(done.data!.id)
+    const journal = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const records = (await fsp.readFile(journal, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as {
+      id: string; progressOf?: string; actions?: unknown[]; progress?: { next: number; pending: string | null; state: string }
+    })
+    const undoId = undone.data!.id.slice(8)
+    records.find((row) => row.id === undoId)!.actions!.pop()
+    const damaged = records.filter((row) => row.progressOf !== undoId ||
+      row.progress!.next < 1 || row.progress!.pending === null).map((row) => {
+      if (row.progressOf === undoId) row.progress!.next = Math.min(1, row.progress!.next)
+      return JSON.stringify(row)
+    }).join('\n') + '\n'
+    await fsp.writeFile(journal, damaged)
+    const before = await hashTree(world.base)
+    mutations = createMutations(world.locator)
+    const listed = await mutations.list()
+    expect(listed.errors.some((error) => error.message.includes('actions do not match'))).toBe(true)
+    expect(listed.data.find((row) => row.id === done.data!.id)?.undoneBy).toBeNull()
+    const retry = await mutations.undo(done.data!.id)
+    expect(retry.data).toBeNull()
+    expect(retry.errors.at(-1)?.message).toContain('damaged history entry')
+    expect(await hashTree(world.base)).toBe(before)
+  })
+
+  it('isolates a torn final journal line and keeps a later intent readable', async () => {
+    await writeFileTree(world.kondoDataRoot, { 'journal.jsonl': '{"id":"torn","progressOf":' })
+    const done = await mutations.mutate({ op: 'trash', kind: 'skill', entityId: 'skill:user:beta-skill',
+      summary: 'Trash beta', steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill' }] })
+    expect(done.data?.outcome).toBe('complete')
+    const listed = await mutations.list()
+    expect(listed.data).toHaveLength(1)
+    expect(listed.data[0]?.id).toBe(done.data!.id)
+    expect(listed.errors).toHaveLength(1)
+    expect(listed.errors[0]?.code).toBe('parse-failed')
+    const undone = await createMutations(world.locator).undo(done.data!.id)
+    expect(undone.data?.outcome).toBe('complete')
+    expect(undone.errors).toEqual(listed.errors)
+  })
+
+  it.each([
+    { id: '..', displaced: 'journal.jsonl' },
+    { id: 'legacy', displaced: '../../journal.jsonl' }
+  ])('refuses a historical trash endpoint escaping its journal bucket: %j', async ({ id, displaced }) => {
+    const record = { id, at: '2026-09-01T00:00:00Z', op: 'trash', kind: 'skill',
+      entityId: 'skill:user:beta-skill', summary: 'Malformed recovery endpoint', undoOf: null,
+      steps: [{ type: 'trash', store: 'user', from: 'skills/beta-skill', displaced }] }
+    await writeFileTree(world.kondoDataRoot, { 'journal.jsonl': JSON.stringify(record) + '\n' })
+    const before = await hashTree(world.base)
+    const result = await mutations.undo(`journal:${id}`)
+    expect(result.data).toBeNull()
+    expect(result.errors[0]?.code).toBe('out-of-store')
+    expect(await hashTree(world.base)).toBe(before)
   })
 
   it('reports an unknown journal id rather than guessing', async () => {

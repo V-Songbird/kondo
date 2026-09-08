@@ -55,12 +55,11 @@ Two pieces:
   → trash: that recipe exists to protect bytes about to be released
   somewhere else, and here the kondo trash *is* the copy. Entry 032 fills the
   first such seat, for a skill the user placed by hand.
-- Journaling first means an entry can outlive the work it describes: a step
-  that fails leaves an entry naming steps the store never got. The file is
-  append-only, so the correction is a following marker line rather than an
-  edit, and `JournalEntryInfo.failed` carries it across the seam so the
-  journal screen stops offering a part-run operation as a finished one. Undo
-  of such an entry is tolerant per step — an effect that is absent while its
-  source is still in place means that step never ran, and reversing it is a
-  no-op rather than a failure. An absent source is the emptied trash, and
-  still refuses.
+- Journaling first records intention. Version 2 records pending-action evidence,
+  confirmed action cursors and an explicit completion; only a completed Undo
+  consumes its original. Partial and uncertain outcomes retain their entry
+  alongside errors. Retry skips confirmed actions and reconciles the pending
+  action conservatively. Legacy failure markers remain readable, and failed
+  legacy Undo without action evidence requires review. See
+  [ADR-0018](0018-confirm-undo-effects-and-resume.md) for format, compatibility,
+  byte-preservation rules and interruption limits.

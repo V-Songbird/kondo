@@ -282,7 +282,7 @@ describe('skill move between scopes (ADR-0001)', () => {
     }
 
     expect(intercepted, 'the per-file copy corruption probe did not run').toBe(true)
-    expect(result.data).toBeNull()
+    expect(result.data).toMatchObject({ outcome: 'none', failed: true })
     expect(result.errors[0]?.message).toContain('does not match its source')
     expect(result.errors[0]?.message).toContain('nothing was removed')
 

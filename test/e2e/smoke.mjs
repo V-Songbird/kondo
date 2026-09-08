@@ -562,13 +562,13 @@ test('a skill move round-trips through the bridge and its undo puts the store ba
 
   // The journal on disk is the other half of the proof (ADR-0001).
   const journal = path.join(base, 'kondo-data', 'journal.jsonl')
-  assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').length, 1)
+  assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').map((line) => JSON.parse(line)).filter((row) => !row.progressOf && !row.failedOf).length, 1)
 
   const undone = await call(`await window.kondo.journalUndo(${JSON.stringify(moved.data.id)})`)
   assert.deepEqual(undone.errors, [])
   const global = await call(`(await window.kondo.projectDetail('store:user:user')).data.skills.map((s) => s.name)`)
   assert.ok(global.includes('commit-writer'))
-  assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').length, 2)
+  assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').map((line) => JSON.parse(line)).filter((row) => !row.progressOf && !row.failedOf).length, 2)
 })
 
 test('the Library-to-project keyboard workflow preserves the item and search at 900px', async () => {
@@ -793,7 +793,7 @@ test('file cleanup review applies once and Undo restores all fixture bytes', asy
   const journal = path.join(base, 'kondo-data', 'journal.jsonl')
   const beforeSaved = await snapshot(savedProjects)
   const beforeWork = await snapshot(actualProjects)
-  const beforeJournal = (await fs.readFile(journal, 'utf8')).trim().split('\n').length
+  const beforeJournal = (await fs.readFile(journal, 'utf8')).trim().split('\n').map((line) => JSON.parse(line)).filter((row) => !row.progressOf && !row.failedOf).length
   assert.ok(beforeSaved.length > 0)
   assert.equal((await fs.readdir(savedProjects)).length, 2)
   await client.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 600, deviceScaleFactor: 1, mobile: false })
@@ -829,7 +829,7 @@ test('file cleanup review applies once and Undo restores all fixture bytes', asy
     await client.waitFor(`${undo} !== null && ${result}.contains(document.activeElement)`)
     assert.deepEqual(await fs.readdir(savedProjects), [])
     assert.deepEqual(await snapshot(actualProjects), beforeWork)
-    assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').length, beforeJournal + 1)
+    assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').map((line) => JSON.parse(line)).filter((row) => !row.progressOf && !row.failedOf).length, beforeJournal + 1)
     await assertNoHorizontalOverflow()
     await assertInViewport(undo)
     await capture('cleanup-minimum-applied')
@@ -838,7 +838,7 @@ test('file cleanup review applies once and Undo restores all fixture bytes', asy
     await client.waitFor(`${result}.querySelector('[role="status"]')?.textContent.startsWith('Undone —')`)
     assert.deepEqual(await snapshot(savedProjects), beforeSaved)
     assert.deepEqual(await snapshot(actualProjects), beforeWork)
-    assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').length, beforeJournal + 2)
+    assert.equal((await fs.readFile(journal, 'utf8')).trim().split('\n').map((line) => JSON.parse(line)).filter((row) => !row.progressOf && !row.failedOf).length, beforeJournal + 2)
     assert.equal(await client.evaluate(`${undo} === null`), true)
     await capture('cleanup-minimum-restored')
   } finally {
@@ -1333,4 +1333,131 @@ test('settings cleanup preserves uncertain preferences and rechecks degraded inv
   await chooseTheme('chalk')
   assert.equal(await fs.readFile(settings, 'utf8'), beforeSettings)
   assert.equal(await readJournal(), beforeJournal)
+})
+
+test('inline Undo keeps a no-effect refusal retryable with focused feedback', async () => {
+  const cache = path.join(fixtureEnv.KONDO_STORE_ROOT, 'cache')
+  const parked = path.join(base, '099-parked-trash')
+  const checkbox = `document.querySelector('input[aria-label="Select Caches Claude rebuilds"]')`
+  let saved
+  try {
+    for (const theme of ['chalk', 'carbon']) {
+      await fs.mkdir(cache)
+      await fs.writeFile(path.join(cache, '099-fixture'), 'cache bytes for Undo refusal')
+      const before = await fixtureSnapshot()
+      await openThemes()
+      await chooseTheme(theme)
+      await navigate('Clean up')
+      await section('Cleanup sections', 'Files and caches')
+      await client.waitFor(`${checkbox} !== null && !${checkbox}.disabled`)
+      await client.evaluate(`${checkbox}.focus()`)
+      await press(' ')
+      await keyboardActivate(button('Review selected items'))
+      await keyboardActivate(button('Move to trash'))
+      const banner = `document.querySelector('.band-stamp')`
+      const undo = `${banner}.querySelector('button[aria-label^="Undo "]')`
+      await client.waitFor(`${banner} !== null && ${undo} !== null && !${undo}.disabled`)
+      const original = (await call(`(await window.kondo.journalList()).data`))[0]
+      saved = path.join(fixtureEnv.KONDO_DATA_ROOT, 'trash', original.id.slice(8))
+      await fs.rename(saved, parked)
+      const journal = await journalBytes()
+      await keyboardActivate(undo)
+      await client.waitFor(`${banner}.querySelector('[role="alert"]') !== null && !${undo}.disabled`)
+      assert.equal(await client.evaluate(`${banner}.querySelector('[role="status"]').textContent.startsWith('Undone')`), false)
+      assert.equal(await client.evaluate(`document.activeElement === ${banner}.querySelector('[role="status"]')`), true)
+      assert.equal((await call(`(await window.kondo.journalList()).data.find((row) => row.id === ${JSON.stringify(original.id)})`)).undoneBy, null)
+      assert.equal(await journalBytes(), journal)
+      for (const [width, height] of [[1360, 860], [900, 600]]) {
+        await client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+        await client.evaluate(`${banner}.scrollIntoView({ block: 'center' })`)
+        await assertNoHorizontalOverflow()
+        await assertInViewport(undo)
+        await capture(`undo-refused-${theme}-${width}`)
+      }
+      await fs.rename(parked, saved)
+      saved = undefined
+      await keyboardActivate(undo)
+      await client.waitFor(`${banner}.querySelector('[role="status"]').textContent.startsWith('Undone —')`)
+      assert.equal(await client.evaluate(`${undo} === null`), true)
+      assert.equal(await client.evaluate(`document.activeElement === ${banner}.querySelector('[role="status"]')`), true)
+      assert.deepEqual(await fixtureSnapshot(), before)
+      await fs.rm(cache, { recursive: true })
+    }
+  } finally {
+    if (saved) await fs.rename(parked, saved)
+    await fs.rm(cache, { recursive: true, force: true })
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
+})
+
+test('History resumes a partial Undo after relaunch and skips the confirmed action', async () => {
+  const roots = { user: fixtureEnv.KONDO_STORE_ROOT, desktop: fixtureEnv.KONDO_DESKTOP_STORE_ROOT }
+  const journal = path.join(fixtureEnv.KONDO_DATA_ROOT, 'journal.jsonl')
+  const cache = path.join(roots.user, 'cache')
+  const debug = path.join(roots.user, 'debug')
+  const endpoint = (at) => at.trashId
+    ? path.join(fixtureEnv.KONDO_DATA_ROOT, 'trash', at.trashId, at.relative.replaceAll(':', '-'))
+    : path.join(roots[at.store], at.relative)
+  try {
+    for (const theme of ['chalk', 'carbon']) {
+      await fs.mkdir(cache)
+      await fs.mkdir(debug)
+      await fs.writeFile(path.join(cache, '099-fixture'), 'original cache bytes')
+      await fs.writeFile(path.join(debug, '099-fixture'), 'original debug bytes')
+      const review = await call(`await window.kondo.tidyPreview()`)
+      const applied = await call(`await window.kondo.tidySweep(['reclaimable-caches'], ${JSON.stringify(review.data.reviewToken)})`)
+      assert.deepEqual(applied.errors, [])
+      const restored = await call(`await window.kondo.journalUndo(${JSON.stringify(applied.data.id)})`)
+      assert.deepEqual(restored.errors, [])
+      const rows = (await journalBytes()).trim().split('\n').map((line) => JSON.parse(line))
+      const undoId = restored.data.id.slice(8)
+      const intent = rows.find((row) => row.id === undoId)
+      assert.equal(intent.actions.length, 2)
+      const first = intent.actions[0]
+      const second = intent.actions[1]
+      // Build an interrupted fixture from the application's own real intent
+      // and checkpoints. No production-only switch or bridge mock is involved.
+      const cutoff = rows.findIndex((row) => row.progressOf === undoId && row.progress.next === 1 && row.progress.pending === null)
+      assert.ok(cutoff > 0)
+      await stop()
+      await fs.mkdir(path.dirname(endpoint(second.from)), { recursive: true })
+      await fs.rename(endpoint(second.to), endpoint(second.from))
+      await fs.writeFile(journal, rows.slice(0, cutoff + 1).map((row) => JSON.stringify(row)).join('\n') + '\n')
+      const changed = path.join(endpoint(first.to), '099-fixture')
+      await fs.writeFile(changed, 'external edit after confirmed restoration')
+      await launch()
+      await openThemes()
+      await chooseTheme(theme)
+      await navigate('History')
+      const row = `[...document.querySelectorAll('tbody tr')].find((row) => row.querySelector('button')?.getAttribute('aria-label') === ${JSON.stringify('Undo ' + applied.data.summary)})`
+      const retry = `${row}.querySelector('button')`
+      await client.waitFor(`${row} !== undefined && ${row}.textContent.includes('Undo incomplete')`)
+      assert.equal(await client.evaluate(`${retry}.disabled`), false)
+      const listed = await call(`(await window.kondo.journalList()).data`)
+      assert.equal(listed.find((entry) => entry.id === applied.data.id).undoneBy, null)
+      assert.equal(listed.find((entry) => entry.id === restored.data.id).outcome, 'partial')
+      for (const [width, height] of [[1360, 860], [900, 600]]) {
+        await client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+        await client.evaluate(`${row}.scrollIntoView({ block: 'center' })`)
+        await assertNoHorizontalOverflow()
+        await assertInViewport(retry)
+        await capture(`undo-partial-${theme}-${width}`)
+      }
+      await keyboardActivate(retry)
+      await client.waitFor(`document.querySelector('[aria-label="History result"] [role="status"]')?.textContent.startsWith('restored')`)
+      assert.equal(await client.evaluate(`document.activeElement?.getAttribute('aria-label')`), 'History result')
+      assert.equal(await fs.readFile(changed, 'utf8'), 'external edit after confirmed restoration')
+      assert.equal(await fs.readFile(path.join(endpoint(second.to), '099-fixture'), 'utf8'),
+        second.to.relative === 'cache' ? 'original cache bytes' : 'original debug bytes')
+      const after = await call(`(await window.kondo.journalList()).data`)
+      assert.equal(after.find((entry) => entry.id === applied.data.id).undoneBy, restored.data.id)
+      assert.equal(after.length, listed.length)
+      await fs.rm(cache, { recursive: true })
+      await fs.rm(debug, { recursive: true })
+    }
+  } finally {
+    await fs.rm(cache, { recursive: true, force: true })
+    await fs.rm(debug, { recursive: true, force: true })
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
 })

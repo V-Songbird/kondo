@@ -176,12 +176,30 @@ export async function preflightRelocation(
   await prepare(from, to, sourceBoundary, destinationBoundary, restore)
 }
 
-async function physicalDigest(from: string, boundary: ReadBoundary): Promise<string> {
+export async function physicalDigest(from: string, boundary: ReadBoundary): Promise<string> {
   const entries = await inspectPhysicalTree(from, boundary)
   const hash = createHash('sha256')
   for (const entry of entries.sort((a, b) => a.relative < b.relative ? -1 : a.relative > b.relative ? 1 : 0)) {
     hash.update(JSON.stringify([entry.relative, entry.kind, entry.link ?? null]))
-    if (entry.kind === 'file') hash.update(await fs.readFile(await resolveAllowedPath(path.join(from, entry.relative), boundary)))
+    if (entry.kind === 'file') {
+      const at = await resolveAllowedPath(path.join(from, entry.relative), boundary)
+      const handle = await fs.open(at, 'r')
+      try {
+        const before = await handle.stat()
+        const buffer = Buffer.allocUnsafe(64 * 1024)
+        for (;;) {
+          const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
+          if (bytesRead === 0) break
+          hash.update(buffer.subarray(0, bytesRead))
+        }
+        const after = await handle.stat()
+        if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) {
+          fail('The recovery source changed while reading it.')
+        }
+      } finally {
+        await handle.close()
+      }
+    }
   }
   return hash.digest('hex')
 }

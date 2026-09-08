@@ -729,7 +729,7 @@ describe('resolved read boundaries', () => {
       ]
     })
     expect(injected).toBe(true)
-    expect(result.data).toBeNull()
+    expect(result.data).toMatchObject({ outcome: 'uncertain', failed: true })
     expect(result.errors.length).toBeGreaterThan(0)
     expect(copies).not.toHaveBeenCalled()
     expectNoContentUnder(calls, outside)

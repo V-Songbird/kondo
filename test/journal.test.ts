@@ -141,6 +141,24 @@ describe('the journal and trash surface (ADR-0001)', () => {
     )
   })
 
+  it('returns partial forward effects with the entry that the inline result can undo', async () => {
+    const before = await hashTree(world.userRoot)
+    const rename = fs.rename.bind(fs)
+    const stop = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      if (String(from) === inStore('skills/alpha-skill')) throw new Error('fixture source release denied')
+      return rename(from, to)
+    })
+    const partial = await api.skillMove('skill:user:alpha-skill', destinationId)
+    expect(partial.errors.length).toBeGreaterThan(0)
+    expect(partial.data).toMatchObject({ outcome: 'partial', failed: true, isUndo: false, undoBlockedReason: null })
+    expect((await api.journalList()).data[0]).toEqual(partial.data)
+    stop.mockRestore()
+    const undone = await api.journalUndo(partial.data!.id)
+    expect(undone.errors).toEqual([])
+    expect(undone.data?.outcome).toBe('complete')
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
   // ---------------------------------------------------------------------------
   // Undo from the list
 

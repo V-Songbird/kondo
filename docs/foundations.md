@@ -118,7 +118,11 @@ entity through the kind registry. Structure:
   journaled before their `move` / `copy` / `trash` steps run. `undo` likewise
   refuses historical entries containing `write` or `splice` before effects,
   preserving existing history, inverse edits and recovery bytes; other entries
-  retain the existing reversal checks. `emptyTrash` is the one unlink.
+  use versioned action intents, pending digests, confirmed cursors and explicit
+  completion (099, ADR-0018). Retry skips confirmed actions and reconciles only
+  the pending action. The existing channels return explicit outcomes alongside
+  errors; failed legacy Undo without progress evidence requires review.
+  `emptyTrash` is the one unlink.
   Store roots are `user` and `desktop` from the locator, plus any
   `project:<flat>` root the workspace
   resolves to a verified project's `.claude` through the `extraRoot`

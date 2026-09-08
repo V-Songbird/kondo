@@ -15,6 +15,13 @@ All notable changes to kondo are documented here. The format follows
   degraded inventory refuses an earlier selection. Settings writes and Undo
   remain suspended.
 
+- Failed Undo attempts no longer mark their original change as restored.
+  Retry resumes confirmed progress after interruption, preserves files moved out
+  of the way, and refuses ambiguous recovery without discarding bytes. History
+  and inline feedback distinguish incomplete, unchanged and uncertain results;
+  partial forward changes retain their Undo action. Legacy failed Undo without
+  progress evidence remains visible for review.
+
 - Settings changes now refuse before changing files or recording completion,
   preventing a race that could overwrite another application's save. This
   temporary restriction applies on all platforms to settings-based skill,

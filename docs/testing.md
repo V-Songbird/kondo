@@ -105,6 +105,16 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      loss; refusal prevents entry into that replacement path. Re-enabling it
      requires native concurrency and recovery evidence beyond digest checks,
      temporary-file synchronization or injected-error tests.
+   - Undo recovery (099, ADR-0018) uses synthetic rename and journal failures.
+     `test/mutation.test.ts` proves a zero-effect Undo remains retryable after
+     recreating the workspace; partial Undo preserves later edits at confirmed
+     paths; occupant displacement resumes without losing either version; pending
+     intent, post-effect and pre-close interruptions do not imply no effects.
+     Uncheckpointed forward effects remain reversible without finishing the
+     forward plan. Ambiguous pending bytes refuse replay. Corrupt/omitted actions,
+     adjusted completion cursors, escaped trash references, torn lines and failed legacy Undo retain
+     history and cannot establish a false `undoneBy`. Existing settings refusal,
+     streaming, privacy and EXDEV byte-preservation assertions remain in force.
 5. **End-to-end**: `npm run test:e2e` (`test/e2e/smoke.mjs`, node's own test
    runner) builds the run-kondo fixture in a fresh temp directory, launches
    the built app against it through the three `KONDO_*_ROOT` overrides with
@@ -203,6 +213,16 @@ return to review. Chalk/Carbon captures at normal and compact sizes are visual
 evidence for the host tested. A clean mechanical detector is separate evidence
 from those rendered states. None of these tests claims filesystem transactions
 or a complete absence of races with external writers after preflight.
+
+The 099 built-app smoke moves a fixture's recovery directory temporarily out of
+reach, verifies the inline `data:null` refusal does not claim Undo or consume the
+original, checks result focus and keyboard retry, and restores exact fixture
+bytes. Another case relaunches Electron against a partial prefix of the journal
+that the app actually produced, with filesystem state matching that prefix.
+History reports incomplete Undo and resumes without changing a later edit at the
+confirmed restore path. Chalk/Carbon at 1360x860 and 900x600 supply rendered
+proof. This is synthetic interruption/relaunch coverage, not a power-loss test.
+Journal assertions count operation intents, not internal progress lines.
 
 One remaining suite limitation:
 

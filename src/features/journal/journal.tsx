@@ -4,6 +4,7 @@ import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { Problems } from '../../ui/problems'
 import { Refusal } from '../../ui/refusal'
+import { changeReason, changeStatus } from '../../ui/last-change'
 import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
 
@@ -30,7 +31,7 @@ const OP_LABEL: Record<JournalOp, string> = {
 function blockedReason(entry: JournalEntryInfo): string | null {
   if (entry.isUndo) return 'An undo cannot itself be undone.'
   if (entry.undoneBy !== null) return 'This entry has already been undone.'
-  return null
+  return entry.undoBlockedReason
 }
 
 export function Journal() {
@@ -40,6 +41,7 @@ export function Journal() {
   const [confirming, setConfirming] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<string | null>(null)
+  const [incomplete, setIncomplete] = useState(false)
   const emptyButtonId = useId()
   const questionId = useId()
   const confirmation = useConfirmationFocus(confirming, () => setConfirming(false))
@@ -70,6 +72,7 @@ export function Journal() {
     setConfirming(false)
     setProblem(null)
     setOutcome(null)
+    setIncomplete(false)
   }
 
   const undo = async (entry: JournalEntryInfo): Promise<void> => {
@@ -79,7 +82,11 @@ export function Journal() {
     try {
       const done = await api.journalUndo(entry.id)
       setProblem(joinErrors(done.errors))
-      if (done.data?.isUndo && !done.data.failed) setOutcome(done.data.summary)
+      if (done.data?.isUndo) {
+        setOutcome(`${changeStatus(done.data)} — ${done.data.summary}`)
+        setIncomplete(done.data.outcome !== 'complete')
+      }
+      else if (done.data === null && done.errors.length === 0) setProblem('Undo did not confirm a result. Refresh History before retrying.')
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -206,7 +213,7 @@ export function Journal() {
       </div>
       <div ref={resultRef} tabIndex={-1} aria-label="History result">
         {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
-        {outcome !== null && <div role="status" className="band band-stamp">{outcome}</div>}
+        {outcome !== null && <div role="status" className={incomplete ? "band band-pencil" : "band band-stamp"}>{outcome}</div>}
       </div>
       <section className="sheet" data-tone="orchid">
         <div className="sheet-head">
@@ -237,7 +244,7 @@ export function Journal() {
                       </td>
                       <td className="max-w-lg">
                         <div>{entry.summary}</div>
-                        <Refusal reason={entry.failed ? 'A step of this change failed. Undo restores the steps that were applied.' : null} />
+                        <Refusal reason={changeReason(entry)} />
                         <details className="technical-details mt-2">
                           <summary>Technical details</summary>
                           <dl className="mt-2 text-xs text-ink-2">
@@ -249,15 +256,11 @@ export function Journal() {
                         </details>
                       </td>
                       <td className="space-x-1 whitespace-nowrap">
-                        {entry.undoneBy !== null && <span className="stamp-off" data-sigil="undone">undone</span>}
-                        {entry.failed && (
-                          <span className="stamp-bad">
-                            partly applied
-                          </span>
-                        )}
-                        {!entry.failed && entry.undoneBy === null && (
-                          <span className="stamp-ok">{entry.isUndo ? 'restored' : 'applied'}</span>
-                        )}
+                        <span className={entry.undoneBy !== null ? 'stamp-off' :
+                          entry.outcome !== 'complete' || entry.recovery === 'partial' || entry.recovery === 'uncertain' ? 'stamp-bad' : 'stamp-ok'}
+                          data-sigil={entry.undoneBy !== null ? 'undone' : undefined}>
+                          {changeStatus(entry)}
+                        </span>
                       </td>
                       <td className="text-right">
                         <button
@@ -267,7 +270,7 @@ export function Journal() {
                           className="btn btn-quiet btn-sm"
                           onClick={() => void undo(entry)}
                         >
-                          {busy === entry.id ? 'Undoing…' : 'Undo'}
+                          {busy === entry.id ? 'Undoing…' : entry.recovery === 'partial' || entry.recovery === 'uncertain' ? 'Retry Undo' : 'Undo'}
                         </button>
                         {/* The reason is worth more than the dark button, so
                             it is read rather than hovered for. */}
