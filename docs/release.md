@@ -10,12 +10,17 @@ Every release gets a CHANGELOG section and a git tag `v<version>`.
 
 ## Security maintenance and publication gate
 
-Before the first publication, the owner must approve a private reporting
-channel and the supported-version policy in [SECURITY.md](../SECURITY.md).
+Before the first publication, confirm the approved private reporting contact
+and obtain owner approval of the supported-version policy in
+[SECURITY.md](../SECURITY.md).
 These are publication gates even when packaging and CI pass. An unavailable
 reporting form, a source package version, or a draft release does not satisfy
 this gate. No published releases or tags were returned by the authenticated
 API on 2026-09-08.
+
+The approved contact is [songbird@tuta.com](mailto:songbird@tuta.com). The owner
+confirmed control and monitoring on 2026-09-08; this is an owner attestation, not
+a delivery test. No test email was sent or authorized.
 
 **Proposed maintenance policy — pending owner approval:** maintain only the
 latest published non-draft, non-prerelease version. Security fixes target that
@@ -54,10 +59,12 @@ a 404 is not proof that a feature is disabled. Resolve access/availability befor
 claiming a control is enabled. If the owner later authorizes GitHub private
 reporting on an eligible public repository, verify `enabled: true` and that the
 private form opens from a reporter's account without submitting a report.
-Verify the designated recipient's access and notifications. For another approved
-private contact, verify its ownership, access and receipt using a harmless test
-only after the owner authorizes sending it. Then update SECURITY.md and the issue
-chooser together. A reachable form alone does not prove delivery or monitoring.
+Verify the designated recipient's access and notifications. For an email contact,
+record the owner's confirmation of control and monitoring separately from any
+receipt test. Sending a harmless test requires explicit authorization; none has
+been authorized for the current contact. Update SECURITY.md and the issue chooser
+together when the contact changes. A reachable form or owner attestation does not
+independently prove delivery.
 
 Workflow permissions already follow least privilege: `ci.yml` and `release.yml`
 default to `contents: read`; only `release.yml`'s `publish` job requests

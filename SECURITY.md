@@ -82,20 +82,23 @@ artifacts, and include the exact version or source commit in a report.
 
 ## Reporting a vulnerability
 
-**No verified private reporting channel is currently documented.** Do not put
-vulnerability details in public issues, pull requests or discussions. Retain
-sensitive details privately until an approved contact is published here; the
-issue forms are not a security-reporting fallback.
+Email [songbird@tuta.com](mailto:songbird@tuta.com) to report a vulnerability
+privately. The repository owner authorized this contact and confirmed that they
+control and monitor it on 2026-09-08. Email delivery has not been independently
+tested. No response or fix deadline is promised.
+
+Do not put vulnerability details in public issues, pull requests or discussions.
+The issue forms are not a security-reporting fallback. If email cannot be
+submitted or is returned undeliverable, retain the details privately rather than
+posting them publicly; no second private contact is currently designated.
+
+Include the Kondo version or source commit, OS, impact, and a minimal synthetic
+reproduction. Do not attach real transcripts, settings, credentials, tokens,
+personal paths, or copied private store data, even in a private report.
 
 The repository was verified as private on 2026-09-08. GitHub documents
 [private vulnerability reporting for public repositories](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository).
-The authenticated reporting-status request returned HTTP 404, so the former
-advisory-form link is not advertised as an available channel. A 404 alone does
-not establish whether a feature is disabled or whether the caller can inspect it.
-The owner must designate a private contact while the repository remains private.
-No alternate address has been approved; do not infer one from Git history.
-
-Once an approved private channel is available, include the Kondo version or
-source commit, OS, impact, and a minimal synthetic reproduction. Do not attach
-real transcripts, settings, credentials, tokens, personal paths, or copied
-private store data, even in a private report.
+The authenticated reporting-status request returned HTTP 404, so the GitHub
+advisory form is not advertised as an available channel. A 404 alone does not
+establish whether a feature is disabled or whether the caller can inspect it.
+Use the approved email contact above while the repository remains private.

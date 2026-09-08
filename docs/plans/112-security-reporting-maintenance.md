@@ -1,10 +1,10 @@
 # Plan: private security reporting and maintenance
 
-Status: **in progress — owner decisions pending**
+Status: **awaiting acceptance**
 
 Make the security policy match the repository's actual reporting and release
-capabilities. A working private contact and the maintenance commitment need
-owner approval before this task can be completed.
+capabilities. The owner has approved the private email contact; the proposed
+maintenance commitment and documentation are ready for owner review.
 
 ## Scope
 
@@ -25,7 +25,7 @@ No general audit or application privacy changes. No real-store access.
 | Decision | Reason |
 |---|---|
 | Treat HTTP 404 as an unavailable answer, not proof that reporting is disabled | Repository access alone does not prove every endpoint's token permissions |
-| Require an approved, verified private contact | A Git author email is not authorization to publish a security inbox |
+| Publish the owner-approved email with its evidence limit | The owner confirmed control and monitoring; delivery was not tested |
 | Separate proposed support from current support | A source version does not establish a published, maintained release |
 | Separate check results from enforcement | Green Actions checks do not prove branch protection exists |
 
@@ -44,8 +44,8 @@ remote evidence separately. Do not submit a vulnerability report as a probe.
 
 ## Done when
 
-The policy names an approved private channel whose availability has been
-verified, the owner has chosen the maintenance commitment, and documentation
+The policy names an owner-approved private channel with its verification limits,
+the owner has reviewed the maintenance commitment, and documentation
 clearly distinguishes configured checks from enforceable remote gates.
 
 ## Observed capabilities
@@ -70,20 +70,22 @@ Primary references: GitHub's
 [ruleset availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets),
 and [workflow permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions).
 
-## Owner decisions still required
+## Owner-approved contact and pending review
 
-1. Designate and authorize publication of a private security contact under the
-   owner's control while the repository remains private. Verify its operation
-   with separately authorized harmless receipt evidence before claiming it works.
-2. Approve or amend the latest-published-stable-only maintenance proposal in
-   `docs/release.md`. No SLA or backport commitment is inferred.
-3. Choose manual review with the documented enforcement limitation, or authorize
-   a compatible plan and review the proposed remote protection configuration.
-   A public repository transition is a separate decision, not a workaround.
+The owner supplied [songbird@tuta.com](mailto:songbird@tuta.com) in response to
+the request for a private contact they control, monitor and authorize publishing.
+That declaration on 2026-09-08 is the evidence for control and monitoring.
+SECURITY.md now directs private reports there; the issue chooser links to that
+policy. No test email was sent or authorized, and independent receipt remains
+unverified. The previous missing-contact decision is resolved.
+
+The owner still reviews the latest-published-stable-only maintenance proposal
+in `docs/release.md` and the documentation package. No SLA or backport commitment
+is inferred. Manual review and the remote enforcement limitation remain explicit;
+a compatible plan or remote protection configuration requires separate approval.
+Changing repository visibility is a separate decision.
 
 No remote configuration was changed and no report or test message was sent.
-The missing private contact prevents completion; local documentation can be
-reviewed independently.
 
 ## Local verification
 
@@ -106,4 +108,4 @@ On Windows with Node 22.22.2 and npm 12.0.2:
 No Electron smoke or new hosted run was launched for this documentation-only
 change. The historical remote check results above do not validate this branch.
 Private report receipt and remote enforcement remain unverified for the reasons
-and owner decisions recorded above.
+recorded above.

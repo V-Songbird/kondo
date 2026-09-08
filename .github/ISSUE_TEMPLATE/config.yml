@@ -2,4 +2,4 @@ blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
     url: https://github.com/V-Songbird/kondo/blob/main/SECURITY.md
-    about: Read the security policy and current private-channel availability; do not disclose vulnerabilities in public issues.
+    about: Use the private email contact in the security policy; do not disclose vulnerabilities in public issues.

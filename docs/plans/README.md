@@ -13,7 +13,7 @@ between the two is the part a later reader needs.
 
 ## Index
 
-- [112 — Private security reporting and maintenance](112-security-reporting-maintenance.md) — **owner decisions pending**
+- [112 — Private security reporting and maintenance](112-security-reporting-maintenance.md) — **awaiting acceptance**
 
 - [098 — Concurrent settings writes](098-concurrent-settings-writes.md) — **done**
 
