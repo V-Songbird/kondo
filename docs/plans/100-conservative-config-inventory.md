@@ -1,6 +1,6 @@
 # Plan: Conservative configuration inventory
 
-Status: **awaiting acceptance**
+Status: **done — accepted by the owner on 2026-09-08**
 
 Configuration cleanup must distinguish a proved absence from a source Kondo
 cannot enumerate. Audit A3/A4 exposed directory-plugin disable preferences,
@@ -82,4 +82,12 @@ captures at 1360x860 and 900x600 were inspected without changing the visual syst
 
 Execution of settings removal is intentionally unavailable under 098; these
 checks establish conservative inventory/planning, not successful settings writes.
-Final acceptance and integration remain with the coordinating task and owner.
+The owner accepted this implementation and its local main integration on 2026-09-08.
+
+## Owner acceptance
+
+The owner accepted this result and local main integration on 2026-09-08.
+The coordinator reviewed both 099 and 100 together at fe91a87: 676 tests passed
+with 14 existing Windows file-symlink skips, and Electron smoke passed 25/25.
+Typecheck, lint, staged guards, build and whitespace checks passed. This is
+local development acceptance; release and publication gates remain separate.
