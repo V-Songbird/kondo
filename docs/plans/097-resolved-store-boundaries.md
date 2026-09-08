@@ -1,6 +1,6 @@
 # Plan: resolved store boundaries
 
-Status: **implemented — awaiting user acceptance**
+Status: **done — implementation in 6a65e4f, accepted by the owner**
 
 Task 097 closes link escapes in Claude-store scans and recursive mutations.
 The baseline placed-entry reader opened a linked SKILL.md without checking its
@@ -26,7 +26,8 @@ siblings available. The renderer and typed IPC contract do not change.
 
 Path checks limit stable link traversal; they do not eliminate hostile concurrent
 filesystem replacement (TOCTOU). Root selection remains the locator's authority.
-No real-store access, network, release change, merge or final acceptance is included.
+The implementation used no real-store access, network or release changes.
+The owner subsequently accepted it and authorized integration into local `main`.
 
 ## Verification checklist
 
@@ -60,4 +61,5 @@ continues to prove lazy reads while counting the two existing manifests.
 Configured-root overlap remains separate from containment within a selected
 root. The owner approved tracking its lexical-only checks as Foreman 115;
 no overlap fix is included here. No real stores were read or changed, and no
-release state was changed. Task 097 remains awaiting user acceptance.
+release state was changed. The owner accepted task 097 and authorized its local
+integration and working-branch removal.
