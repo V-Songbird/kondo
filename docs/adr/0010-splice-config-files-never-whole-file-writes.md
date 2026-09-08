@@ -136,3 +136,27 @@ Another hash check, an advisory lock that other writers do not share, asking
 the user to close Claude, or a forced-write option cannot substitute for that
 proof. Historical splice and link-handling details above describe the previous
 implementation and planning format, not an available safe execution path.
+
+
+## Amendment: require complete and compatible absence evidence (100)
+
+A settings key is not leftover merely because Kondo's local catalog lacks it.
+Plugin installation reads retain completeness separately from rows; partial or
+unsupported data preserves healthy entries and errors without authorizing
+absence. Missing-plugin candidates require a complete version-2 inventory and
+positive marketplace identity. Directory, inline, synced and unknown sources
+are retained, including their explicit disable preferences.
+
+Skill overrides contain no source identity. Kondo cannot enumerate all bundled,
+managed, command and additional-directory sources, so it preserves every skill
+override. Maintaining a list of known bundled names was rejected: a new Claude
+skill would silently turn a valid disable preference into a cleanup candidate.
+This sacrifices automatic removal of obsolete overrides to avoid changing intent.
+
+Both preview and action force fresh project-location inventory and read plugin
+records again: a recreated project need not change the cache fingerprint. If a requested
+candidate is now uncertain, the plan refuses the entire selection; it does not
+remove just the other members. Proved dead registry entries and their attached
+MCP declarations remain independent of plugin errors. This is a classification
+and planning decision; **098 still refuses settings execution and historical
+settings Undo before effects and journaling**.

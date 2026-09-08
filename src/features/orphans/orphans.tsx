@@ -8,10 +8,9 @@ import { formatCount } from '../../lib/format'
 import { chosenFrom, groupByKind, refusalFrom } from './orphan-rows'
 
 /**
- * Leftovers in Claude's configuration files — members Claude still reads and
- * nothing stands behind any more (ADR-0010). The preview moves nothing; the
- * chosen members come out as one journal entry, so a single undo puts them
- * all back (ADR-0001).
+ * Configuration members with sufficient evidence of absence (ADR-0010).
+ * Uncertain sources never become selectable rows. Preview remains available;
+ * settings execution and historical settings Undo are suspended under 098.
  *
  * The word on screen is the glossary's: kondo calls these orphans
  * internally, the user is shown leftovers.
@@ -86,12 +85,16 @@ export function Orphans() {
         <h2>Settings leftovers</h2>
       </div>
       <p className="mb-3 max-w-2xl">
-        Remove saved settings for projects, connections, plugins or skills that no
-        longer exist. Review each reason before selecting a setting.
+        Review saved settings for missing projects, their connections and plugins
+        absent from complete marketplace installation records.
       </p>
       <p className="mb-5 max-w-2xl">
-        Only the selected settings are removed. This tidies Claude&rsquo;s configuration;
-        it does not delete project files. One Undo restores the selected settings.
+        Skill preferences and plugin sources kondo cannot fully check are kept out
+        of this list. A missing result does not mean those preferences are unused.
+      </p>
+      <p className="mb-5 max-w-2xl">
+        Settings changes are temporarily unavailable. You can review these entries;
+        removal and Undo of settings changes remain unavailable.
       </p>
       <div ref={resultRef} tabIndex={-1} aria-label="Settings cleanup result">
         {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
@@ -170,7 +173,7 @@ export function Orphans() {
                   {chosen.some((orphan) => orphan.kind === 'project-entry') && (
                     <p>Removing a project entry also removes the connections saved inside it.</p>
                   )}
-                  <p>One Undo restores this change.</p>
+                  <p>Settings removal is temporarily unavailable. No settings will be changed.</p>
                   <div className="flex flex-wrap gap-3">
                     <button
                       ref={confirmation.cancelRef}

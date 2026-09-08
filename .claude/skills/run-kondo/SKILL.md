@@ -216,9 +216,10 @@ saved, 3 never worked in` on a fresh fixture:
 | `work/oldsite` | no | no | dead project with nothing else attached |
 
 `settings.json` carries `ghost@acme` under `enabledPlugins` and
-`retired-helper` under `skillOverrides`, neither of which anything ships, so
-Leftovers has every orphan kind to group. `foreman@acme` and `commit-writer`
-are the live pair beside them and must never be listed there.
+`retired-helper` under `skillOverrides`. Only the missing marketplace plugin
+is a leftover: every skill override is preserved because the local catalog
+cannot prove absence (100). `foreman@acme` and `commit-writer` are the live
+pair beside them and must never be listed there.
 
 Because every project with a transcript directory is registered, kondo takes
 its real path from the registry and never un-flattens the directory name, so

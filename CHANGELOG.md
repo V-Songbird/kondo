@@ -8,6 +8,13 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Settings leftovers preserves all skill preferences and plugin sources that
+  cannot be fully checked, including directory-plugin disable preferences.
+  Missing marketplace plugins require complete installation records and a
+  recognized marketplace. Partial records retain healthy entries and errors;
+  degraded inventory refuses an earlier selection. Settings writes and Undo
+  remain suspended.
+
 - Settings changes now refuse before changing files or recording completion,
   preventing a race that could overwrite another application's save. This
   temporary restriction applies on all platforms to settings-based skill,

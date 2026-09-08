@@ -33,8 +33,8 @@ const HINT: Record<ConfigOrphanKind, string> = {
   'project-entry': 'Claude still records these folders, but they are no longer on disk.',
   'mcp-declaration':
     'Connections saved in those project entries. Removing a project entry also removes its saved connections.',
-  'enabled-plugin': 'Saved on/off settings with no matching plugin in Claude’s installation records.',
-  'skill-override': 'Saved settings for skill names kondo did not find in the locations it checked. Review each reason before removing a setting.'
+  'enabled-plugin': 'Saved on/off settings for a known marketplace with no matching plugin in complete installation records.',
+  'skill-override': 'Skill preferences are retained because kondo cannot check every skill source.'
 }
 
 export interface OrphanGroup {

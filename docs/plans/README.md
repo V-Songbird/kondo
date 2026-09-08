@@ -15,6 +15,8 @@ between the two is the part a later reader needs.
 
 - [112 — Private security reporting and maintenance](112-security-reporting-maintenance.md) — **accepted 2026-09-08; local integration by coordinating session**
 
+- [100 — Conservative configuration inventory](100-conservative-config-inventory.md) — **awaiting acceptance**
+
 - [098 — Concurrent settings writes](098-concurrent-settings-writes.md) — **done**
 
 - [109 — Hook layer boundary and accurate claims](109-hook-layer-boundary.md) — **accepted decision**

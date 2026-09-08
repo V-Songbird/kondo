@@ -59,6 +59,7 @@ import {
   spliceMember,
   stringSet,
   readSettingsLayers,
+  readPluginInventory,
   scanMcpServers,
   scanPlacedEntries,
   scanPluginSkills,
@@ -68,6 +69,7 @@ import {
   scanSkillUsage,
   type ConfigOrphanRecord,
   type PluginRecord,
+  type PluginInventory,
   type SettingsLayer,
   type VerifiedProject
 } from './user-store'
@@ -104,6 +106,7 @@ export interface KindContext {
   projects(): Promise<VerifiedProject[]>
   layers(): Promise<SettingsLayer[]>
   plugins(): Promise<PluginRecord[]>
+  pluginInventory(): Promise<PluginInventory>
   /**
    * Every skill of the user store and this call's projects, read at most
    * once — so a move plans its collision check against exactly the listing
@@ -138,6 +141,7 @@ export interface KindContextSources {
 export function createKindContext(sources: KindContextSources): KindContext {
   let layers: Promise<SettingsLayer[]> | null = null
   let plugins: Promise<PluginRecord[]> | null = null
+  let pluginInventory: Promise<PluginInventory> | null = null
   let skills: Promise<SkillInfo[]> | null = null
   let usage: Promise<ReadonlySet<string> | null> | null = null
   let stems: Promise<ReadonlySet<string>> | null = null
@@ -151,9 +155,10 @@ export function createKindContext(sources: KindContextSources): KindContext {
     layers: () =>
       (layers ??= (async () =>
         readSettingsLayers(sources.locator, await sources.projects(), sources.c))()),
+    pluginInventory: () => (pluginInventory ??= readPluginInventory(sources.locator, sources.c)),
     plugins: () =>
       (plugins ??= (async () =>
-        scanPlugins(sources.locator, await context.layers(), sources.c))()),
+        scanPlugins(sources.locator, await context.layers(), sources.c, await context.pluginInventory()))()),
     // The settings layers come first: a skill's effective state is the
     // directory it sits in *and* what `skillOverrides` says about it
     // (ADR-0006), so the listing cannot be built without them. They are the
@@ -1750,31 +1755,21 @@ export async function sessionTrashPlan(
  * context. Both the preview and the removal go through here, so the set a
  * user confirmed is the set a splice takes out.
  *
- * Tier-2 on purpose (ADR-0007). `skillOverrides` reaches plugin-shipped
- * skills (domain.md), so a name is only an orphan once every installed
- * plugin's own skills have been looked at — work an explicit preview pays
- * for and no listing does.
+ * Installation completeness is independent of row count. Skill overrides
+ * cannot establish absence from our bounded catalog and are always retained.
+ * Every API call creates a fresh context, including the call building a plan.
  */
 export async function configOrphans(context: KindContext): Promise<ConfigOrphanRecord[]> {
-  const [layers, plugins, inventory] = await Promise.all([
+  const [layers, pluginInventory, inventory] = await Promise.all([
     context.layers(),
-    context.plugins(),
+    context.pluginInventory(),
     context.inventory()
-  ])
-  const [own, shipped] = await Promise.all([
-    context.skills(),
-    Promise.all(
-      plugins.map(async (record) =>
-        scanPluginSkills(context.locator, record, await context.skillUsage(), context.c)
-      )
-    )
   ])
   return scanConfigOrphans(
     context.locator,
     {
       layers,
-      plugins,
-      skillNames: new Set([...own, ...shipped.flat()].map((entry) => entry.name)),
+      pluginInventory,
       // The inventory already stat'd every project (ADR-0009), so calling an
       // entry dead costs nothing here.
       location: new Map(

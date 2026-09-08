@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import path from 'node:path'
+import fs from 'node:fs/promises'
 import type {
   EntityKind,
   KondoApi,
@@ -8,6 +9,8 @@ import type {
 } from '../shared/contract'
 import { capabilitiesFor, scopesFor } from '../electron/main/workspace/capabilities'
 import {
+  configOrphans,
+  configOrphansPlan,
   createKindContext,
   kinds,
   listingFor,
@@ -19,6 +22,7 @@ import { collector } from '../electron/main/workspace/scan'
 import { scanSessionInventory } from '../electron/main/workspace/sessions'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
+  hashTree,
   makeWorld,
   skillManifest,
   writeFileTree,
@@ -349,5 +353,139 @@ describe('kind registry and capability matrix', () => {
     )
     expect(sideways.errors[0]?.code).toBe('bad-request')
     expect(sideways.errors[0]?.message).toContain('enable or disable')
+  })
+})
+
+
+describe('conservative configuration inventory (100)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+  const manifest = (plugins: Record<string, unknown> = {}) => writeJson({ version: 2, plugins })
+  const installed = () => ({ 'alpha@acme': [{ scope: 'user',
+    installPath: path.join(world.userRoot, 'plugins/cache/acme/alpha/1') }] })
+  const preview = () => api.configOrphansPreview()
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, {
+      'settings.json': writeJson({ enabledPlugins: { 'ghost@acme': false,
+        'my-tool@skills-dir': false, 'session@inline': false, 'cloud@synced': false,
+        'future@new-source': false, 'unqualified': false },
+        skillOverrides: { doctor: 'off', deploy: 'off', 'nested:release': 'off',
+          'future-bundled-skill': 'off', 'alpha:helper': 'off' } }),
+      'plugins/installed_plugins.json': manifest(installed()),
+      'plugins/known_marketplaces.json': writeJson({ acme: { source: { source: 'directory', path: './marketplace' } } }),
+      'skills/my-tool/.claude-plugin/plugin.json': writeJson({ name: 'my-tool' }),
+      'commands/deploy.md': 'Deploy the fixture',
+      'commands/nested/release.md': 'Release the fixture'
+    })
+    await fs.writeFile(world.locator.userConfigFile, writeJson({ projects: {
+      [path.join(world.base, 'gone')]: { mcpServers: { unused: { command: 'fixture' } } }
+    } }))
+    api = createWorkspace({ locator: world.locator, platform: process.platform })
+  })
+  afterEach(async () => { await world.cleanup() })
+
+  it('preserves directory plugins, session sources, commands and all skill preferences', async () => {
+    const result = await preview()
+    expect(result.errors).toEqual([])
+    expect(result.data.filter((r) => r.kind === 'enabled-plugin').map((r) => r.name)).toEqual(['ghost@acme'])
+    expect(result.data.some((r) => r.kind === 'skill-override')).toBe(false)
+    const plugins = await api.pluginsList()
+    expect(plugins.data.filter((r) => !r.installed).map((r) => r.id)).toEqual(['plugin:ghost@acme'])
+    expect(plugins.data.some((r) => r.id === 'plugin:alpha@acme' && r.installed)).toBe(true)
+  })
+
+  it.each([undefined, '{broken', 'null', '[]', '{}', '{"version":2,"plugins":[]}',
+    '{"version":2,"plugins":null}', '{"plugins":{}}'])('does not infer absence from unavailable manifest %s', async (source) => {
+    const file = path.join(world.userRoot, 'plugins/installed_plugins.json')
+    if (source === undefined) await fs.unlink(file)
+    else await fs.writeFile(file, source)
+    const result = await preview()
+    expect(result.data.map((r) => r.kind).sort()).toEqual(['mcp-declaration', 'project-entry'])
+    if (source !== undefined) expect(result.errors.length).toBeGreaterThan(0)
+  })
+
+  it('keeps healthy plugin rows while malformed sibling installs withhold absence', async () => {
+    await writeFileTree(world.userRoot, { 'plugins/installed_plugins.json': manifest({
+      ...installed(), 'broken@acme': [null], 'shapeless@acme': { installPath: 'unknown' }
+    }) })
+    const plugins = await api.pluginsList()
+    expect(plugins.data.map((r) => r.id)).toEqual(['plugin:alpha@acme'])
+    expect(plugins.errors.length).toBeGreaterThanOrEqual(2)
+    expect((await preview()).data.map((r) => r.kind).sort()).toEqual(['mcp-declaration', 'project-entry'])
+  })
+
+  it('keeps readable entries of unsupported versions without making absence claims', async () => {
+    await writeFileTree(world.userRoot, { 'plugins/installed_plugins.json': writeJson({ version: 99, plugins: installed() }) })
+    const plugins = await api.pluginsList()
+    expect(plugins.data.map((r) => r.id)).toEqual(['plugin:alpha@acme'])
+    expect(plugins.errors.length).toBeGreaterThan(0)
+    expect((await preview()).data.some((r) => r.kind === 'enabled-plugin')).toBe(false)
+  })
+
+  it('treats a complete empty manifest as absence only for a recognized marketplace', async () => {
+    await writeFileTree(world.userRoot, { 'plugins/installed_plugins.json': manifest() })
+    expect((await preview()).data.filter((r) => r.kind === 'enabled-plugin').map((r) => r.name)).toEqual(['ghost@acme'])
+    await fs.unlink(path.join(world.userRoot, 'plugins/known_marketplaces.json'))
+    expect((await preview()).data.some((r) => r.kind === 'enabled-plugin')).toBe(false)
+  })
+
+  it('does not treat a non-boolean or legacy plugin preference as removable', async () => {
+    for (const enabledPlugins of [{ 'ghost@acme': { future: false } }, ['ghost@acme']]) {
+      await writeFileTree(world.userRoot, { 'settings.json': writeJson({ enabledPlugins }) })
+      expect((await preview()).data.some((r) => r.kind === 'enabled-plugin')).toBe(false)
+    }
+  })
+
+  it('preserves proved project candidates when the plugin file cannot be read', async () => {
+    const file = path.join(world.userRoot, 'plugins/installed_plugins.json')
+    await fs.unlink(file)
+    await fs.mkdir(file)
+    const result = await preview()
+    expect(result.errors.some((r) => r.code === 'read-failed')).toBe(true)
+    expect(result.data.map((r) => r.kind).sort()).toEqual(['mcp-declaration', 'project-entry'])
+  })
+
+  it('revalidates a degraded manifest before planning and refuses the entire mixed choice', async () => {
+    const before = await preview()
+    const ids = before.data.filter((r) => r.kind === 'project-entry' || r.kind === 'enabled-plugin').map((r) => r.id)
+    await writeFileTree(world.userRoot, { 'plugins/installed_plugins.json': '{broken' })
+    const scan = await scanSessionInventory(world.locator, process.platform)
+    const c = collector()
+    const context = createKindContext({ locator: world.locator, c, now: Date.now(),
+      inventory: async () => scan.data, projects: async () => [] })
+    expect(configOrphansPlan(await configOrphans(context), ids)).toMatchObject({ ok: false, code: 'unknown-id' })
+    const hash = await hashTree(world.base)
+    const result = await api.configOrphansRemove(ids)
+    expect(result.data).toBeNull()
+    expect(result.errors.some((r) => r.code === 'unknown-id')).toBe(true)
+    expect(await hashTree(world.base)).toBe(hash)
+    expect((await api.journalList()).data).toEqual([])
+  })
+
+  it('rechecks a registered project recreated after preview before planning removal', async () => {
+    const before = await preview()
+    const ids = before.data.filter((r) => r.kind === 'project-entry' || r.kind === 'mcp-declaration' || r.kind === 'enabled-plugin').map((r) => r.id)
+    expect(ids).toHaveLength(3)
+    // This changes neither the registry nor user/projects, the cache fingerprint.
+    await fs.mkdir(path.join(world.base, 'gone'))
+    const hash = await hashTree(world.base)
+    const result = await api.configOrphansRemove(ids)
+    expect(result.data).toBeNull()
+    expect(result.errors.some((r) => r.code === 'unknown-id')).toBe(true)
+    expect(await hashTree(world.base)).toBe(hash)
+    expect((await api.journalList()).data).toEqual([])
+    expect((await preview()).data.some((r) => r.kind === 'project-entry' || r.kind === 'mcp-declaration')).toBe(false)
+  })
+
+  it('retains the 098 refusal for a proved absent marketplace plugin', async () => {
+    const candidate = (await preview()).data.find((r) => r.name === 'ghost@acme')!
+    const hash = await hashTree(world.base)
+    const result = await api.configOrphansRemove([candidate.id])
+    expect(result.data).toBeNull()
+    expect(result.errors).toEqual([expect.objectContaining({ code: 'not-permitted' })])
+    expect(await hashTree(world.base)).toBe(hash)
+    expect((await api.journalList()).data).toEqual([])
   })
 })

@@ -80,9 +80,9 @@ const hushInstall = path.join(userRoot, 'plugins', 'cache', 'acme', 'hush', '1.0
 
 await write(userRoot, {
   // `ghost@acme` is enabled and nothing installed it; `retired-helper` is
-  // switched off and no scope ships it. Both are configuration leftovers the
-  // Leftovers view groups (entry 040 / ADR-0010) — `foreman@acme` and
-  // `commit-writer` are the live pair beside them, and must never be listed.
+  // switched off. Cleanup preserves every skill override because the local
+  // catalog cannot prove absence (100). Only the ghost plugin is a leftover;
+  // `foreman@acme` and `commit-writer` must never be listed there.
   'settings.json': JSON.stringify(
     {
       enabledPlugins: { 'foreman@acme': true, 'ghost@acme': true },

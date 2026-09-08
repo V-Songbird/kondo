@@ -107,7 +107,7 @@ usage):
 | Entry | What it is |
 |---|---|
 | `projects/` | Session transcripts, one subdirectory per working directory. The heart of kondo's session features. |
-| `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'name-only' \| 'user-invocable-only' \| 'off' }` ✅ — the four values Claude Code's own settings schema admits, read off the 2.1.258 binary (entry 029). Its description, verbatim: `name-only` lists the skill without its description, `user-invocable-only` hides it from the model but keeps `/name`, `off` hides it from both, absent = on. **Only `off` is a disabling**; the middle two leave the skill loaded. Precedence is the ordinary local > project > user ✅, and `/skills` writes the key into the *local* layer. It does **not** reach plugin-shipped skills ✅: Claude pins those to `on` before consulting it, and only managed-policy and CLI-flag settings override that — neither of which kondo reads. Kondo resolves it per skill and carries the winner as `SkillInfo.override`, with `enabled` false when it says `off` (entry 029); a key naming a skill no scope ships is also a configuration orphan it offers to splice out (ADR-0010). **It is also what kondo's skill toggle plans** (entry 045; execution refused under 098): `disable` splices `<skill>: "off"` into the scope's layer — the one already naming the skill, else `settings.local.json`, the file `/skills` writes — and `enable` removes the member from every layer in the chain that says `off`. A project page switches a *global* skill off for that project alone the same way (entry 062): the `off` lands in the project's own layer and only that project's layers are ever withdrawn from, so `ProjectDetail.inheritedSkills` reads each global skill against the project's local and project layers and reports `off here` apart from `off in Global`. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
+| `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'name-only' \| 'user-invocable-only' \| 'off' }` ✅ — the four values Claude Code's own settings schema admits, read off the 2.1.258 binary (entry 029). Its description, verbatim: `name-only` lists the skill without its description, `user-invocable-only` hides it from the model but keeps `/name`, `off` hides it from both, absent = on. **Only `off` is a disabling**; the middle two leave the skill loaded. Precedence is the ordinary local > project > user ✅, and `/skills` writes the key into the *local* layer. It does **not** reach plugin-shipped skills ✅: Claude pins those to `on` before consulting it, and only managed-policy and CLI-flag settings override that — neither of which kondo reads. Kondo resolves it per skill and carries the winner as `SkillInfo.override`, with `enabled` false when it says `off` (entry 029); configuration cleanup preserves every override because its skill sources cannot be completely enumerated (100, ADR-0010). **It is also what kondo's skill toggle plans** (entry 045; execution refused under 098): `disable` splices `<skill>: "off"` into the scope's layer — the one already naming the skill, else `settings.local.json`, the file `/skills` writes — and `enable` removes the member from every layer in the chain that says `off`. A project page switches a *global* skill off for that project alone the same way (entry 062): the `off` lands in the project's own layer and only that project's layers are ever withdrawn from, so `ProjectDetail.inheritedSkills` reads each global skill against the project's local and project layers and reports `off here` apart from `off in Global`. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
 | `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo plans to disable (execution refused under 098); a key that is simply absent is silence, not a false. A legacy array form is read (a listed key is enabled) but never written. |
 | `skills/` | User-scope skills, one directory per skill with a `SKILL.md`. |
 | `skills.disabled/` | **Kondo's parking spot, not Claude's convention** ✅. The directory exists on the owner's machine, but the string `skills.disabled` occurs nowhere in the Claude Code 2.1.255 or 2.1.258 binaries (entry 029) — nothing reads it. A skill moved here does stop loading, for the plain reason that it is no longer in `skills/`, which is the "remove from `.claude/skills`" half of Claude's own advice. Claude's *named* per-skill switch is `skillOverrides` above, and since entry 045 that is what the toggle plans (execution refused under 098): nothing new is moved here. Kondo still reads the directory back as the `user-disabled` scope and offers each skill in it the way back into `skills/` (ADR-0006). |
@@ -130,6 +130,46 @@ usage):
 | `stats-cache.json`, `statusline-command.sh`, `CLAUDE.md` | Misc: usage stats cache, statusline script, the user's global instructions ✅. `todos/` ◇ (documented, absent here). |
 | `feedback/`, `daemon-auth-cooldown`, `daemon-auth-status.json`, `gh-pr-status-cache.json`, `.last-update-result.json`, `.last-cleanup`, `statusline-command.sh.bak`, marker files (`.caveman-active`, …) | Small support and state files ✅. Listed by name and size only. |
 | `.credentials.json`, `.claude.json`, `.mcp.json` | Inside the user store: a credentials file (**read-never**, like the desktop token files), and two small JSON files (`.mcp.json` held an empty `mcpServers`) ✅. Not to be confused with `~/.claude.json` below. |
+
+### Configuration absence and incomplete inventory (100)
+
+✅ **Kondo behavior, verified with synthetic fixtures:** installed-plugin reads
+carry complete, partial or unavailable evidence independently of displayed rows.
+Only the supported version-2 object with well-shaped installation arrays can
+establish absence. Missing, unreadable, invalid or unsupported manifests offer
+no missing-plugin candidates; readable installation entries survive alongside
+itemized errors. Plugin-residue cleanup also withholds an incomplete manifest.
+
+A boolean preference is a missing-plugin candidate only if the manifest is
+complete and its marketplace is identified by an installation entry or an object
+with source metadata in `known_marketplaces.json`. An empty valid manifest can
+prove absence for a known marketplace; a missing manifest cannot. Legacy arrays,
+unknown value shapes and sources without marketplace evidence are retained.
+
+◇ **Documented Claude behavior, checked 2026-09-08:** directory plugins use
+`<name>@skills-dir` without an install step; synced plugins use `@synced` and
+session directory plugins use `@inline` without marketplace installation records.
+See [the official plugin reference](https://code.claude.com/docs/en/plugins-reference#skills-directory-plugins).
+Kondo preserves these preferences, even when no matching directory was found.
+It does not claim to inventory every plugin source or load plugins itself.
+
+◇ **Documented Claude behavior, checked 2026-09-08:** `doctor: off` can hide
+bundled Doctor, and legacy commands participate in the skill system. See
+[the official skills reference](https://code.claude.com/docs/en/skills#bundled-skills).
+Bundled, managed and additional-directory skills cannot all be enumerated from
+Kondo's bounded stores. Consequently **all skillOverrides are retained**, even
+unknown names; scanning more local skill folders cannot prove global absence.
+The existing skill-override response kind is retained for compatibility but
+no longer emitted by configuration cleanup.
+
+✅ Preview and removal force a fresh session inventory as well as using a
+fresh per-call plugin context. Recreating a registered project root invalidates
+its previous absence even when the registry and transcript directories did not
+change. A candidate lost after inventory degradation causes the entire mixed
+selection to refuse before planning effects. Proved dead registry projects and
+their MCP declarations remain available despite unrelated plugin errors. The
+UI shows partial-scan problems and explains preserved preferences. All actual
+settings removal and historical settings Undo remain refused under 098.
 
 ### `~/.claude.json` — the registry
 

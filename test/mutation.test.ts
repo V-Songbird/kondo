@@ -1021,8 +1021,7 @@ describe('configuration orphans (ADR-0010)', () => {
       'enabled-plugin:ghost@acme',
       'enabled-plugin:phantom@acme',
       `mcp-declaration:ghost-server`,
-      `project-entry:${slashed(dead)}`,
-      'skill-override:vanished-skill'
+      `project-entry:${slashed(dead)}`
     ].sort())
   })
 
@@ -1044,11 +1043,10 @@ describe('configuration orphans (ADR-0010)', () => {
     ['project-entry'],
     ['enabled-plugin', 'enabled-plugin'],
     ['project-entry', 'mcp-declaration'],
-    ['project-entry', 'skill-override']
+    ['project-entry', 'enabled-plugin']
   ])('refuses settings leftovers %j without changing any selected file or history', async (...kinds) => {
     const names: Record<string, string[]> = { 'project-entry': [slashed(dead)],
-      'enabled-plugin': ['ghost@acme', 'phantom@acme'], 'mcp-declaration': ['ghost-server'],
-      'skill-override': ['vanished-skill'] }
+      'enabled-plugin': ['ghost@acme', 'phantom@acme'], 'mcp-declaration': ['ghost-server'] }
     const ids: string[] = []
     for (const kind of kinds) ids.push(await orphan(kind, names[kind]!.shift()!))
     const before = await hashTree(world.base)

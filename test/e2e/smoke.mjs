@@ -535,11 +535,11 @@ test('Clean up contains files, settings leftovers and duplicate skills', async (
   assert.equal(await client.evaluate(`document.querySelectorAll('main input[type="checkbox"]:checked').length`), 0)
 
   await section('Cleanup sections', 'Settings leftovers')
-  await client.waitFor(`document.body.textContent.includes('ghost@acme') && document.body.textContent.includes('retired-helper')`)
+  await client.waitFor(`document.body.textContent.includes('ghost@acme') && document.body.textContent.includes('Skill preferences')`)
   const orphans = await call(`(await window.kondo.configOrphansPreview()).data`)
   assert.deepEqual(
     [...new Set(orphans.map((row) => row.kind))].sort(),
-    ['enabled-plugin', 'mcp-declaration', 'project-entry', 'skill-override']
+    ['enabled-plugin', 'mcp-declaration', 'project-entry']
   )
   await capture('cleanup-settings')
   await section('Cleanup sections', 'Duplicate skills')
@@ -1261,4 +1261,76 @@ test('a newly created empty scratch folder is withheld and never chosen automati
   } finally {
     await fs.rmdir(folder)
   }
+})
+
+test('settings cleanup preserves uncertain preferences and rechecks degraded inventory', async () => {
+  const root = path.join(base, 'home', '.claude')
+  const settings = path.join(root, 'settings.json')
+  const manifest = path.join(root, 'plugins', 'installed_plugins.json')
+  const beforeSettings = await fs.readFile(settings, 'utf8')
+  const beforeManifest = await fs.readFile(manifest, 'utf8')
+  const journal = path.join(base, 'kondo-data', 'journal.jsonl')
+  const readJournal = () => fs.readFile(journal, 'utf8').catch((error) => {
+    if (error.code === 'ENOENT') return null
+    throw error
+  })
+  const beforeJournal = await readJournal()
+  const next = JSON.parse(beforeSettings)
+  next.enabledPlugins['my-tool@skills-dir'] = false
+  next.enabledPlugins['unknown@future-source'] = false
+  next.skillOverrides.doctor = 'off'
+  const protectedSettings = JSON.stringify(next, null, 2)
+  try {
+    await fs.writeFile(settings, protectedSettings)
+    await navigate('Clean up')
+    await section('Cleanup sections', 'Files and caches')
+    await section('Cleanup sections', 'Settings leftovers')
+    const ghost = `document.querySelector('input[aria-label^="Select ghost@acme "]')`
+    await client.waitFor(ghost + ' !== null')
+    const labels = await client.evaluate(`[...document.querySelectorAll('main input[type="checkbox"]')].map((input) => input.getAttribute('aria-label'))`)
+    for (const name of ['my-tool@skills-dir', 'unknown@future-source', 'doctor', 'retired-helper']) {
+      assert.ok(labels.every((label) => !label.includes(name)), name + ' must never be selectable')
+    }
+    await client.evaluate(ghost + '.focus()')
+    await press(' ')
+    await keyboardActivate(button('Review selected settings'))
+    await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel'`)
+    await fs.writeFile(manifest, '{broken')
+    await keyboardActivate(button('Remove selected settings'))
+    await client.waitFor(`document.querySelector('[role="alert"]')?.textContent.includes('No configuration orphan')`)
+    await client.waitFor(ghost + ' === null')
+    assert.equal(await client.evaluate(`document.activeElement?.getAttribute('aria-label')`), 'Settings cleanup result')
+    const result = await call(`await window.kondo.configOrphansPreview()`)
+    assert.ok(result.errors.some((error) => error.code === 'parse-failed'))
+    assert.deepEqual([...new Set(result.data.map((row) => row.kind))].sort(), ['mcp-declaration', 'project-entry'])
+    const problems = `[...document.querySelectorAll('button')].find((b) => /^\\d+ problems?$/.test(b.textContent.trim()))`
+    await keyboardActivate(problems)
+    await client.waitFor(`document.body.textContent.includes('installed_plugins.json')`)
+    await assertNoHorizontalOverflow()
+    await capture('cleanup-incomplete-inventory')
+    assert.equal(await fs.readFile(settings, 'utf8'), protectedSettings)
+    assert.equal(await readJournal(), beforeJournal)
+  } finally {
+    await fs.writeFile(settings, beforeSettings)
+    await fs.writeFile(manifest, beforeManifest)
+  }
+  // Inspect the affected reading surface in both shipped sizes and appearances.
+  for (const theme of ['chalk', 'carbon']) {
+    await openThemes()
+    await chooseTheme(theme)
+    await navigate('Clean up')
+    await section('Cleanup sections', 'Settings leftovers')
+    await client.waitFor(`document.querySelector('input[aria-label^="Select ghost@acme "]') !== null`)
+    for (const [width, height] of [[1360, 860], [900, 600]]) {
+      await client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+      await client.evaluate("document.querySelector('main').scrollTo(0, 0); window.scrollTo(0, 0)")
+      await assertNoHorizontalOverflow()
+      await capture('cleanup-inventory-' + theme + '-' + width)
+    }
+  }
+  await client.send('Emulation.clearDeviceMetricsOverride')
+  await openThemes()
+  await chooseTheme('chalk')
+  assert.equal(await fs.readFile(settings, 'utf8'), beforeSettings)
+  assert.equal(await readJournal(), beforeJournal)
 })

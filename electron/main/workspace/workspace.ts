@@ -971,7 +971,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
     async configOrphansPreview(): Promise<Scan<ConfigOrphan[]>> {
       const c = collector()
-      const records = await configOrphans(context(c))
+      const records = await configOrphans(await freshContext(c))
       return finish(
         records.map((record) => record.info),
         c
@@ -983,11 +983,11 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         return badRequest(null, 'configOrphansRemove expects an array of orphan ids.')
       }
       const c = collector()
-      // The same scan the plan is built from, so a member that changed since
-      // the preview refuses the whole removal rather than quietly splicing a
-      // different one — and the digest in each step refuses again at apply
-      // time if Claude wrote the file in between (ADR-0010).
-      const planned = configOrphansPlan(await configOrphans(context(c)), orphanIds)
+      // Re-stat project roots as well as re-reading plugin records: recreating
+      // a project does not change the session inventory cache fingerprint.
+      // Lost absence evidence refuses the whole choice. Settings execution
+      // remains independently refused under 098 (ADR-0010).
+      const planned = configOrphansPlan(await configOrphans(await freshContext(c)), orphanIds)
       if (!planned.ok) {
         c.errors.push({ code: planned.code, path: '(request)', message: planned.message })
         return finish(null, c)

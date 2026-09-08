@@ -458,25 +458,88 @@ export const PLUGIN_CACHE_DIR = 'cache'
 export const PLUGIN_DATA_DIR = 'data'
 export const PLUGIN_MANIFEST_DIR = '.install-manifests'
 
-/**
- * The `plugins[<name>@<marketplace>]` map of `installed_plugins.json`, or
- * null when the file is missing, unreadable, or not the shape it claims.
- *
- * Null and `{}` are deliberately different answers. `{}` says nothing is
- * installed, which makes every `data/` directory residue; null says kondo
- * could not tell, and a reader that cannot tell must offer nothing rather
- * than guess (ADR-0005).
- */
-export async function readPluginManifest(
-  locator: StoreLocator,
-  c: Collector
-): Promise<Record<string, unknown> | null> {
+/** Installation records are authoritative only for their supported sources. */
+export interface PluginInventory {
+  plugins: Record<string, unknown>
+  completeness: 'complete' | 'partial' | 'unavailable'
+  /** Sources identified by install records or known_marketplaces.json. */
+  marketplaces: ReadonlySet<string>
+}
+
+// These sources load without marketplace installation records. Unknown source
+// names need positive marketplace evidence too; this is not an exhaustive list.
+const NON_MARKETPLACE_SOURCES = new Set(['skills-dir', 'inline', 'synced'])
+const PLUGIN_KEY = /^([a-zA-Z0-9][a-zA-Z0-9._-]*)@([a-zA-Z0-9][a-zA-Z0-9._-]*)$/
+
+function marketplaceOf(key: string): string | null {
+  const source = PLUGIN_KEY.exec(key)?.[2]
+  return source === undefined || NON_MARKETPLACE_SOURCES.has(source) ? null : source
+}
+
+/** Read once, preserve healthy entries, and never turn a failed read into {}. */
+export async function readPluginInventory(locator: StoreLocator, c: Collector): Promise<PluginInventory> {
   const file = path.join(locator.userRoot, PLUGINS_DIR, 'installed_plugins.json')
-  const json = await safeReadJson(file, tildify(file, locator.home), c, locator.userRoot)
-  if (typeof json !== 'object' || json === null) return null
-  const plugins = (json as Record<string, unknown>)['plugins']
-  if (typeof plugins !== 'object' || plugins === null) return null
-  return plugins as Record<string, unknown>
+  const display = tildify(file, locator.home)
+  const unavailable: PluginInventory = { plugins: {}, completeness: 'unavailable', marketplaces: new Set() }
+  let source: string
+  try {
+    source = await fs.readFile(await resolveAllowedPath(file, locator.userRoot), 'utf8')
+  } catch (cause) {
+    if (!isEnoent(cause)) c.fail(cause instanceof BoundaryError ? cause.code : 'read-failed', display, cause)
+    return unavailable
+  }
+  let json: Record<string, unknown> | null
+  try {
+    json = asObject(JSON.parse(source))
+  } catch (cause) {
+    c.fail('parse-failed', display, cause)
+    return unavailable
+  }
+  const entries = asObject(json?.['plugins'])
+  if (entries === null) {
+    c.fail('parse-failed', display, 'Plugin installation records must contain a plugins object; absence cannot be established.')
+    return unavailable
+  }
+  let complete = json?.['version'] === 2
+  if (!complete) c.fail('parse-failed', display, 'Unsupported plugin installation version; readable entries are shown, but absence cannot be established.')
+  const plugins: Record<string, unknown> = Object.create(null) as Record<string, unknown>
+  const marketplaces = new Set<string>()
+  for (const [key, installs] of Object.entries(entries)) {
+    const valid = (Array.isArray(installs) ? installs : []).filter((value) => {
+      const install = asObject(value)
+      return install !== null && typeof install['installPath'] === 'string' &&
+        path.isAbsolute(install['installPath']) &&
+        typeof install['scope'] === 'string' &&
+        ['user', 'project', 'local', 'managed'].includes(install['scope'])
+    })
+    if (!PLUGIN_KEY.test(key) || !Array.isArray(installs) || valid.length === 0 || valid.length !== installs.length) {
+      complete = false
+      c.fail('parse-failed', display, 'Incomplete plugin installation entry for ' + key + '; absence cannot be established.')
+    }
+    if (valid.length > 0 && PLUGIN_KEY.test(key)) {
+      plugins[key] = valid
+      const marketplace = marketplaceOf(key)
+      if (marketplace !== null) marketplaces.add(marketplace)
+    }
+  }
+  const knownFile = path.join(locator.userRoot, PLUGINS_DIR, 'known_marketplaces.json')
+  const known = asObject(await safeReadJson(knownFile, tildify(knownFile, locator.home), c, locator.userRoot))
+  for (const [name, value] of Object.entries(known ?? {})) {
+    if (asObject(asObject(value)?.['source']) !== null && marketplaceOf('plugin@' + name) !== null) marketplaces.add(name)
+  }
+  return { plugins, completeness: complete ? 'complete' : 'partial', marketplaces }
+}
+
+/** A missing or incomplete manifest cannot authorize plugin-residue cleanup. */
+export async function readPluginManifest(locator: StoreLocator, c: Collector): Promise<Record<string, unknown> | null> {
+  const inventory = await readPluginInventory(locator, c)
+  return inventory.completeness === 'complete' ? inventory.plugins : null
+}
+
+function pluginProvedAbsent(inventory: PluginInventory, key: string): boolean {
+  const marketplace = marketplaceOf(key)
+  return inventory.completeness === 'complete' && marketplace !== null &&
+    inventory.marketplaces.has(marketplace) && !Object.hasOwn(inventory.plugins, key)
 }
 
 /** What is installed right now, in the two shapes a residue sweep asks for. */
@@ -538,10 +601,11 @@ function firstInstall(installs: unknown): Record<string, unknown> {
 export async function scanPlugins(
   locator: StoreLocator,
   layers: SettingsLayer[],
-  c: Collector
+  c: Collector,
+  inventory?: PluginInventory
 ): Promise<PluginRecord[]> {
-  const plugins = await readPluginManifest(locator, c)
-  if (plugins === null) return []
+  const evidence = inventory ?? await readPluginInventory(locator, c)
+  const plugins = evidence.plugins
 
   // Display order for the whole row, unchanged: local, project, user.
   const ordered = [...layers].sort(
@@ -622,14 +686,11 @@ export async function scanPlugins(
       installAbs
     })
   }
-  // A key some layer states for a plugin nothing installed. Claude reads it
-  // and finds nothing there, so kondo lists it as a row of its own rather
-  // than hiding it — and the same key is an orphan `configOrphansPreview`
-  // offers to remove (ADR-0010).
-  const declared = new Set(Object.keys(plugins))
+  // Only a complete supported inventory can label a preference not installed.
+  // Unenumerated sources stay in their settings layers without a ghost row.
   const ghosts = new Set<string>()
   for (const layer of ordered) {
-    for (const key of statedPlugins(layer)) if (!declared.has(key)) ghosts.add(key)
+    for (const key of statedPlugins(layer)) if (pluginProvedAbsent(evidence, key)) ghosts.add(key)
   }
   for (const key of ghosts) {
     const at = key.lastIndexOf('@')
@@ -1298,9 +1359,7 @@ export interface ConfigOrphanRecord {
 
 export interface ConfigOrphanSources {
   layers: SettingsLayer[]
-  plugins: PluginRecord[]
-  /** Every skill name on the machine, plugin-shipped ones included. */
-  skillNames: ReadonlySet<string>
+  pluginInventory: PluginInventory
   /** Flattened project name → where its directory stands (ADR-0009). */
   location: ReadonlyMap<string, ProjectLocation>
 }
@@ -1415,11 +1474,6 @@ export async function scanConfigOrphans(
     }
   }
 
-  const installed = new Set(
-    sources.plugins
-      .filter((record) => record.info.installed)
-      .map((record) => record.info.id.slice('plugin:'.length))
-  )
   for (const layer of sources.layers) {
     if (layer.source === null || layer.parsed === null) continue
     const holder: Holder = {
@@ -1429,26 +1483,19 @@ export async function scanConfigOrphans(
       source: layer.source,
       display: layer.info.path
     }
-    for (const key of Object.keys(asObject(layer.parsed[ENABLED_PLUGINS]) ?? {})) {
-      if (installed.has(key)) continue
+    for (const [key, value] of Object.entries(asObject(layer.parsed[ENABLED_PLUGINS]) ?? {})) {
+      if (typeof value !== 'boolean' || !pluginProvedAbsent(sources.pluginInventory, key)) continue
       add(
         holder,
         'enabled-plugin',
         key,
-        `${key} is not installed; this key states a plugin that is not there.`,
+        `${key} has no entry in the complete marketplace installation records.`,
         [ENABLED_PLUGINS, key]
       )
     }
-    for (const name of Object.keys(asObject(layer.parsed[SKILL_OVERRIDES]) ?? {})) {
-      if (sources.skillNames.has(name)) continue
-      add(
-        holder,
-        'skill-override',
-        name,
-        `No skill named ${name} in any scope, plugin-shipped ones included.`,
-        [SKILL_OVERRIDES, name]
-      )
-    }
+    // skillOverrides has no source identity. Bundled skills, commands, managed
+    // skills and additional directories cannot be exhaustively enumerated here.
+    // Even an unfamiliar name is a preference to preserve, not proved residue.
   }
 
   records.sort((a, b) => a.info.id.localeCompare(b.info.id))
