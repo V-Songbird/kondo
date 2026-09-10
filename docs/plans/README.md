@@ -13,7 +13,7 @@ between the two is the part a later reader needs.
 
 ## Index
 
-- [111 — Public Git history decision](111-public-history-decision.md) — **package ready; owner choice pending**
+- [111 — Public Git history decision](111-public-history-decision.md) — **package accepted 2026-09-09; publication choices separate**
 
 - [118 — Framed logical tree digests](118-framed-tree-digests.md) — **done — accepted 2026-09-09**
 

@@ -1,6 +1,6 @@
 # Decision package: Public Git history
 
-Status: **decision package ready — owner choice and publication acceptance pending**
+Status: **decision package accepted 2026-09-09 — publication choices remain separate**
 
 Recommend a **separate public repository with a new root commit**, prepared from
 the final reviewed source tree. Keep the existing repository and its complete
@@ -11,7 +11,7 @@ would begin at the new root; the owner must accept that tradeoff.
 The current tree is **not yet an approved publication surface**: two locations
 below retain personal project context. This package proposes the choice and its
 conditions; it does not create a public root, sanitize history, tag, push, change
-visibility, or accept task 111. The coordinating session obtains the owner's
+visibility. The owner accepted this package for local integration; the coordinating session still obtains the owner's
 choice and maintains the local roadmap. [ADR-0013](../adr/0013-keep-working-records-local.md)
 remains the accepted policy for local working records.
 
@@ -306,3 +306,12 @@ Local checks were repeated on 2026-09-09 (local date; 2026-09-10 UTC) using Node
 
 The final changed-file and commit evidence is recorded in the task handoff.
 None of these local results accepts a release or the public-history choice.
+
+## Owner acceptance of the package
+
+The owner accepted this decision package and authorized its local main integration
+on 2026-09-09. This accepts the reviewed findings and alternatives as delivered.
+It does not choose an unprovided public identity or destination, authorize history
+rewriting, or accept a publication candidate. The strategy and publication choices
+listed above remain for the owner's next workflow instruction; task114 retains
+those final gates.
