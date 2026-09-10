@@ -2,7 +2,7 @@ import { constants } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeWorld, recordWrites, type FixtureWorld } from './helpers'
+import { hashTree, makeWorld, recordWrites, type FixtureWorld } from './helpers'
 
 describe('recordWrites open flags', () => {
   let world: FixtureWorld
@@ -98,5 +98,61 @@ describe('recordWrites open flags', () => {
       await expect(fs.open(missing, 'r+')).rejects.toMatchObject({ code: 'ENOENT' })
       expect(writes).toEqual([missing])
     } finally { for (const restore of restores) restore() }
+  })
+})
+
+describe('hashTree fixture snapshots', () => {
+  let world: FixtureWorld
+
+  beforeEach(async () => { world = await makeWorld() })
+  afterEach(async () => { await world.cleanup() })
+
+  it('keeps path and content boundaries distinct', async () => {
+    const first = path.join(world.base, 'first')
+    const second = path.join(world.base, 'second')
+    await fs.mkdir(first)
+    await fs.mkdir(second)
+    await fs.writeFile(path.join(first, 'a'), 'bc')
+    await fs.writeFile(path.join(second, 'ab'), 'c')
+
+    expect(await hashTree(first)).not.toBe(await hashTree(second))
+  })
+
+  it('is stable across creation order and preserves empty and binary entries', async () => {
+    const first = path.join(world.base, 'first')
+    const second = path.join(world.base, 'second')
+    await fs.mkdir(path.join(first, 'nested', 'empty'), { recursive: true })
+    await fs.writeFile(path.join(first, 'nested', 'binary'), Buffer.from([0, 255, 13, 10, 128]))
+    await fs.writeFile(path.join(first, 'empty-file'), '')
+
+    await fs.mkdir(second)
+    await fs.mkdir(path.join(second, 'nested'))
+    await fs.writeFile(path.join(second, 'empty-file'), '')
+    await fs.writeFile(path.join(second, 'nested', 'binary'), Buffer.from([0, 255, 13, 10, 128]))
+    await fs.mkdir(path.join(second, 'nested', 'empty'))
+
+    const snapshot = await hashTree(first)
+    expect(await hashTree(second)).toBe(snapshot)
+    await fs.writeFile(path.join(second, 'nested', 'binary'), Buffer.from([0, 255, 13, 10, 129]))
+    expect(await hashTree(second)).not.toBe(snapshot)
+  })
+
+  it('distinguishes a root file from a root directory', async () => {
+    const file = path.join(world.base, 'file')
+    const directory = path.join(world.base, 'directory')
+    await fs.writeFile(file, '')
+    await fs.mkdir(directory)
+
+    expect(await hashTree(file)).not.toBe(await hashTree(directory))
+  })
+
+  it('distinguishes an empty file from an empty directory at one path', async () => {
+    const fileRoot = path.join(world.base, 'file-root')
+    const directoryRoot = path.join(world.base, 'directory-root')
+    await fs.mkdir(fileRoot)
+    await fs.writeFile(path.join(fileRoot, 'entry'), '')
+    await fs.mkdir(path.join(directoryRoot, 'entry'), { recursive: true })
+
+    expect(await hashTree(fileRoot)).not.toBe(await hashTree(directoryRoot))
   })
 })

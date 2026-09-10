@@ -209,23 +209,37 @@ export const UUID_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 // Write-path probes (ADR-0001), shared by every mutation suite
 
 /** Names + bytes of a whole tree, so "restored" means byte-for-byte. */
+type TreeSnapshotEntry =
+  | { type: 'directory'; path: string }
+  | { type: 'file'; path: string; bytes: string }
+
 export async function hashTree(root: string): Promise<string> {
-  const entries = await fs.readdir(root, { withFileTypes: true, recursive: true })
-  const manifest = entries
-    .map((entry) => {
-      const rel = path
+  const rootType = (await fs.stat(root)).isDirectory() ? 'directory' : 'file'
+  const entries = rootType === 'directory'
+    ? await fs.readdir(root, { withFileTypes: true, recursive: true })
+    : []
+  const records: TreeSnapshotEntry[] = [
+    rootType === 'directory'
+      ? { type: 'directory', path: '' }
+      : { type: 'file', path: '', bytes: (await fs.readFile(root)).toString('base64') },
+    ...entries.map<TreeSnapshotEntry>((entry) => {
+      const relative = path
         .relative(root, path.join(entry.parentPath, entry.name))
         .split(path.sep)
         .join('/')
-      return entry.isDirectory() ? `${rel}/` : rel
+      return entry.isDirectory()
+        ? { type: 'directory', path: relative }
+        : { type: 'file', path: relative, bytes: '' }
     })
-    .sort()
+  ]
+  records.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
   const hash = createHash('sha256')
-  for (const rel of manifest) {
-    hash.update(rel)
-    if (rel.endsWith('/')) continue
-    hash.update(await fs.readFile(path.join(root, ...rel.split('/'))))
+  for (const record of records) {
+    if (record.type === 'file' && record.path !== '') {
+      record.bytes = (await fs.readFile(path.join(root, ...record.path.split('/')))).toString('base64')
+    }
   }
+  hash.update(JSON.stringify({ version: 1, entries: records }))
   return hash.digest('hex')
 }
 

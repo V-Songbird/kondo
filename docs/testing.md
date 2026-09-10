@@ -128,6 +128,11 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      copies interrupted before/after effects recover using their versioned
      evidence, preserving binary and empty content. These critical checks use
      direct byte/path or write observations alongside the shared snapshot helper.
+     `test/helpers.ts` keeps that helper independent of production digests: its
+     versioned canonical JSON snapshot records typed root-relative entries and
+     base64 file bytes in sorted order, so path/content boundaries, empty
+     directories versus files, creation order and binary bytes remain observable
+     in the fixture oracle. `test/helpers.test.ts` covers those distinctions.
 5. **End-to-end**: `npm run test:e2e` (`test/e2e/smoke.mjs`, node's own test
    runner) builds the run-kondo fixture in a fresh temp directory, launches
    the built app against it through the three `KONDO_*_ROOT` overrides with
