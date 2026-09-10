@@ -39,6 +39,19 @@ separate authorization and review. Making the repository public is a separate
 publication decision. Neither plan changes nor visibility changes happen as an
 implicit release step.
 
+### Public Git history
+
+Before any first-publication tag, push or visibility change, resolve the
+[public-history decision](plans/111-public-history-decision.md) and obtain owner
+approval of the exact candidate SHA and selected refs. The preliminary audited
+tree still has two contextual privacy findings, and its ancestors retain private
+working records and messages. Ignore rules do not sanitize that history.
+The decision package recommends a separate public root while preserving the
+private source; the owner has not yet chosen a strategy. Repeat the privacy and
+secret review on the final publication SHA as required by that package and the
+final publication review (task 114). Passing the release steps below does not
+authorize publishing the existing source ancestry or changing visibility.
+
 ### Recheck GitHub capabilities
 
 Use authenticated read-only requests in the repository owner's authorized

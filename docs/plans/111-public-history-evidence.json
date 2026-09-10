@@ -1,0 +1,519 @@
+{
+  "purpose": "Preliminary local history audit; not an approved publication allowlist",
+  "censusUtc": "2026-09-08T09:15:14.554Z",
+  "sourceCommit": "6da90dab507d0630dad9f58ef420c20942d8016d",
+  "sourceTree": "ac0c690ec2d73868e6d23b35405606cc123117f1",
+  "sourceAncestorCommits": 220,
+  "sourceReachableObjects": 2598,
+  "manifest": "111-public-history-baseline.manifest",
+  "manifestFormat": "git ls-tree -r sourceCommit; UTF-8, LF; mode type oid TAB path LF",
+  "manifestSha256": "2815fb66c7350a77db54fcca6bd421f279ba881ce7cae8a65fe829cb04dbacbb",
+  "sourceFiles": 212,
+  "sourceModeCounts": {
+    "100644": 212
+  },
+  "sourceSymlinks": 0,
+  "sourceGitlinks": 0,
+  "frozenRefCount": 51,
+  "frozenRefNamespaceCounts": {
+    "codex": 35,
+    "heads": 9,
+    "remotes": 7
+  },
+  "frozenRootOids": [
+    "6da90dab507d0630dad9f58ef420c20942d8016d",
+    "54fe0e65b6fdb6d874e6d47878b6c789dc12b4ab",
+    "ac0c690ec2d73868e6d23b35405606cc123117f1",
+    "160c69f0fae85ddc7d19466027f2cba0fc629457",
+    "99b6c55f946171bacdb8126e143a52dc2b9f6c0e",
+    "ec337471121bc10486eb3903cc9b797d85cb8ad9",
+    "212b5e4e10ab781d5f34e55e34af31e7350d413d",
+    "345b2aa00a330c3f4135a9cac149e4c3e5ab2a2b",
+    "07f0aa291056dc57e4e7f06371f79204368922c2",
+    "c6850419af5d273e610818cd796313458d13c8d4",
+    "71cb6120852b70d4aef102bfe2aaedb792d96b40",
+    "bea56d701a35d87f722f91127360098d2035433d",
+    "876e28b5b495721c5491acca6e58e6acf115a0d2",
+    "35f82b9aeee694af5e8281e47f4138d15deaa09f",
+    "31415f865d201af21bfad2ff8051e429d19d8bd5",
+    "ad06317e679ab1c2d40d304caa307fd02b34ad78",
+    "fa2d8ce7cef98e408b6ada364f23e98519360b7c",
+    "b0977232e8489cd68210c7a8d9ed0d45db7df979",
+    "12e88395bd6ea708565d840515416a56a145f84f",
+    "47dde85bf23c7c070105abef2c40f2a9e90bf7d3",
+    "985baabbf597be8bf82f4d2b6b89b5decd1b32f2",
+    "6842ec4eb7afc0bba973b609b80ae926ad0f5fe6",
+    "f8e524a41d570d08569a90ba0927cc917053b7cb",
+    "54411106b96b8399829cf5d7b198070e119e2b0b",
+    "5ce0ea2a3dbedebe3a23c690960e24835161cd6a",
+    "074a582d07e0a4b69c4c567b6f595e7d554948ce",
+    "41d1eac38013822bdc36cbb7ef074831da2a2e1c",
+    "898059a7a83d393b6d27782942f6a3732792ec8f",
+    "3030f9dbe61a924c410b439a5fad1d5e29b7ec3d",
+    "4a1c6d45e6a5d5a4fbc37842108c7e567b7f8075",
+    "0fa5c0913f5f9b14c5d392e07335aba89a4afd31",
+    "b379c948fcfbe8e0e4a9cd1e35051ca103cd0b7b",
+    "ea9929710f16fbeedf769c7c2888ae72ded3ed23",
+    "63c5946ada054459dbdada660cb3f3e6675113a3",
+    "c1ba29e9e58dcebe74b91c9eb2efc7a23d0f2b47",
+    "1613d328834f966639f42ccab6547cbe8a10329d",
+    "f3a93f001eaf479b2bf01e2b6dc012993bbe0ae1",
+    "a0a524ba443a09a651a50535b931d567fba54f12"
+  ],
+  "objectCounts": {
+    "commit": 227,
+    "tree": 1090,
+    "blob": 1331
+  },
+  "directTreeRoots": [
+    {
+      "oid": "54fe0e65b6fdb6d874e6d47878b6c789dc12b4ab",
+      "files": 207
+    },
+    {
+      "oid": "ac0c690ec2d73868e6d23b35405606cc123117f1",
+      "files": 212
+    },
+    {
+      "oid": "160c69f0fae85ddc7d19466027f2cba0fc629457",
+      "files": 198
+    },
+    {
+      "oid": "99b6c55f946171bacdb8126e143a52dc2b9f6c0e",
+      "files": 208
+    },
+    {
+      "oid": "ec337471121bc10486eb3903cc9b797d85cb8ad9",
+      "files": 191
+    },
+    {
+      "oid": "212b5e4e10ab781d5f34e55e34af31e7350d413d",
+      "files": 206
+    },
+    {
+      "oid": "345b2aa00a330c3f4135a9cac149e4c3e5ab2a2b",
+      "files": 174
+    },
+    {
+      "oid": "07f0aa291056dc57e4e7f06371f79204368922c2",
+      "files": 208
+    },
+    {
+      "oid": "c6850419af5d273e610818cd796313458d13c8d4",
+      "files": 209
+    },
+    {
+      "oid": "71cb6120852b70d4aef102bfe2aaedb792d96b40",
+      "files": 169
+    },
+    {
+      "oid": "bea56d701a35d87f722f91127360098d2035433d",
+      "files": 193
+    },
+    {
+      "oid": "876e28b5b495721c5491acca6e58e6acf115a0d2",
+      "files": 173
+    },
+    {
+      "oid": "35f82b9aeee694af5e8281e47f4138d15deaa09f",
+      "files": 202
+    },
+    {
+      "oid": "31415f865d201af21bfad2ff8051e429d19d8bd5",
+      "files": 170
+    },
+    {
+      "oid": "ad06317e679ab1c2d40d304caa307fd02b34ad78",
+      "files": 182
+    },
+    {
+      "oid": "fa2d8ce7cef98e408b6ada364f23e98519360b7c",
+      "files": 188
+    },
+    {
+      "oid": "b0977232e8489cd68210c7a8d9ed0d45db7df979",
+      "files": 191
+    },
+    {
+      "oid": "12e88395bd6ea708565d840515416a56a145f84f",
+      "files": 179
+    },
+    {
+      "oid": "47dde85bf23c7c070105abef2c40f2a9e90bf7d3",
+      "files": 209
+    },
+    {
+      "oid": "985baabbf597be8bf82f4d2b6b89b5decd1b32f2",
+      "files": 182
+    },
+    {
+      "oid": "6842ec4eb7afc0bba973b609b80ae926ad0f5fe6",
+      "files": 187
+    },
+    {
+      "oid": "f8e524a41d570d08569a90ba0927cc917053b7cb",
+      "files": 204
+    },
+    {
+      "oid": "54411106b96b8399829cf5d7b198070e119e2b0b",
+      "files": 169
+    },
+    {
+      "oid": "5ce0ea2a3dbedebe3a23c690960e24835161cd6a",
+      "files": 186
+    },
+    {
+      "oid": "074a582d07e0a4b69c4c567b6f595e7d554948ce",
+      "files": 186
+    },
+    {
+      "oid": "41d1eac38013822bdc36cbb7ef074831da2a2e1c",
+      "files": 177
+    },
+    {
+      "oid": "898059a7a83d393b6d27782942f6a3732792ec8f",
+      "files": 187
+    }
+  ],
+  "directTreeOnlyBlobs": [
+    {
+      "rootTree": "71cb6120852b70d4aef102bfe2aaedb792d96b40",
+      "blob": "b5fc39dfd1a1bda7628720054b450a07dd3c368b",
+      "path": "docs/plans/082-private-local-publication.md"
+    },
+    {
+      "rootTree": "71cb6120852b70d4aef102bfe2aaedb792d96b40",
+      "blob": "9e9eea5c2f6fd63a9b642fc1d78c85c0b6519633",
+      "path": "docs/plans/README.md"
+    },
+    {
+      "rootTree": "b0977232e8489cd68210c7a8d9ed0d45db7df979",
+      "blob": "e3c4c5cd98944f21bd04e9813db9682f94bec3ed",
+      "path": "ROADMAP.jsonl"
+    }
+  ],
+  "cachedOriginMain": {
+    "oid": "ea9929710f16fbeedf769c7c2888ae72ded3ed23",
+    "ancestorCommits": 202,
+    "serverFreshness": "Not queried; local cached ref only"
+  },
+  "privatePathDetectors": [
+    {
+      "category": "agent-memory",
+      "source": "^\\.claude/memory/"
+    },
+    {
+      "category": "workstation-rule",
+      "source": "^\\.claude/rules/jetbrains-mcp\\.md$"
+    },
+    {
+      "category": "ide-state",
+      "source": "^\\.idea/"
+    },
+    {
+      "category": "foreman-records",
+      "source": "^\\.foreman/"
+    },
+    {
+      "category": "roadmap-records",
+      "source": "^ROADMAP\\.jsonl(?:$|\\.backup-)"
+    },
+    {
+      "category": "jig-local-records",
+      "source": "^\\.jig/(?:plan.*\\.(?:json|md)|authored\\.json|backlog\\.json|discarded\\.json|journal\\.jsonl|ledger\\.jsonl|profile\\.json|lane\\.log|off|preimages/.*|selftest/.*)$"
+    }
+  ],
+  "privateFamilies": [
+    {
+      "category": "agent-memory",
+      "pathCount": 10,
+      "blobCount": 14,
+      "commitCount": 57,
+      "sourceAncestorCommitCount": 57,
+      "cachedOriginAncestorCommitCount": 57,
+      "witness": {
+        "commit": "702cd96d0493d746ad503df1e1b8f695ef99ed63",
+        "blob": "16f159999163ead5f286585431be38281c6de21d",
+        "location": ".claude/memory/"
+      }
+    },
+    {
+      "category": "workstation-rule",
+      "pathCount": 1,
+      "blobCount": 3,
+      "commitCount": 166,
+      "sourceAncestorCommitCount": 163,
+      "cachedOriginAncestorCommitCount": 163,
+      "witness": {
+        "commit": "9d66b5ede185e5be938b30e159e4bf6bc7bf4786",
+        "blob": "e4ed662c156f421fa0adf16007b2ab2f4a410aff",
+        "location": ".claude/rules/jetbrains-mcp.md"
+      }
+    },
+    {
+      "category": "ide-state",
+      "pathCount": 4,
+      "blobCount": 4,
+      "commitCount": 171,
+      "sourceAncestorCommitCount": 168,
+      "cachedOriginAncestorCommitCount": 168,
+      "witness": {
+        "commit": "971ff1664a3065f5185cb90f4776397630403fb4",
+        "blob": "30cf57ed7cba5157ad5f7c05ede08adde945ada6",
+        "location": ".idea/"
+      }
+    },
+    {
+      "category": "foreman-records",
+      "pathCount": 2,
+      "blobCount": 53,
+      "commitCount": 179,
+      "sourceAncestorCommitCount": 176,
+      "cachedOriginAncestorCommitCount": 176,
+      "witness": {
+        "commit": "dfd13a071edf816c7fa9fa5d9bef79c0bb84c0d2",
+        "blob": "1d4a93cf608a53ffc92826f58a3259ed2fc6fc62",
+        "location": ".foreman/config.json"
+      }
+    },
+    {
+      "category": "roadmap-records",
+      "pathCount": 1,
+      "blobCount": 122,
+      "commitCount": 179,
+      "sourceAncestorCommitCount": 176,
+      "cachedOriginAncestorCommitCount": 176,
+      "witness": {
+        "commit": "dfd13a071edf816c7fa9fa5d9bef79c0bb84c0d2",
+        "blob": "a5b3cabbbb747dfd9f075fdd027b6ceffa44ce27",
+        "location": "ROADMAP.jsonl"
+      }
+    },
+    {
+      "category": "jig-local-records",
+      "pathCount": 8,
+      "blobCount": 16,
+      "commitCount": 177,
+      "sourceAncestorCommitCount": 174,
+      "cachedOriginAncestorCommitCount": 174,
+      "witness": {
+        "commit": "a5c9505bb2b122e51f09f28579f7977248abb506",
+        "blob": "07bb8f3f14207da9f7de0e50a57336c3f2949671",
+        "location": ".jig/authored.json"
+      }
+    }
+  ],
+  "sourcePrivateFamilyPaths": 0,
+  "scan": {
+    "nonNulTextBlobs": 1324,
+    "nonNulDecoding": "UTF-8",
+    "blobOccurrences": {
+      "absolute-workstation-path": 512,
+      "literal-assignment": 76,
+      "email": 28
+    },
+    "sourceBlobOccurrences": {
+      "absolute-workstation-path": 30,
+      "literal-assignment": 11,
+      "email": 7
+    },
+    "metadataOccurrences": {
+      "email": 590
+    },
+    "knownCredentialFormats": 0,
+    "extendedTokenOrBearerMatches": 0,
+    "distinctBroadAssignmentStrings": 7,
+    "broadAssignmentTriage": "Two dependency version patterns and five synthetic fixture patterns; no credential established"
+  },
+  "textDetectors": [
+    {
+      "category": "private-key",
+      "source": "-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----",
+      "flags": "g"
+    },
+    {
+      "category": "github-token",
+      "source": "\\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\\b",
+      "flags": "g"
+    },
+    {
+      "category": "provider-token",
+      "source": "\\b(?:sk-ant-[A-Za-z0-9_-]{20,}|sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}|AIza[0-9A-Za-z_-]{35}|xox[baprs]-[A-Za-z0-9-]{20,})\\b",
+      "flags": "g"
+    },
+    {
+      "category": "aws-access-id",
+      "source": "\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b",
+      "flags": "g"
+    },
+    {
+      "category": "jwt-shape",
+      "source": "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b",
+      "flags": "g"
+    },
+    {
+      "category": "credential-url",
+      "source": "\\b[a-z][a-z0-9+.-]*:\\/\\/[^\\s/@:]+:[^\\s/@]+@",
+      "flags": "gi"
+    },
+    {
+      "category": "literal-assignment",
+      "source": "\\b(?:[A-Za-z0-9_]*(?:token|secret|password|passwd|api[_-]?key|client[_-]?secret|authorization)[A-Za-z0-9_]*)[\"']?\\s*[:=]\\s*[\"']([^\"'\\r\\n]{4,})[\"']",
+      "flags": "gi"
+    },
+    {
+      "category": "absolute-workstation-path",
+      "source": "\\b[A-Z]:[\\\\/](?:Users|Projects|DevCache)[\\\\/][^\\r\\n\"'`<>]+|\\/(?:Users|home)\\/[A-Za-z0-9_.-]+",
+      "flags": "gi"
+    },
+    {
+      "category": "email",
+      "source": "\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b",
+      "flags": "gi"
+    },
+    {
+      "category": "extended-token-or-bearer",
+      "source": "\\b(?:npm_[a-zA-Z0-9]{30,}|glpat-[a-zA-Z0-9_-]{20,}|SG\\.[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,}|(?:sk|rk)_live_[A-Za-z0-9]{20,}|Bearer\\s+[A-Za-z0-9_./+=-]{20,})\\b",
+      "flags": "g"
+    }
+  ],
+  "filenameDetector": {
+    "source": "(?:^|/)(?:\\.env(?:\\..*)?|\\.npmrc|\\.netrc|credentials?(?:\\..*)?|id_rsa|.*\\.(?:p12|pfx|key|pem|sqlite|db|zip|7z|tar|gz))$",
+    "flags": "i",
+    "matches": 0
+  },
+  "binaryExclusions": [
+    {
+      "blob": "2d874988461fb0a38b8b2d0818a9cdbae331cfa3",
+      "bytes": 7374,
+      "paths": [
+        "build/icon.png"
+      ]
+    },
+    {
+      "blob": "732c64d4dfd589bd5a7abebc1c91d972f678f077",
+      "bytes": 13348,
+      "paths": [
+        "src/assets/fonts/IBMPlexMono-400-latin-ext.woff2"
+      ]
+    },
+    {
+      "blob": "0804aaff92260b5359330f63e05b9ac25ccabeee",
+      "bytes": 14708,
+      "paths": [
+        "src/assets/fonts/IBMPlexMono-400-latin.woff2"
+      ]
+    },
+    {
+      "blob": "6f33f8c0578588d14260678edb9bffe9c10d2bd3",
+      "bytes": 13432,
+      "paths": [
+        "src/assets/fonts/IBMPlexMono-500-latin-ext.woff2"
+      ]
+    },
+    {
+      "blob": "090f82f7ec7997047324e07650865305a099969a",
+      "bytes": 14888,
+      "paths": [
+        "src/assets/fonts/IBMPlexMono-500-latin.woff2"
+      ]
+    },
+    {
+      "blob": "394ebbb3436c533e230c9bef0fcc41480e59efeb",
+      "bytes": 30964,
+      "paths": [
+        "src/assets/fonts/IBMPlexSans-latin-ext.woff2"
+      ]
+    },
+    {
+      "blob": "b757bc5ca2d8845a5b8d5349c860553f1772dd69",
+      "bytes": 45712,
+      "paths": [
+        "src/assets/fonts/IBMPlexSans-latin.woff2"
+      ]
+    }
+  ],
+  "privateFindings": [
+    {
+      "id": "P1",
+      "category": "personal-corpus-observation-and-local-project-path",
+      "commit": "6da90dab507d0630dad9f58ef420c20942d8016d",
+      "path": "docs/domain.md",
+      "lines": [
+        390,
+        391,
+        392,
+        393
+      ],
+      "blob": "5af449ded9fdedc5864070d103430b5241874a76"
+    },
+    {
+      "id": "P2",
+      "category": "private-project-identifier-in-synthetic-fixture",
+      "commit": "6da90dab507d0630dad9f58ef420c20942d8016d",
+      "path": "test/library-catalog.test.ts",
+      "lines": [
+        99
+      ],
+      "blob": "fa4f2b5a7d94c563490e1fa7be329ac36e8e3f7e"
+    },
+    {
+      "id": "P3",
+      "category": "private-project-identifier-in-commit-message",
+      "commit": "9dbf903c3f5e683e8029ea3cc5955ff07749aca3",
+      "lines": [
+        6,
+        8
+      ]
+    },
+    {
+      "id": "P3",
+      "category": "private-project-identifier-in-commit-message",
+      "commit": "fea91472655b4da1bcc9daa6832fe170517ec069",
+      "lines": [
+        14,
+        21
+      ]
+    },
+    {
+      "id": "P3",
+      "category": "private-project-identifier-in-commit-message",
+      "commit": "2e47f0d37fdb81e31b67aca2e721bd0c258cd30e",
+      "lines": [
+        11
+      ]
+    },
+    {
+      "id": "P4",
+      "category": "public-attribution-choice",
+      "scope": "227 frozen commits author/committer headers",
+      "distinctNames": 3,
+      "distinctEmails": 3,
+      "values": "withheld"
+    }
+  ],
+  "privateMarkerFollowup": {
+    "terms": "Withheld; derive only from authorized local source at P1/P2",
+    "p2MarkerOccurrences": 1310,
+    "p2MarkerCommitOccurrences": 5,
+    "p1MarkerBlobOccurrences": 81,
+    "p1MarkerCommitOccurrences": 0
+  },
+  "resumeObservation": {
+    "localDate": "2026-09-09",
+    "utcDate": "2026-09-10",
+    "originalHeadsAndRemotesUnchanged": true,
+    "transientCodexRefsDiffering": 5,
+    "allFrozenRootOidsReadable": true,
+    "taskDidNotModifyTransientRefs": true
+  },
+  "limits": [
+    "Pattern scan is not proof of universal absence of secrets",
+    "Private marker terms and source text are not included",
+    "Binary contents and embedded/compressed data not analyzed",
+    "No current remote or hidden server-ref inventory",
+    "No reflog-only or unreachable-object scan",
+    "No external object stores, Git LFS payloads, issues, PRs, logs, release assets or caches reviewed",
+    "No credential validity checks, external scanner, network requests or live Claude-store reads"
+  ]
+}
