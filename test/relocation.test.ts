@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type TestContext } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { inspectPhysicalTree, preflightRelocation, relocateTree } from '../electron/main/workspace/relocation'
+import { inspectPhysicalTree, physicalDigest, preflightRelocation, relocateTree } from '../electron/main/workspace/relocation'
 import { createMutations } from '../electron/main/workspace/mutations'
 import { exists, makeWorld, writeFileTree, type FixtureWorld } from './helpers'
 
@@ -42,6 +42,79 @@ describe('physical relocation preserves links', () => {
     await directoryLink(path.join(world.userRoot, 'shared'), path.join(from, 'reference'))
     return { from, kept, link: await fs.readlink(path.join(from, 'reference')) }
   }
+
+  it('frames physical entry metadata separately from arbitrary file bytes', async () => {
+    const left = path.join(world.userRoot, 'left')
+    const right = path.join(world.userRoot, 'right')
+    const injectedHeader = Buffer.from(JSON.stringify(['b', 'file', null]))
+    await writeFileTree(left, { a: '' })
+    await fs.writeFile(path.join(left, 'a'), Buffer.concat([Buffer.from('x'), injectedHeader, Buffer.from('y')]))
+    await writeFileTree(right, { a: 'x', b: 'y' })
+
+    expect(await physicalDigest(left, world.userRoot))
+      .not.toBe(await physicalDigest(right, world.userRoot))
+  })
+
+  it('keeps streaming chunk boundaries out of physical identity and includes link text', async () => {
+    const left = path.join(world.userRoot, 'left')
+    const right = path.join(world.userRoot, 'right')
+    const bytes = Buffer.concat([Buffer.from([0, 255, 128, 13, 10]), Buffer.alloc(70_000, 97)])
+    await writeFileTree(left, { 'binary': '', 'empty': '' })
+    await writeFileTree(right, { 'binary': '', 'empty': '' })
+    await fs.writeFile(path.join(left, 'binary'), bytes)
+    await fs.writeFile(path.join(right, 'binary'), bytes)
+    await fs.mkdir(path.join(left, 'empty-dir'))
+    await fs.mkdir(path.join(right, 'empty-dir'))
+    const target = path.join(world.userRoot, 'shared')
+    await fs.mkdir(target)
+    await directoryLink(target, path.join(left, 'reference'))
+    await directoryLink(target, path.join(right, 'reference'))
+    const expected = await physicalDigest(left, world.userRoot)
+
+    const open = fs.open.bind(fs)
+    vi.spyOn(fs, 'open').mockImplementation(async (...args) => {
+      const handle = await open(...args)
+      if (String(args[0]) === path.join(right, 'binary')) {
+        const read = handle.read.bind(handle)
+        Object.defineProperty(handle, 'read', { configurable: true,
+          value: (buffer: Buffer, offset: number, length: number, position: number | null) =>
+            read(buffer, offset, Math.min(length, 7), position) })
+      }
+      return handle
+    })
+    expect(await physicalDigest(right, world.userRoot)).toBe(expected)
+    vi.restoreAllMocks()
+
+    await fs.rm(path.join(right, 'reference'))
+    await directoryLink(path.join(world.userRoot, 'other'), path.join(right, 'reference'))
+    expect(await physicalDigest(right, world.userRoot)).not.toBe(expected)
+  })
+
+  it('stops a growing file once streamed bytes exceed its inventoried length', async () => {
+    const source = path.join(world.userRoot, 'source')
+    const file = path.join(source, 'data.bin')
+    await writeFileTree(source, { 'data.bin': '' })
+    await fs.writeFile(file, Buffer.from([1, 2, 3]))
+    const open = fs.open.bind(fs)
+    let reads = 0
+    vi.spyOn(fs, 'open').mockImplementation(async (...args) => {
+      const handle = await open(...args)
+      if (String(args[0]) === file) {
+        const read = handle.read.bind(handle)
+        Object.defineProperty(handle, 'read', { configurable: true,
+          value: async (buffer: Buffer, offset: number, length: number, position: number | null) => {
+            const result = await read(buffer, offset, length, position)
+            reads += 1
+            if (reads === 1) await fs.appendFile(file, Buffer.alloc(256 * 1024, 4))
+            return result
+          } })
+      }
+      return handle
+    })
+
+    await expect(physicalDigest(source, world.userRoot)).rejects.toThrow('changed while reading')
+    expect(reads).toBe(2)
+  })
 
   for (const crossVolume of [false, true]) {
     it(`preserves junction metadata and sibling targets through ${crossVolume ? 'EXDEV copy' : 'rename'} and undo`, async () => {

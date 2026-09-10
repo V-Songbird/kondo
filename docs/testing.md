@@ -133,6 +133,18 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      base64 file bytes in sorted order, so path/content boundaries, empty
      directories versus files, creation order and binary bytes remain observable
      in the fixture oracle. `test/helpers.test.ts` covers those distinctions.
+   - Physical tree framing (121, ADR-0020): `test/relocation.test.ts` reproduces
+     the metadata/content boundary collision and covers binary and empty entries,
+     link-target identity, short-read chunk independence and bounded refusal of
+     a growing file. Its existing EXDEV corruption cases verify mismatched copies
+     are removed or retained according to ownership without removing the source.
+     `test/mutation.test.ts` checks typed move and Undo fingerprints, bare legacy
+     pending moves before and after their effect, action/prefix mismatches and a
+     pending legacy Undo. Refusals assert direct endpoint bytes, zero mutation
+     calls, content reads limited to the journal and byte-exact journal retention.
+     Forged completion and same-cursor failure rows cannot erase typed mismatch
+     evidence, mark the operation complete or resume an Undo that moves an
+     occupant. Completed bare legacy copy and move cursors remain undoable.
 5. **End-to-end**: `npm run test:e2e` (`test/e2e/smoke.mjs`, node's own test
    runner) builds the run-kondo fixture in a fresh temp directory, launches
    the built app against it through the three `KONDO_*_ROOT` overrides with

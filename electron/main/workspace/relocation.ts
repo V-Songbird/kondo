@@ -176,24 +176,48 @@ export async function preflightRelocation(
   await prepare(from, to, sourceBoundary, destinationBoundary, restore)
 }
 
+/** Persisted physical fingerprints must name this format; bare legacy hashes are ambiguous. */
+export const PHYSICAL_DIGEST_PREFIX = 'physical-v2:'
+
 export async function physicalDigest(from: string, boundary: ReadBoundary): Promise<string> {
   const entries = await inspectPhysicalTree(from, boundary)
-  const hash = createHash('sha256')
+  const hash = createHash('sha256').update(`kondo:${PHYSICAL_DIGEST_PREFIX}\0`)
+  const size = (length: number): Buffer => {
+    const framed = Buffer.alloc(8)
+    framed.writeBigUInt64BE(BigInt(length))
+    return framed
+  }
+  const field = (value: string): void => {
+    const bytes = Buffer.from(value, 'utf8')
+    hash.update(size(bytes.length))
+    hash.update(bytes)
+  }
   for (const entry of entries.sort((a, b) => a.relative < b.relative ? -1 : a.relative > b.relative ? 1 : 0)) {
-    hash.update(JSON.stringify([entry.relative, entry.kind, entry.link ?? null]))
+    hash.update(entry.kind === 'directory' ? 'D' : entry.kind === 'file' ? 'F' : 'L')
+    field(entry.relative)
+    if (entry.kind === 'link') field(entry.link as string)
     if (entry.kind === 'file') {
+      hash.update(size(entry.bytes))
       const at = await resolveAllowedPath(path.join(from, entry.relative), boundary)
       const handle = await fs.open(at, 'r')
       try {
         const before = await handle.stat()
+        if (!before.isFile() || before.size !== entry.bytes) {
+          fail('The recovery source changed while reading it.')
+        }
         const buffer = Buffer.allocUnsafe(64 * 1024)
+        let observed = 0
         for (;;) {
-          const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
+          const requested = Math.min(buffer.length, entry.bytes - observed + 1)
+          const { bytesRead } = await handle.read(buffer, 0, requested, null)
           if (bytesRead === 0) break
+          observed += bytesRead
+          if (observed > entry.bytes) fail('The recovery source changed while reading it.')
           hash.update(buffer.subarray(0, bytesRead))
         }
         const after = await handle.stat()
-        if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) {
+        if (observed !== entry.bytes || before.size !== after.size ||
+          before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) {
           fail('The recovery source changed while reading it.')
         }
       } finally {

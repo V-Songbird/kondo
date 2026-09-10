@@ -32,9 +32,11 @@ does not recompute the old digest, append progress or move bytes in this case.
 
 Confirmed historical cursors and completed operations retain their existing
 meaning and remain undoable; the journal is never rewritten. Physical move
-fingerprints and settings `write`/`splice` refusal (098) are unchanged. An older
-application rejects the new pending strings as invalid progress and blocks
-recovery, rather than accepting an unsupported format.
+fingerprints are separately framed and versioned by
+[ADR-0020](0020-frame-physical-recovery-digests.md). Settings `write`/`splice`
+refusal (098) is unchanged. An older application rejects unknown pending strings
+as invalid progress and blocks recovery, rather than accepting an unsupported
+format.
 
 ## Considered options
 
@@ -49,5 +51,5 @@ recovery, rather than accepting an unsupported format.
 All current logical digests change together; public shape and opaque review
 tokens remain unchanged. No persisted digest cache needs migration. Old pending
 copies require manual review while their bytes remain available. This does not
-make pathname checks atomic with external writers or change physical relocation
-verification; those are separate concerns.
+make pathname checks atomic with external writers. Physical relocation
+verification follows ADR-0020.

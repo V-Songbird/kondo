@@ -656,8 +656,16 @@ mechanisms. Names and sizes remain available to store reports.
   Bare fingerprints from older pending copies remain readable but cannot prove
   equality. Recovery stays uncertain and blocked, with an explanation in History,
   without appending progress or changing either endpoint. Confirmed historical
-  cursors and completed copies remain undoable; physical move fingerprints and
-  the settings restriction are unchanged. No journal migration rewrites evidence.
+  cursors and completed copies remain undoable. No journal migration rewrites evidence.
+- ✅ Pending physical moves and Undo moves now record `physical-v2:<hex>`
+  fingerprints (121). Physical tree identity frames entry kind, UTF-8 path,
+  stored link text and streamed file length/content separately. Bare pending
+  move fingerprints and fingerprints carrying the other action type's prefix
+  remain readable but cannot prove equality. Recovery blocks before endpoint
+  reads, journal appends or effects and keeps all bytes. Completed legacy cursors
+  remain usable, but a later checkpoint cannot clear mismatched typed evidence
+  into completion or a successful Undo. Link text stays metadata rather than
+  authority to read a target. The settings restriction is unchanged.
 - ✅ Legacy records and failure markers remain readable without migration (099).
   A failed legacy Undo lacks action evidence, so it cannot consume the original
   or authorize automatic replay. New partial forward results include the journal

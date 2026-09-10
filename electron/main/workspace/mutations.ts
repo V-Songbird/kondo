@@ -27,7 +27,13 @@ import {
   type ReadBoundary
 } from './scan'
 import { tildify } from './display'
-import { inspectPhysicalTree, physicalDigest, preflightRelocation, relocateTree } from './relocation'
+import {
+  inspectPhysicalTree,
+  PHYSICAL_DIGEST_PREFIX,
+  physicalDigest,
+  preflightRelocation,
+  relocateTree
+} from './relocation'
 
 /**
  * The write path (ADR-0001): every mutation is journaled durably before the
@@ -213,7 +219,7 @@ interface JournalAction {
 
 interface JournalProgress {
   next: number
-  /** Source fingerprint synced before the action; logical copies carry TREE_DIGEST_PREFIX. */
+  /** Source fingerprint synced before the action; prefixes identify copy and move formats. */
   pending: string | null
   state: 'running' | 'failed' | 'complete'
 }
@@ -300,18 +306,43 @@ const isEndpoint = (value: unknown): value is JournalEndpoint =>
   isObject(value) && typeof value.store === 'string' && typeof value.relative === 'string' &&
   (value.trashId === undefined || (typeof value.trashId === 'string' && /^[a-zA-Z0-9_-]+$/.test(value.trashId)))
 
-// Keep old progress readable, but never use its unframed logical digest as proof.
-const isFingerprint = (value: unknown): value is string =>
-  typeof value === 'string' && /^[a-f0-9]{64}$/.test(
-    value.startsWith(TREE_DIGEST_PREFIX) ? value.slice(TREE_DIGEST_PREFIX.length) : value)
+type FingerprintKind = 'legacy' | 'copy' | 'move'
 
-const legacyPendingCopy = (record: JournalRecord): boolean =>
-  record.version === 2 && record.progress?.pending != null &&
-  record.actions?.[record.progress.next]?.type === 'copy' &&
-  !record.progress.pending.startsWith(TREE_DIGEST_PREFIX)
+/** Keep known historical syntax readable; reconciliation requires its action's exact format. */
+const fingerprintKind = (value: unknown): FingerprintKind | null => {
+  if (typeof value !== 'string') return null
+  if (/^[a-f0-9]{64}$/.test(value)) return 'legacy'
+  if (value.startsWith(TREE_DIGEST_PREFIX) &&
+    /^[a-f0-9]{64}$/.test(value.slice(TREE_DIGEST_PREFIX.length))) return 'copy'
+  if (value.startsWith(PHYSICAL_DIGEST_PREFIX) &&
+    /^[a-f0-9]{64}$/.test(value.slice(PHYSICAL_DIGEST_PREFIX.length))) return 'move'
+  return null
+}
 
-const LEGACY_COPY_UNAVAILABLE =
-  'Recovery is uncertain: this pending copy used an older fingerprint that cannot prove tree equality. All remaining bytes were kept; review the files before retrying.'
+const isFingerprint = (value: unknown): value is string => fingerprintKind(value) !== null
+
+const pendingFingerprintUnavailable = (record: JournalRecord | undefined): string | null => {
+  if (record?.version !== 2 || record.progress?.pending == null) return null
+  const pending = record.progress.pending
+  const action = record.actions?.[record.progress.next]
+  if (action === undefined) return null
+  const expected: FingerprintKind = action.type === 'copy' ? 'copy' : 'move'
+  const actual = fingerprintKind(pending)
+  if (actual === expected) return null
+  if (actual === 'legacy') {
+    return `Recovery is uncertain: this pending ${action.type} used an older fingerprint that cannot prove tree equality. All remaining bytes were kept; review the files before retrying.`
+  }
+  return `Recovery is uncertain: this pending fingerprint format does not match its recorded ${action.type} action. All remaining bytes were kept; review the files before retrying.`
+}
+
+/** Bare evidence may close old completed history; typed evidence must match its action. */
+const pendingFingerprintMatchesAction = (record: JournalRecord, progress: JournalProgress): boolean => {
+  if (progress.pending === null) return true
+  const actual = fingerprintKind(progress.pending)
+  if (actual === 'legacy') return true
+  const action = record.actions?.[progress.next]
+  return action !== undefined && actual === (action.type === 'copy' ? 'copy' : 'move')
+}
 
 const isProgress = (value: unknown): value is JournalProgress =>
   isObject(value) && typeof value.next === 'number' && Number.isSafeInteger(value.next) && value.next >= 0 &&
@@ -754,9 +785,12 @@ export function createMutations(
           const sameCursor = previous !== undefined && next.next === previous.next
           const advanced = previous !== undefined && previous.pending !== null &&
             next.next === previous.next + 1 && next.pending === null
+          const compatibleClear = previous?.pending == null || next.pending !== null ||
+            (target !== undefined && pendingFingerprintMatchesAction(target, previous))
           const valid = target?.version === 2 && previous !== undefined && previous.state !== 'complete' &&
             parsed.undoOf === target.undoOf && parsed.op === target.op && parsed.kind === target.kind &&
             parsed.entityId === target.entityId && parsed.summary === target.summary && next.next <= count &&
+            compatibleClear &&
             (next.pending === null || next.next < count) &&
             (sameCursor || advanced) &&
             (next.state !== 'complete' || (next.next === count && next.pending === null)) &&
@@ -977,7 +1011,7 @@ export function createMutations(
   const fingerprint = async (target: string, logical: boolean): Promise<string | null> => {
     if (!(await entryExists(target))) return null
     return logical ? TREE_DIGEST_PREFIX + await digestTree(target, boundaryOf(target))
-      : physicalDigest(target, boundaryOf(target))
+      : PHYSICAL_DIGEST_PREFIX + await physicalDigest(target, boundaryOf(target))
   }
 
   class JournalWriteError extends Error {}
@@ -998,7 +1032,8 @@ export function createMutations(
   const reconcile = async (record: JournalRecord): Promise<void> => {
     const progress = record.progress!
     if (progress.pending === null) return
-    if (legacyPendingCopy(record)) throw new Refused('read-failed', record.entityId, LEGACY_COPY_UNAVAILABLE)
+    const unavailable = pendingFingerprintUnavailable(record)
+    if (unavailable !== null) throw new Refused('read-failed', record.entityId, unavailable)
     const action = record.actions![progress.next]!
     const source = await endpoint(action.from)
     const destination = await endpoint(action.to)
@@ -1260,11 +1295,12 @@ export function createMutations(
           const damaged = blockedUndoIds.has(record.id)
           const legacyFailedUndo = attempt !== undefined && attempt.version !== 2 && failed.has(attempt.id)
           const empty = record.version === 2 && record.progress!.next === 0 && record.progress!.pending === null
+          const unavailable = pendingFingerprintUnavailable(record) ?? pendingFingerprintUnavailable(attempt)
           const reason = record.undoOf !== null ? 'An undo cannot itself be undone.'
             : undoneBy !== null ? 'This entry has already been undone.'
             : damaged ? 'A damaged history entry prevents safe recovery.'
             : includesSettingsWrite(record.steps) ? SETTINGS_WRITE_UNAVAILABLE
-            : legacyPendingCopy(record) ? LEGACY_COPY_UNAVAILABLE
+            : unavailable !== null ? unavailable
             : legacyFailedUndo ? 'A previous Undo failed without action evidence. Saved bytes need review.'
             : empty ? 'This operation has no completed changes to undo.'
             : null

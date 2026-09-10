@@ -38,10 +38,12 @@ conservative path checks. A failed legacy Undo has no action evidence and blocks
 automatic recovery; neither it nor its failure marker proves completion. Unknown
 or malformed records still yield itemized errors alongside healthy history.
 
-[ADR-0019](0019-frame-logical-tree-digests.md) versions logical copy fingerprints.
-An old bare digest cannot prove a pending copy's tree equality: it remains
-uncertain and blocked without changing history or bytes. Confirmed progress and
-physical move fingerprints retain their existing interpretation.
+[ADR-0019](0019-frame-logical-tree-digests.md) versions logical copy fingerprints;
+[ADR-0020](0020-frame-physical-recovery-digests.md) does the same for physical
+move fingerprints. An old bare digest cannot prove a pending action's tree
+equality: it remains uncertain and blocked without changing history or bytes.
+A fingerprint carrying the other action type's prefix is refused the same way.
+Confirmed progress retains its historical interpretation.
 
 `JournalEntryInfo` adds `outcome` (complete, partial, none, uncertain), `recovery`
 and a visible `undoBlockedReason`. `failed` remains for compatibility. A journaled

@@ -8,6 +8,11 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Physical move and Undo recovery now distinguishes filesystem entry boundaries,
+  streamed file bytes and stored link targets. Interrupted legacy or mismatched
+  fingerprints stay visible for review without reading or changing endpoints;
+  completed historical changes retain Undo.
+
 - Duplicate skill checks and copy verification distinguish different filenames
   and file boundaries even when their concatenated bytes match. Older interrupted
   copies with unverifiable fingerprints remain visible for review, preserving

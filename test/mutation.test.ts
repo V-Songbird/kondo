@@ -204,6 +204,358 @@ describe('logical copy fingerprint recovery (118)', () => {
   })
 })
 
+describe('physical move fingerprint recovery (121)', () => {
+  let world: FixtureWorld
+  const legacyDigest = 'a'.repeat(64)
+  const bytes = Buffer.from([0, 255, 128, 13, 10, 42])
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, { 'source/data.bin': '' })
+    await fsp.writeFile(path.join(world.userRoot, 'source', 'data.bin'), bytes)
+  })
+  afterEach(async () => { vi.restoreAllMocks(); await world.cleanup() })
+
+  const moveIntent = () => ({
+    id: 'old-move', at: '2026-09-01T00:00:00.000Z', op: 'trash', kind: 'skill',
+    entityId: 'skill:user:physical', summary: 'Trash physical tree', undoOf: null, version: 2,
+    steps: [{ type: 'trash', store: 'user', from: 'source', displaced: 'user/source' }],
+    actions: [{ type: 'move', step: 0, from: { store: 'user', relative: 'source' },
+      to: { store: 'user', relative: 'user/source', trashId: 'old-move' } }],
+    progress: { next: 0, pending: null, state: 'running' }
+  })
+
+  const progressRow = <T extends { id: string; actions: unknown }>(
+    intent: T,
+    id: string,
+    progress: { next: number; pending: string | null; state: 'running' | 'failed' | 'complete' }
+  ) => {
+    const { actions: _actions, ...metadata } = intent
+    return { ...metadata, id, steps: [], progressOf: intent.id, progress }
+  }
+
+  const saveJournal = async (rows: unknown[]): Promise<Buffer> => {
+    const journal = Buffer.from(rows.map((row) => JSON.stringify(row)).join('\n') + '\n')
+    await writeFileTree(world.kondoDataRoot, { 'journal.jsonl': journal.toString('utf8') })
+    return journal
+  }
+
+  const expectRefusalWithoutEffects = async (id: string, message: string, journal: Buffer): Promise<void> => {
+    const source = path.join(world.userRoot, 'source', 'data.bin')
+    const sourceBytes = await fsp.readFile(source)
+    const journalPath = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const writes: string[] = []
+    const restores = recordWrites(writes)
+    const open = vi.spyOn(fsp, 'open')
+    const readFile = vi.spyOn(fsp, 'readFile')
+    try {
+      const mutations = createMutations(world.locator)
+      expect((await mutations.list()).data.find((row) => row.id === 'journal:old-move'))
+        .toMatchObject({ outcome: 'uncertain', recovery: 'blocked' })
+      expect((await mutations.list()).data.find((row) => row.id === 'journal:old-move')?.undoBlockedReason)
+        .toContain(message)
+      const refused = await mutations.undo(id)
+      expect(refused.data).toBeNull()
+      expect(refused.errors[0]?.message).toContain(message)
+      expect(open).not.toHaveBeenCalled()
+      expect(readFile.mock.calls.every(([file]) => String(file) === journalPath)).toBe(true)
+    } finally {
+      readFile.mockRestore()
+      open.mockRestore()
+      for (const restore of restores) restore()
+    }
+    expect(writes).toEqual([])
+    expect(await fsp.readFile(source)).toEqual(sourceBytes)
+    expect(await exists(path.join(world.kondoDataRoot, 'trash', 'old-move', 'user', 'source'))).toBe(false)
+    expect(await fsp.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'))).toEqual(journal)
+  }
+
+  it('persists typed physical fingerprints for forward moves and Undo', async () => {
+    const mutations = createMutations(world.locator)
+    const done = await mutations.mutate({ op: 'trash', kind: 'skill', entityId: 'skill:user:physical',
+      summary: 'Trash physical tree', steps: [{ type: 'trash', store: 'user', from: 'source' }] })
+    expect(done.errors).toEqual([])
+    expect((await mutations.undo(done.data!.id)).errors).toEqual([])
+    const rows = (await fsp.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'), 'utf8'))
+      .trim().split('\n').map((line) => JSON.parse(line) as { progress?: { pending: string | null } })
+    const pending = rows.flatMap((row) => row.progress?.pending ? [row.progress.pending] : [])
+    expect(pending).toHaveLength(2)
+    expect(pending.every((value) => /^physical-v2:[a-f0-9]{64}$/.test(value))).toBe(true)
+    expect(await fsp.readFile(path.join(world.userRoot, 'source', 'data.bin'))).toEqual(bytes)
+  })
+
+  it('refuses a bare legacy pending forward move before endpoint reads or journal writes', async () => {
+    const intent = moveIntent()
+    const journal = await saveJournal([
+      intent,
+      progressRow(intent, 'old-pending', { next: 0, pending: legacyDigest, state: 'running' })
+    ])
+    await expectRefusalWithoutEffects('journal:old-move', 'older fingerprint', journal)
+  })
+
+  it('refuses a destination-only legacy pending forward move without reinterpreting its bytes', async () => {
+    const intent = moveIntent()
+    const source = path.join(world.userRoot, 'source')
+    const saved = path.join(world.kondoDataRoot, 'trash', intent.id, 'user', 'source')
+    await fsp.mkdir(path.dirname(saved), { recursive: true })
+    await fsp.rename(source, saved)
+    const journal = await saveJournal([
+      intent,
+      progressRow(intent, 'old-pending', { next: 0, pending: legacyDigest, state: 'running' })
+    ])
+    const savedBytes = await fsp.readFile(path.join(saved, 'data.bin'))
+    const journalPath = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const writes: string[] = []
+    const restores = recordWrites(writes)
+    const open = vi.spyOn(fsp, 'open')
+    const readFile = vi.spyOn(fsp, 'readFile')
+    try {
+      const mutations = createMutations(world.locator)
+      expect((await mutations.list()).data.find((row) => row.id === 'journal:old-move'))
+        .toMatchObject({ outcome: 'uncertain', recovery: 'blocked',
+          undoBlockedReason: expect.stringContaining('older fingerprint') })
+      const refused = await mutations.undo('journal:old-move')
+      expect(refused.data).toBeNull()
+      expect(refused.errors[0]?.message).toContain('older fingerprint')
+      expect(open).not.toHaveBeenCalled()
+      expect(readFile.mock.calls.every(([file]) => String(file) === journalPath)).toBe(true)
+    } finally {
+      readFile.mockRestore()
+      open.mockRestore()
+      for (const restore of restores) restore()
+    }
+    expect(writes).toEqual([])
+    expect(await exists(source)).toBe(false)
+    expect(await fsp.readFile(path.join(saved, 'data.bin'))).toEqual(savedBytes)
+    expect(await fsp.readFile(journalPath)).toEqual(journal)
+  })
+
+  it.each([
+    ['move', `tree-v2:${legacyDigest}`],
+    ['copy', `physical-v2:${legacyDigest}`]
+  ] as const)('refuses a %s action carrying the other fingerprint format', async (type, pending) => {
+    const intent = type === 'move' ? moveIntent() : {
+      ...moveIntent(),
+      steps: [{ type: 'copy', store: 'user', from: 'source', toStore: 'desktop', to: 'destination' }],
+      actions: [{ type: 'copy', step: 0, from: { store: 'user', relative: 'source' },
+        to: { store: 'desktop', relative: 'destination' } }]
+    }
+    const journal = await saveJournal([
+      intent,
+      progressRow(intent, 'wrong-pending', { next: 0, pending, state: 'running' })
+    ])
+    await expectRefusalWithoutEffects('journal:old-move', 'does not match its recorded', journal)
+  })
+
+  it('rejects a completed copy history that cleared mismatched typed evidence', async () => {
+    const intent = {
+      ...moveIntent(),
+      steps: [{ type: 'copy', store: 'user', from: 'source', toStore: 'desktop', to: 'destination' }],
+      actions: [{ type: 'copy', step: 0, from: { store: 'user', relative: 'source' },
+        to: { store: 'desktop', relative: 'destination' } }]
+    }
+    await writeFileTree(world.desktopRoot, { 'destination/data.bin': 'unrelated destination bytes' })
+    const source = path.join(world.userRoot, 'source', 'data.bin')
+    const destination = path.join(world.desktopRoot, 'destination', 'data.bin')
+    const sourceBytes = await fsp.readFile(source)
+    const destinationBytes = await fsp.readFile(destination)
+    const journal = await saveJournal([
+      intent,
+      progressRow(intent, 'wrong-pending', {
+        next: 0, pending: `physical-v2:${legacyDigest}`, state: 'running'
+      }),
+      progressRow(intent, 'forged-completion', { next: 1, pending: null, state: 'complete' })
+    ])
+    const journalPath = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const writes: string[] = []
+    const restores = recordWrites(writes)
+    const open = vi.spyOn(fsp, 'open')
+    const readFile = vi.spyOn(fsp, 'readFile')
+    try {
+      const mutations = createMutations(world.locator)
+      const listed = await mutations.list()
+      expect(listed.errors.map((error) => error.code)).toContain('parse-failed')
+      expect(listed.data.find((row) => row.id === 'journal:old-move'))
+        .toMatchObject({ outcome: 'uncertain', recovery: 'blocked', undoneBy: null })
+      const refused = await mutations.undo('journal:old-move')
+      expect(refused.data).toBeNull()
+      expect(refused.errors.at(-1)?.message).toContain('damaged history')
+      expect((await mutations.list()).data.find((row) => row.id === 'journal:old-move')?.undoneBy).toBeNull()
+      expect(open).not.toHaveBeenCalled()
+      expect(readFile.mock.calls.every(([file]) => String(file) === journalPath)).toBe(true)
+    } finally {
+      readFile.mockRestore()
+      open.mockRestore()
+      for (const restore of restores) restore()
+    }
+    expect(writes).toEqual([])
+    expect(await fsp.readFile(source)).toEqual(sourceBytes)
+    expect(await fsp.readFile(destination)).toEqual(destinationBytes)
+    expect(await fsp.readFile(journalPath)).toEqual(journal)
+  })
+
+  it('rejects a completed Undo that cleared mismatched typed evidence', async () => {
+    const intent = moveIntent()
+    const source = path.join(world.userRoot, 'source')
+    const saved = path.join(world.kondoDataRoot, 'trash', intent.id, 'user', 'source')
+    await fsp.mkdir(path.dirname(saved), { recursive: true })
+    await fsp.rename(source, saved)
+    const undo = {
+      ...intent, id: 'old-undo', steps: [], undoOf: intent.id,
+      actions: [{ type: 'move', step: 0,
+        from: { store: 'user', relative: 'user/source', trashId: intent.id },
+        to: { store: 'user', relative: 'source' } }],
+      progress: { next: 0, pending: null, state: 'running' }
+    }
+    const journal = await saveJournal([
+      intent,
+      progressRow(intent, 'old-forward-pending', { next: 0, pending: legacyDigest, state: 'running' }),
+      progressRow(intent, 'old-forward-complete', { next: 1, pending: null, state: 'complete' }),
+      undo,
+      progressRow(undo, 'wrong-undo-pending', {
+        next: 0, pending: `tree-v2:${legacyDigest}`, state: 'running'
+      }),
+      progressRow(undo, 'forged-undo-completion', { next: 1, pending: null, state: 'complete' })
+    ])
+    const savedBytes = await fsp.readFile(path.join(saved, 'data.bin'))
+    const writes: string[] = []
+    const restores = recordWrites(writes)
+    try {
+      const mutations = createMutations(world.locator)
+      const listed = await mutations.list()
+      expect(listed.errors.map((error) => error.code)).toContain('parse-failed')
+      expect(listed.data.find((row) => row.id === 'journal:old-move'))
+        .toMatchObject({ outcome: 'uncertain', recovery: 'blocked', undoneBy: null })
+      expect((await mutations.undo('journal:old-move')).data).toBeNull()
+      expect((await mutations.list()).data.find((row) => row.id === 'journal:old-move')?.undoneBy).toBeNull()
+    } finally { for (const restore of restores) restore() }
+    expect(writes).toEqual([])
+    expect(await exists(source)).toBe(false)
+    expect(await fsp.readFile(path.join(saved, 'data.bin'))).toEqual(savedBytes)
+    expect(await fsp.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'))).toEqual(journal)
+  })
+
+  it('rejects a failed clear of mismatched Undo evidence before replay can move an occupant', async () => {
+    const intent = moveIntent()
+    const source = path.join(world.userRoot, 'source')
+    const saved = path.join(world.kondoDataRoot, 'trash', intent.id, 'user', 'source')
+    await fsp.mkdir(path.dirname(saved), { recursive: true })
+    await fsp.rename(source, saved)
+    await writeFileTree(source, { 'data.bin': 'current occupant bytes' })
+    const undo = {
+      ...intent, id: 'old-undo', undoOf: intent.id,
+      steps: [{ type: 'trash', store: 'user', from: 'source', displaced: 'user/source' }],
+      actions: [
+        { type: 'move', step: 0, from: { store: 'user', relative: 'source' },
+          to: { store: 'user', relative: 'user/source', trashId: 'old-undo' } },
+        { type: 'move', step: 0,
+          from: { store: 'user', relative: 'user/source', trashId: intent.id },
+          to: { store: 'user', relative: 'source' } }
+      ],
+      progress: { next: 0, pending: null, state: 'running' }
+    }
+    const journal = await saveJournal([
+      intent,
+      progressRow(intent, 'old-forward-pending', { next: 0, pending: legacyDigest, state: 'running' }),
+      progressRow(intent, 'old-forward-complete', { next: 1, pending: null, state: 'complete' }),
+      undo,
+      progressRow(undo, 'wrong-undo-pending', {
+        next: 0, pending: `tree-v2:${legacyDigest}`, state: 'running'
+      }),
+      progressRow(undo, 'forged-failed-clear', { next: 0, pending: null, state: 'failed' })
+    ])
+    const occupant = await fsp.readFile(path.join(source, 'data.bin'))
+    const savedBytes = await fsp.readFile(path.join(saved, 'data.bin'))
+    const journalPath = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const writes: string[] = []
+    const restores = recordWrites(writes)
+    const open = vi.spyOn(fsp, 'open')
+    const readFile = vi.spyOn(fsp, 'readFile')
+    try {
+      const mutations = createMutations(world.locator)
+      const listed = await mutations.list()
+      expect(listed.errors.map((error) => error.code)).toContain('parse-failed')
+      expect(listed.data.find((row) => row.id === 'journal:old-move'))
+        .toMatchObject({ recovery: 'blocked', undoneBy: null })
+      expect((await mutations.undo('journal:old-move')).data).toBeNull()
+      expect(open).not.toHaveBeenCalled()
+      expect(readFile.mock.calls.every(([file]) => String(file) === journalPath)).toBe(true)
+    } finally {
+      readFile.mockRestore()
+      open.mockRestore()
+      for (const restore of restores) restore()
+    }
+    expect(writes).toEqual([])
+    expect(await fsp.readFile(path.join(source, 'data.bin'))).toEqual(occupant)
+    expect(await fsp.readFile(path.join(saved, 'data.bin'))).toEqual(savedBytes)
+    expect(await exists(path.join(world.kondoDataRoot, 'trash', undo.id))).toBe(false)
+    expect(await fsp.readFile(journalPath)).toEqual(journal)
+  })
+
+  it('refuses a legacy pending Undo while keeping its saved bytes and journal exact', async () => {
+    const intent = moveIntent()
+    const saved = path.join(world.kondoDataRoot, 'trash', intent.id, 'user', 'source')
+    await fsp.mkdir(path.dirname(saved), { recursive: true })
+    await fsp.rename(path.join(world.userRoot, 'source'), saved)
+    const undo = {
+      ...intent, id: 'old-undo', steps: [], undoOf: intent.id,
+      actions: [{ type: 'move', step: 0,
+        from: { store: 'user', relative: 'user/source', trashId: intent.id },
+        to: { store: 'user', relative: 'source' } }],
+      progress: { next: 0, pending: null, state: 'running' }
+    }
+    const journal = await saveJournal([
+      intent,
+      progressRow(intent, 'old-forward-pending', { next: 0, pending: legacyDigest, state: 'running' }),
+      progressRow(intent, 'old-forward-complete', { next: 1, pending: null, state: 'complete' }),
+      undo,
+      progressRow(undo, 'old-undo-pending', { next: 0, pending: legacyDigest, state: 'running' })
+    ])
+    const savedBytes = await fsp.readFile(path.join(saved, 'data.bin'))
+    const writes: string[] = []
+    const restores = recordWrites(writes)
+    const open = vi.spyOn(fsp, 'open')
+    const readFile = vi.spyOn(fsp, 'readFile')
+    try {
+      const mutations = createMutations(world.locator)
+      expect((await mutations.list()).data.find((row) => row.id === 'journal:old-move'))
+        .toMatchObject({ recovery: 'blocked', undoBlockedReason: expect.stringContaining('older fingerprint') })
+      const refused = await mutations.undo('journal:old-move')
+      expect(refused.data).toMatchObject({ id: 'journal:old-undo', outcome: 'uncertain', failed: true })
+      expect(refused.errors[0]?.message).toContain('older fingerprint')
+      expect(open).not.toHaveBeenCalled()
+      expect(readFile.mock.calls.every(([file]) => String(file) === path.join(world.kondoDataRoot, 'journal.jsonl'))).toBe(true)
+    } finally {
+      readFile.mockRestore()
+      open.mockRestore()
+      for (const restore of restores) restore()
+    }
+    expect(writes).toEqual([])
+    expect(await exists(path.join(world.userRoot, 'source'))).toBe(false)
+    expect(await fsp.readFile(path.join(saved, 'data.bin'))).toEqual(savedBytes)
+    expect(await fsp.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'))).toEqual(journal)
+  })
+
+  it('keeps a completed legacy move usable after its old pending checkpoint', async () => {
+    const intent = moveIntent()
+    const saved = path.join(world.kondoDataRoot, 'trash', intent.id, 'user', 'source')
+    await fsp.mkdir(path.dirname(saved), { recursive: true })
+    await fsp.rename(path.join(world.userRoot, 'source'), saved)
+    await saveJournal([
+      intent,
+      progressRow(intent, 'old-pending', { next: 0, pending: legacyDigest, state: 'running' }),
+      progressRow(intent, 'old-complete', { next: 1, pending: null, state: 'complete' })
+    ])
+    const mutations = createMutations(world.locator)
+    expect((await mutations.list()).data.find((row) => row.id === 'journal:old-move'))
+      .toMatchObject({ outcome: 'complete', recovery: 'available' })
+    const undone = await mutations.undo('journal:old-move')
+    expect(undone.errors).toEqual([])
+    expect(await fsp.readFile(path.join(world.userRoot, 'source', 'data.bin'))).toEqual(bytes)
+    expect(await exists(saved)).toBe(false)
+  })
+})
+
 describe('mutation safety invariants (ADR-0001)', () => {
   let world: FixtureWorld
   let mutations: Mutations
