@@ -17,7 +17,7 @@ between the two is the part a later reader needs.
 
 - [118 — Framed logical tree digests](118-framed-tree-digests.md) — **awaiting acceptance**
 
-- [101 — Conservative hook script cleanup](101-conservative-hook-cleanup.md) — **awaiting acceptance**
+- [101 — Conservative hook script cleanup](101-conservative-hook-cleanup.md) — **done — accepted 2026-09-09**
 
 - [112 — Private security reporting and maintenance](112-security-reporting-maintenance.md) — **accepted 2026-09-08; local integration by coordinating session**
 

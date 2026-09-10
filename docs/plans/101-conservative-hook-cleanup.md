@@ -1,6 +1,6 @@
 # Plan: Conservative hook script cleanup
 
-Status: **implemented — awaiting owner acceptance**
+Status: **done — owner accepted 2026-09-09**
 
 The A8 fixture names `~/.claude/hooks/live.js` through `$HOME`. The current
 recognizer cannot resolve that command, but cleanup treats the missing reference
@@ -66,3 +66,10 @@ unchanged. Cleanup no longer reads settings to infer script disuse.
   The smoke's renderer error and network monitors pass; Electron was closed.
 
 Acceptance and main integration belong to the coordinating session and owner.
+
+## Owner acceptance
+
+The owner accepted this implementation and authorized local main integration on
+2026-09-09. The combined reviewed source at8bac2b6 passed713 tests with14 existing
+Windows file-symlink skips,26/26 Electron tests, typecheck, lint, staged guards and
+build. This local acceptance does not establish final release approval.
