@@ -13,7 +13,7 @@ between the two is the part a later reader needs.
 
 ## Index
 
-- [121 — Framed physical recovery digests](121-physical-recovery-digests.md) — **awaiting acceptance**
+- [121 — Framed physical recovery digests](121-physical-recovery-digests.md) — **done**
 
 - [111 — Public Git history decision](111-public-history-decision.md) — **package accepted 2026-09-09; publication choices separate**
 

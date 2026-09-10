@@ -1,6 +1,6 @@
 # Plan: framed physical recovery digests
 
-Status: **awaiting acceptance**
+Status: **done**
 
 Physical relocation previously hashed JSON entry metadata immediately followed
 by arbitrary file bytes. Different trees can therefore share one encoded byte
@@ -69,4 +69,4 @@ rows cannot establish completion, `undoneBy` or replay authority. The focused
 relocation and mutation suites pass with one explicit Windows file-link privilege
 skip.
 
-Native verification after the independent review correction: 726 fixture tests passed with 14 existing Windows file-symlink privilege omissions; typecheck, lint, guards, build and 26 Electron smoke tests passed. The independent review found no remaining actionable issue. Owner acceptance and integration remain pending.
+Native verification after the independent review correction: 726 fixture tests passed with 14 existing Windows file-symlink privilege omissions; typecheck, lint, guards, build and 26 Electron smoke tests passed. The independent review found no remaining actionable issue. Combined verification with task 122 passed 730 fixture tests with the same 14 omissions. The owner accepted the reviewed candidate `1f29f3f` and authorized local integration into `main` on 2026-09-10.
