@@ -348,6 +348,35 @@ describe('reviewed duplicate skill removal (102)', () => {
     expect(group.reviewToken).toBeNull()
   })
 
+  it.each<{ label: string; left: Record<string, string>; right: Record<string, string> }>([
+    { label: 'filename/content boundary', left: { a: 'bc' }, right: { ab: 'c' } },
+    { label: 'file/content boundary', left: { x: 'yz' }, right: { x: '', y: 'z' } }
+  ])('118: refuses structurally different copies with the same old concatenation ($label)', async ({ left, right }) => {
+    await writeFileTree(source(), left)
+    await writeFileTree(twin(), right)
+    const scan = await api.skillDuplicates()
+    expect(scan.errors).toEqual([])
+    const group = scan.data.find((candidate) => candidate.name === 'twin')!
+    expect(group.members[0]?.digest).not.toBe(group.members[1]?.digest)
+    expect(group.identical).toBe(false)
+    expect(group.reviewToken).toBeNull()
+
+    const before = await hashTree(world.base)
+    const rename = vi.spyOn(fs, 'rename')
+    for (const request of [{ op: 'trash' as const }, { op: 'trash' as const, reviewToken: 'forged' }]) {
+      const result = await api.entityMutate(selected, request)
+      expect(result.data).toBeNull()
+      expect(result.errors[0]?.code).toBe('stale-plan')
+    }
+    expect(rename).not.toHaveBeenCalled()
+    expect(await hashTree(world.base)).toBe(before)
+    expect((await api.journalList()).data).toEqual([])
+    expect(await exists(path.join(world.kondoDataRoot, 'journal.jsonl'))).toBe(false)
+    expect(await exists(path.join(world.kondoDataRoot, 'trash'))).toBe(false)
+    for (const [name, bytes] of Object.entries(left)) expect(await fs.readFile(path.join(source(), name), 'utf8')).toBe(bytes)
+    for (const [name, bytes] of Object.entries(right)) expect(await fs.readFile(path.join(twin(), name), 'utf8')).toBe(bytes)
+  })
+
   it('allows one unchanged removal/Undo and refuses replay after Undo', async () => {
     const before = await hashTree(world.userRoot)
     const reviewToken = await token()

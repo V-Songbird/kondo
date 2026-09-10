@@ -8,6 +8,11 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Duplicate skill checks and copy verification distinguish different filenames
+  and file boundaries even when their concatenated bytes match. Older interrupted
+  copies with unverifiable fingerprints remain visible for review, preserving
+  their files and history; completed changes retain Undo.
+
 - Settings leftovers preserves all skill preferences and plugin sources that
   cannot be fully checked, including directory-plugin disable preferences.
   Missing marketplace plugins require complete installation records and a

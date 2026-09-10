@@ -17,6 +17,7 @@ import {
   copyTree,
   describe,
   digestTree,
+  TREE_DIGEST_PREFIX,
   finish,
   isEnoent,
   inspectTree,
@@ -212,7 +213,7 @@ interface JournalAction {
 
 interface JournalProgress {
   next: number
-  /** Source digest synced before the pending action can run. */
+  /** Source fingerprint synced before the action; logical copies carry TREE_DIGEST_PREFIX. */
   pending: string | null
   state: 'running' | 'failed' | 'complete'
 }
@@ -299,9 +300,22 @@ const isEndpoint = (value: unknown): value is JournalEndpoint =>
   isObject(value) && typeof value.store === 'string' && typeof value.relative === 'string' &&
   (value.trashId === undefined || (typeof value.trashId === 'string' && /^[a-zA-Z0-9_-]+$/.test(value.trashId)))
 
+// Keep old progress readable, but never use its unframed logical digest as proof.
+const isFingerprint = (value: unknown): value is string =>
+  typeof value === 'string' && /^[a-f0-9]{64}$/.test(
+    value.startsWith(TREE_DIGEST_PREFIX) ? value.slice(TREE_DIGEST_PREFIX.length) : value)
+
+const legacyPendingCopy = (record: JournalRecord): boolean =>
+  record.version === 2 && record.progress?.pending != null &&
+  record.actions?.[record.progress.next]?.type === 'copy' &&
+  !record.progress.pending.startsWith(TREE_DIGEST_PREFIX)
+
+const LEGACY_COPY_UNAVAILABLE =
+  'Recovery is uncertain: this pending copy used an older fingerprint that cannot prove tree equality. All remaining bytes were kept; review the files before retrying.'
+
 const isProgress = (value: unknown): value is JournalProgress =>
   isObject(value) && typeof value.next === 'number' && Number.isSafeInteger(value.next) && value.next >= 0 &&
-  (value.pending === null || (typeof value.pending === 'string' && /^[a-f0-9]{64}$/.test(value.pending))) &&
+  (value.pending === null || isFingerprint(value.pending)) &&
   (value.state === 'running' || value.state === 'failed' || value.state === 'complete')
 
 const isExecution = (value: Record<string, unknown>): boolean => {
@@ -962,7 +976,8 @@ export function createMutations(
 
   const fingerprint = async (target: string, logical: boolean): Promise<string | null> => {
     if (!(await entryExists(target))) return null
-    return logical ? digestTree(target, boundaryOf(target)) : physicalDigest(target, boundaryOf(target))
+    return logical ? TREE_DIGEST_PREFIX + await digestTree(target, boundaryOf(target))
+      : physicalDigest(target, boundaryOf(target))
   }
 
   class JournalWriteError extends Error {}
@@ -983,6 +998,7 @@ export function createMutations(
   const reconcile = async (record: JournalRecord): Promise<void> => {
     const progress = record.progress!
     if (progress.pending === null) return
+    if (legacyPendingCopy(record)) throw new Refused('read-failed', record.entityId, LEGACY_COPY_UNAVAILABLE)
     const action = record.actions![progress.next]!
     const source = await endpoint(action.from)
     const destination = await endpoint(action.to)
@@ -1248,6 +1264,7 @@ export function createMutations(
             : undoneBy !== null ? 'This entry has already been undone.'
             : damaged ? 'A damaged history entry prevents safe recovery.'
             : includesSettingsWrite(record.steps) ? SETTINGS_WRITE_UNAVAILABLE
+            : legacyPendingCopy(record) ? LEGACY_COPY_UNAVAILABLE
             : legacyFailedUndo ? 'A previous Undo failed without action evidence. Saved bytes need review.'
             : empty ? 'This operation has no completed changes to undo.'
             : null

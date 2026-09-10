@@ -328,22 +328,62 @@ describe('skill move between scopes (ADR-0001)', () => {
     expect(journalAt).toBeLessThan(storeAt)
   })
 
+  it('118: rejects a structurally different copy with the same old digest and retains both versions', async () => {
+    const source = path.join(world.userRoot, 'skills', 'alpha-skill')
+    await fs.writeFile(path.join(source, 'a'), 'bc')
+    const before = await hashTree(world.userRoot)
+    const copyFile = fs.copyFile.bind(fs)
+    let injected = false
+    vi.spyOn(fs, 'copyFile').mockImplementation(async (from, to, mode) => {
+      await copyFile(from, to, mode)
+      if (String(from) === path.join(source, 'a')) {
+        injected = true
+        await fs.rename(to, path.join(path.dirname(String(to)), 'ab'))
+        await fs.writeFile(path.join(path.dirname(String(to)), 'ab'), 'c')
+      }
+    })
+    const result = await api.skillMove('skill:user:alpha-skill', projectId(workdir))
+    expect(injected).toBe(true)
+    expect(result.errors[0]?.message).toContain('does not match its source')
+    expect(result.data).toMatchObject({ outcome: 'none', failed: true })
+    expect(await hashTree(world.userRoot)).toBe(before)
+    expect(await fs.readFile(path.join(source, 'a'), 'utf8')).toBe('bc')
+    expect(await exists(path.join(source, 'ab'))).toBe(false)
+    expect(await exists(path.join(claudeDir, 'skills', 'alpha-skill'))).toBe(false)
+    const kept = path.join(world.kondoDataRoot, 'trash', result.data!.id.slice(8),
+      `project-${flattenPath(workdir)}`, 'skills', 'alpha-skill')
+    expect(await fs.readFile(path.join(kept, 'ab'), 'utf8')).toBe('c')
+    expect(await exists(path.join(kept, 'a'))).toBe(false)
+  })
+
   // ---------------------------------------------------------------------------
   // Undo (ADR-0001)
 
   it('undoes the whole move: the skill is back, the copy is gone', async () => {
+    const source = path.join(world.userRoot, 'skills', 'alpha-skill')
+    const binary = Buffer.from([0, 255, 68, 70, 128, 13, 10])
+    await fs.writeFile(path.join(source, 'binary'), binary)
+    await fs.writeFile(path.join(source, 'empty-file'), '')
+    await fs.mkdir(path.join(source, 'empty-directory'))
     const userBefore = await hashTree(world.userRoot)
     const projectBefore = await hashTree(claudeDir)
 
     const done = await api.skillMove('skill:user:alpha-skill', projectId(workdir))
     expect(done.errors).toEqual([])
     expect(await hashTree(world.userRoot)).not.toBe(userBefore)
+    const destination = path.join(claudeDir, 'skills', 'alpha-skill')
+    expect(await fs.readFile(path.join(destination, 'binary'))).toEqual(binary)
+    expect(await fs.readFile(path.join(destination, 'empty-file'))).toEqual(Buffer.alloc(0))
+    expect(await fs.readdir(path.join(destination, 'empty-directory'))).toEqual([])
 
     const undone = await api.journalUndo(done.data!.id)
     expect(undone.errors).toEqual([])
 
     // Back at its original scope, byte-for-byte...
     expect(await hashTree(world.userRoot)).toBe(userBefore)
+    expect(await fs.readFile(path.join(source, 'binary'))).toEqual(binary)
+    expect(await fs.readFile(path.join(source, 'empty-file'))).toEqual(Buffer.alloc(0))
+    expect(await fs.readdir(path.join(source, 'empty-directory'))).toEqual([])
     // ...and the destination is exactly as it was, with no leftover copy and
     // no empty directory the move had to create.
     expect(await hashTree(claudeDir)).toBe(projectBefore)

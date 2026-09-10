@@ -230,17 +230,24 @@ export async function inspectTree(target: string, boundary: ReadBoundary): Promi
   return entries
 }
 
-/** Hash every logical relative name and file's bytes, after tree preflight. */
+/** Persisted logical fingerprints must name this format; bare legacy hashes are ambiguous. */
+export const TREE_DIGEST_PREFIX = 'tree-v2:'
+
+/** Hash typed, length-framed logical paths and bytes after strict tree preflight (ADR-0019). */
 export async function digestTree(target: string, boundary: ReadBoundary): Promise<string> {
   const entries = await inspectTree(target, boundary)
-  const hash = createHash('sha256')
-  for (const entry of entries.map((entry) => ({
-    ...entry,
-    name: entry.directory && entry.relative ? `${entry.relative}/` : entry.relative
-  })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
-    hash.update(entry.name)
+  const hash = createHash('sha256').update(`kondo:${TREE_DIGEST_PREFIX}\0`)
+  const field = (bytes: Buffer): void => {
+    const size = Buffer.alloc(8)
+    size.writeBigUInt64BE(BigInt(bytes.length))
+    hash.update(size)
+    hash.update(bytes)
+  }
+  for (const entry of entries.sort((a, b) => a.relative < b.relative ? -1 : a.relative > b.relative ? 1 : 0)) {
+    hash.update(entry.directory ? 'D' : 'F')
+    field(Buffer.from(entry.relative, 'utf8'))
     if (!entry.directory) {
-      hash.update(await fs.readFile(await resolveAllowedPath(path.join(target, entry.relative), boundary)))
+      field(await fs.readFile(await resolveAllowedPath(path.join(target, entry.relative), boundary)))
     }
   }
   return hash.digest('hex')

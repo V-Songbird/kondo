@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { slashed } from '../electron/main/workspace/display'
+import { createHash } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import type { PathLike } from 'node:fs'
 import path from 'node:path'
@@ -50,6 +51,158 @@ async function settingsHistory(world: FixtureWorld, type: 'write' | 'splice' = '
   await fsp.writeFile(path.join(world.userRoot, 'settings.json'), next)
   return { id: 'journal:fixture-settings', record, source, next }
 }
+
+describe('logical copy fingerprint recovery (118)', () => {
+  let world: FixtureWorld
+  const manifest = skillManifest('twin', 'Synthetic upgrade fixture')
+  const legacyDigest = createHash('sha256').update('SKILL.md').update(manifest).update('abc').digest('hex')
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, { 'source/SKILL.md': manifest, 'source/a': 'bc' })
+  })
+  afterEach(async () => { vi.restoreAllMocks(); await world.cleanup() })
+
+  const seedLegacyCopy = async (complete = false): Promise<void> => {
+    const intent = { id: 'old-copy', at: '2026-09-01T00:00:00.000Z', op: 'move', kind: 'skill',
+      entityId: 'skill:user:twin', summary: 'Copy twin before upgrade', undoOf: null, version: 2,
+      steps: [{ type: 'copy', store: 'user', from: 'source', toStore: 'desktop', to: 'destination' }],
+      actions: [{ type: 'copy', step: 0, from: { store: 'user', relative: 'source' },
+        to: { store: 'desktop', relative: 'destination' } }],
+      progress: { next: 0, pending: null, state: 'running' } }
+    const { actions: _actions, ...metadata } = intent
+    const pending = { ...metadata, id: 'old-pending', steps: [], progressOf: intent.id,
+      progress: { next: 0, pending: legacyDigest, state: 'running' } }
+    const rows = [JSON.stringify(intent), JSON.stringify(pending)]
+    if (complete) rows.push(JSON.stringify({ ...pending, id: 'old-complete',
+      progress: { next: 1, pending: null, state: 'complete' } }))
+    await writeFileTree(world.kondoDataRoot, { 'journal.jsonl': rows.join('\n') + '\n' })
+  }
+
+  it.each(['identical', 'colliding', 'destination-only', 'source-only', 'neither'] as const)(
+    'keeps an old pending copy uncertain after upgrade with %s endpoints', async (shape) => {
+      if (shape !== 'source-only' && shape !== 'neither') {
+        await writeFileTree(world.desktopRoot, { 'destination/SKILL.md': manifest,
+          ...(shape === 'colliding' ? { 'destination/ab': 'c' } : { 'destination/a': 'bc' }) })
+      }
+      if (shape === 'destination-only' || shape === 'neither') {
+        await fsp.rename(path.join(world.userRoot, 'source'), path.join(world.userRoot, 'retained-source'))
+      }
+      await seedLegacyCopy()
+      const before = await hashTree(world.base)
+      const journal = await fsp.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'))
+      const writes: string[] = []
+      const restores = recordWrites(writes)
+      try {
+        for (let retry = 0; retry < 2; retry++) {
+          const restarted = createMutations(world.locator)
+          const listed = await restarted.list()
+          expect(listed.errors).toEqual([])
+          expect(listed.data[0]).toMatchObject({ outcome: 'uncertain', recovery: 'blocked', undoneBy: null })
+          expect(listed.data[0]?.undoBlockedReason).toContain('older fingerprint')
+          const result = await restarted.undo('journal:old-copy')
+          expect(result.data).toBeNull()
+          expect(result.errors[0]?.message).toContain('Recovery is uncertain')
+          expect(result.errors[0]?.message).toContain('older fingerprint')
+        }
+      } finally { for (const restore of restores) restore() }
+      expect(writes).toEqual([])
+      expect(await hashTree(world.base)).toBe(before)
+      expect(await fsp.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'))).toEqual(journal)
+      expect(await exists(path.join(world.kondoDataRoot, 'trash'))).toBe(false)
+    }
+  )
+
+  it('keeps confirmed historical copies undoable without reinterpreting their old pending hash', async () => {
+    await writeFileTree(world.desktopRoot, { 'destination/SKILL.md': manifest, 'destination/a': 'bc' })
+    await seedLegacyCopy(true)
+    const journal = await fsp.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'), 'utf8')
+    const restarted = createMutations(world.locator)
+    expect((await restarted.list()).data[0]).toMatchObject({ outcome: 'complete', recovery: 'available' })
+    const result = await restarted.undo('journal:old-copy')
+    expect(result.errors).toEqual([])
+    expect(result.data?.outcome).toBe('complete')
+    expect(await fsp.readFile(path.join(world.userRoot, 'source', 'a'), 'utf8')).toBe('bc')
+    expect(await exists(path.join(world.desktopRoot, 'destination'))).toBe(false)
+    expect((await fsp.readFile(path.join(world.kondoDataRoot, 'journal.jsonl'), 'utf8')).startsWith(journal)).toBe(true)
+  })
+
+  it.each(['before-effect', 'after-effect', 'changed-copy'] as const)('reconciles a new framed copy after restart at %s', async (phase) => {
+    const binary = Buffer.from([0, 255, 0, 128, 13, 10])
+    await fsp.writeFile(path.join(world.userRoot, 'source', 'binary'), binary)
+    await fsp.writeFile(path.join(world.userRoot, 'source', 'empty'), '')
+    await fsp.mkdir(path.join(world.userRoot, 'source', 'empty-dir'))
+    const journal = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const open = fsp.open.bind(fsp)
+    const copyFile = fsp.copyFile.bind(fsp)
+    let copied = false
+    let interrupted = false
+    vi.spyOn(fsp, 'copyFile').mockImplementation(async (...args) => { await copyFile(...args); copied = true })
+    vi.spyOn(fsp, 'open').mockImplementation(async (...args) => {
+      if (String(args[0]) !== journal) return open(...args)
+      if (phase !== 'before-effect' && copied) {
+        interrupted = true
+        throw new Error('fixture lost copy confirmation')
+      }
+      const handle = await open(...args)
+      if (phase === 'before-effect') {
+        const sync = handle.sync.bind(handle)
+        vi.spyOn(handle, 'sync').mockImplementation(async () => {
+          await sync()
+          const last = JSON.parse((await fsp.readFile(journal, 'utf8')).trim().split('\n').at(-1)!) as { progress: { pending: string | null } }
+          if (last.progress.pending !== null) {
+            interrupted = true
+            throw new Error('fixture interrupted after pending copy sync')
+          }
+        })
+      }
+      return handle
+    })
+    const result = await createMutations(world.locator).mutate({ op: 'move', kind: 'skill',
+      entityId: 'skill:user:twin', summary: 'Copy before interruption', steps: [
+        { type: 'copy', store: 'user', from: 'source', toStore: 'desktop', to: 'destination' },
+        { type: 'trash', store: 'user', from: 'source' }
+      ] })
+    expect(interrupted).toBe(true)
+    expect(copied).toBe(phase !== 'before-effect')
+    expect(result.data?.outcome).toBe('uncertain')
+    vi.restoreAllMocks()
+    const last = JSON.parse((await fsp.readFile(journal, 'utf8')).trim().split('\n').at(-1)!) as { progress: { pending: string } }
+    expect(last.progress.pending).toMatch(/^tree-v2:[a-f0-9]{64}$/)
+    if (phase === 'changed-copy') {
+      const destination = path.join(world.desktopRoot, 'destination')
+      await fsp.rename(path.join(destination, 'a'), path.join(destination, 'ab'))
+      await fsp.writeFile(path.join(destination, 'ab'), 'c')
+      const savedJournal = await fsp.readFile(journal)
+      const writes: string[] = []
+      const restores = recordWrites(writes)
+      try {
+        const refused = await createMutations(world.locator).undo(result.data!.id)
+        expect(refused.data).toBeNull()
+        expect(refused.errors[0]?.message).toContain('Recovery is uncertain')
+      } finally { for (const restore of restores) restore() }
+      expect(writes).toEqual([])
+      expect(await fsp.readFile(journal)).toEqual(savedJournal)
+      expect(await fsp.readFile(path.join(destination, 'ab'), 'utf8')).toBe('c')
+      expect(await fsp.readFile(path.join(world.userRoot, 'source', 'a'), 'utf8')).toBe('bc')
+      return
+    }
+    const restarted = createMutations(world.locator)
+    expect((await restarted.list()).errors).toEqual([])
+    const restored = await restarted.undo(result.data!.id)
+    if (phase === 'after-effect') {
+      expect(restored.errors).toEqual([])
+      expect(restored.data?.outcome).toBe('complete')
+    } else {
+      expect(restored.data).toBeNull()
+      expect(restored.errors[0]?.message).toContain('no completed changes')
+    }
+    expect(await fsp.readFile(path.join(world.userRoot, 'source', 'a'), 'utf8')).toBe('bc')
+    expect(await fsp.readFile(path.join(world.userRoot, 'source', 'binary'))).toEqual(binary)
+    expect(await fsp.readFile(path.join(world.userRoot, 'source', 'empty'))).toEqual(Buffer.alloc(0))
+    expect(await fsp.readdir(path.join(world.userRoot, 'source', 'empty-dir'))).toEqual([])
+    expect(await exists(path.join(world.desktopRoot, 'destination'))).toBe(false)
+  })
+})
 
 describe('mutation safety invariants (ADR-0001)', () => {
   let world: FixtureWorld

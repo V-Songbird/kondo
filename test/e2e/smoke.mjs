@@ -1187,7 +1187,7 @@ test('conversation review refuses a resumed transcript, clears selection, and al
   }
 })
 
-test('duplicate review refuses changed equivalence with long location labels and preserves renewed-review Undo', async () => {
+test('duplicate review refuses ambiguous paths and changed equivalence, and preserves renewed-review Undo', async () => {
   const name = 'reviewed-duplicate-with-a-deliberately-long-name-for-compact-window-checks'
   const global = path.join(fixtureEnv.KONDO_STORE_ROOT, 'skills', name)
   const project = path.join(base, 'work', 'apiserver', '.claude', 'skills', name)
@@ -1201,10 +1201,40 @@ test('duplicate review refuses changed equivalence with long location labels and
     ownsProject = true
     await fs.writeFile(path.join(global, 'SKILL.md'), content)
     await fs.writeFile(path.join(project, 'SKILL.md'), content)
+    await fs.writeFile(path.join(global, 'a'), 'bc')
     for (const theme of ['chalk', 'carbon']) {
+      await fs.writeFile(path.join(project, 'ab'), 'c')
       await openThemes()
       await chooseTheme(theme)
       await navigate('Clean up')
+      await section('Cleanup sections', 'Duplicate skills')
+      await client.waitFor(`${choose} !== null && ${choose}.disabled`)
+      const duplicates = await call(`await window.kondo.skillDuplicates()`)
+      assert.deepEqual(duplicates.errors, [])
+      const group = duplicates.data.find((entry) => entry.name === name)
+      assert.equal(group.identical, false)
+      assert.equal(group.reviewToken, null)
+      assert.notEqual(group.members[0].digest, group.members[1].digest)
+      const unchangedJournal = await journalBytes()
+      const unchangedFiles = await fixtureSnapshot()
+      const refused = await call(`await window.kondo.entityMutate('skill:user:${name}', { op: 'trash', reviewToken: 'forged' })`)
+      assert.equal(refused.data, null)
+      assert.equal(refused.errors[0]?.code, 'stale-plan')
+      assert.equal(await journalBytes(), unchangedJournal)
+      assert.deepEqual(await fixtureSnapshot(), unchangedFiles)
+      assert.equal(await fs.readFile(path.join(global, 'a'), 'utf8'), 'bc')
+      assert.equal(await fs.readFile(path.join(project, 'ab'), 'utf8'), 'c')
+      assert.equal(await client.evaluate(`${apply} === null`), true)
+      for (const [width, height] of [[1360, 860], [900, 600]]) {
+        await client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+        await client.evaluate(`${choose}.scrollIntoView({ block: 'center' })`)
+        await assertNoHorizontalOverflow()
+        await assertInViewport(choose)
+        await capture(`duplicate-distinct-paths-${theme}-${width}x${height}`)
+      }
+      await fs.rename(path.join(project, 'ab'), path.join(project, 'a'))
+      await fs.writeFile(path.join(project, 'a'), 'bc')
+      await section('Cleanup sections', 'Files and caches')
       await section('Cleanup sections', 'Duplicate skills')
       await client.waitFor(`${choose} !== null && !${choose}.disabled`)
       await keyboardActivate(choose)
@@ -1229,6 +1259,7 @@ test('duplicate review refuses changed equivalence with long location labels and
       await keyboardActivate(choose)
       await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel'`)
       await applyAndUndoReviewedRemoval(apply)
+      await fs.unlink(path.join(project, 'a'))
     }
   } finally {
     if (ownsProject) await fs.rm(project, { recursive: true, force: true })

@@ -697,6 +697,34 @@ describe('resolved read boundaries', () => {
     expect(await digestTree(root, world.userRoot)).toBe(await digestTree(equivalent, world.userRoot))
   })
 
+  it('118: frames root types, empty directories, full paths, binary bytes and entry boundaries', async () => {
+    const root = path.join(world.userRoot, 'tree')
+    const equivalent = path.join(world.userRoot, 'equivalent')
+    const binary = Buffer.from([0, 255, 68, 70, 0, 13, 10, 128])
+    for (const at of [root, equivalent]) {
+      await writeFileTree(at, { 'nested/one/empty': '', 'nested/two/é.txt': 'same' })
+      await fsp.mkdir(path.join(at, 'empty-directory'))
+      await fsp.writeFile(path.join(at, 'nested', 'one', 'binary'), binary)
+    }
+    const digest = await digestTree(root, world.userRoot)
+    expect(digest).toMatch(/^[0-9a-f]{64}$/)
+    expect(await digestTree(equivalent, world.userRoot)).toBe(digest)
+    await fsp.rename(path.join(equivalent, 'nested', 'two', 'é.txt'), path.join(equivalent, 'nested', 'one', 'é.txt'))
+    expect(await digestTree(equivalent, world.userRoot)).not.toBe(digest)
+    await fsp.rename(path.join(equivalent, 'nested', 'one', 'é.txt'), path.join(equivalent, 'nested', 'two', 'é.txt'))
+    await fsp.writeFile(path.join(equivalent, 'nested', 'one', 'binary'), Buffer.from([0, 255, 68, 70, 0, 13, 10, 129]))
+    expect(await digestTree(equivalent, world.userRoot)).not.toBe(digest)
+    await fsp.writeFile(path.join(equivalent, 'nested', 'one', 'binary'), binary)
+    await fsp.rmdir(path.join(equivalent, 'empty-directory'))
+    expect(await digestTree(equivalent, world.userRoot)).not.toBe(digest)
+    const emptyDirectory = path.join(root, 'empty-directory')
+    const emptyFile = path.join(root, 'nested', 'one', 'empty')
+    expect(await digestTree(emptyDirectory, world.userRoot)).not.toBe(await digestTree(emptyFile, world.userRoot))
+    // Root names are deliberately excluded so a copy can change location.
+    await fsp.writeFile(path.join(equivalent, 'empty-file'), '')
+    expect(await digestTree(path.join(equivalent, 'empty-file'), world.userRoot)).toBe(await digestTree(emptyFile, world.userRoot))
+  })
+
   it('rechecks nested copy destinations after preflight before a newly inserted junction can receive bytes', async (context) => {
     const source = path.join(world.userRoot, 'source')
     const destination = path.join(world.desktopRoot, 'destination')

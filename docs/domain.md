@@ -319,6 +319,14 @@ operation, `trash`, allowed only in the four scopes a user placed a skill in
 by hand — a plugin-shipped skill follows its plugin, and a plugin's files are
 the plugin's to remove.
 
+✅ **Kondo logical equality, verified with synthetic fixtures (118):** tree
+digests frame each entry's type, complete relative path and file bytes with
+explicit lengths. Empty files/directories and binary contents count; safe
+internal links match their materialized copies. Thus a common `SKILL.md` plus
+`a=bc` differs from `ab=c`, and no removal-review token is issued. Unreadable
+members still prevent equality. The public digest remains SHA-256 hexadecimal;
+see [ADR-0019](adr/0019-frame-logical-tree-digests.md) for its encoding.
+
 Where each kind sits is one table, `PLACEMENTS` in
 `electron/main/workspace/user-store.ts` — directory, bench (`skills.disabled`
 for skills, none for the four above), on-disk suffix, and whether a project
@@ -645,6 +653,12 @@ mechanisms. Names and sizes remain available to store reports.
   file fingerprints stream bytes; archived links remain metadata. The parser
   checks action identity, order and exact coverage of confirmed forward steps.
   A torn tail remains in place and a later append begins on a separate line.
+- ✅ Pending logical copies now record `tree-v2:<hex>` fingerprints (118).
+  Bare fingerprints from older pending copies remain readable but cannot prove
+  equality. Recovery stays uncertain and blocked, with an explanation in History,
+  without appending progress or changing either endpoint. Confirmed historical
+  cursors and completed copies remain undoable; physical move fingerprints and
+  the settings restriction are unchanged. No journal migration rewrites evidence.
 - ✅ Legacy records and failure markers remain readable without migration (099).
   A failed legacy Undo lacks action evidence, so it cannot consume the original
   or authorize automatic replay. New partial forward results include the journal

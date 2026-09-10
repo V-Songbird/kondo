@@ -115,6 +115,19 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      adjusted completion cursors, escaped trash references, torn lines and failed legacy Undo retain
      history and cannot establish a false `undoneBy`. Existing settings refusal,
      streaming, privacy and EXDEV byte-preservation assertions remain in force.
+   - Logical tree framing (118, ADR-0019): `test/skill-duplicates.test.ts`
+     distinguishes filename/content and cross-file concatenation collisions,
+     with no review token or direct-removal effects. `test/skill-move.test.ts`
+     injects an `a=bc` to `ab=c` copy substitution and asserts the source and
+     retained failed copy by path and bytes. `test/boundary.test.ts` covers
+     root type, empty directories/files, nested Unicode paths and binary bytes,
+     alongside the existing internal-link and confinement cases.
+     `test/mutation.test.ts` covers old pending copy fingerprints with identical,
+     colliding, single and absent endpoints; retries preserve the journal and
+     bytes without writes. Completed old copies remain undoable. New pending
+     copies interrupted before/after effects recover using their versioned
+     evidence, preserving binary and empty content. These critical checks use
+     direct byte/path or write observations alongside the shared snapshot helper.
 5. **End-to-end**: `npm run test:e2e` (`test/e2e/smoke.mjs`, node's own test
    runner) builds the run-kondo fixture in a fresh temp directory, launches
    the built app against it through the three `KONDO_*_ROOT` overrides with
@@ -128,6 +141,11 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
    protocol client (`.claude/skills/run-kondo/cdp.mjs`) with the `run-kondo`
    skill's `drive.mjs`, the manual UI check, so the two cannot drift apart.
    It is not part of `npm test`: it needs a built app and a display.
+   The duplicate review smoke also drives `a=bc` versus `ab=c` through the
+   bridge and existing UI: removal stays disabled, a forged direct request
+   leaves journal/fixtures unchanged, and genuine equality restores reviewed
+   removal and Undo. Chalk/Carbon at 1360×860 and 900×600 retain the existing
+   focus, error, overflow and renderer-network checks.
    The shared client exposes `on(method, handler)` (returning unsubscribe),
    `exceptions` (`Runtime.exceptionThrown` payloads), and `consoleErrors`
    (error-type `Runtime.consoleAPICalled` payloads, including arguments and
