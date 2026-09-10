@@ -237,10 +237,8 @@ interface RawHook {
 }
 
 /**
- * A layer's `hooks` object, flattened in the order it is written. Both
- * readers below walk it through here, so the index a hook id carries and the
- * set of scripts the tidy sweep calls armed can never describe different
- * hooks.
+ * A layer's `hooks` object, flattened in the order it is written. The hook
+ * listing walks it through here to give each displayed entry its index.
  */
 function rawHooks(layer: SettingsLayer): RawHook[] {
   const config = layer.parsed?.['hooks']
@@ -416,32 +414,6 @@ export function groupHooks(hooks: HookInfo[]): HookGroup[] {
     group.hooks.push(hook)
   }
   return [...groups.values()]
-}
-
-/**
- * Every script inside the boundary that some layer's `hooks` object actually
- * runs, keyed the way `installPaths` is — resolved and case-folded, because
- * one Windows path can be spelled several ways.
- *
- * A script on disk is not an armed hook (domain.md), and this is the set the
- * tidy sweep subtracts from `~/.claude/hooks/` to find the ones nothing runs.
- */
-export function armedHookScripts(
-  layers: SettingsLayer[],
-  locator: StoreLocator,
-  projects: VerifiedProject[]
-): Set<string> {
-  const armed = new Set<string>()
-  for (const layer of layers) {
-    for (const raw of rawHooks(layer)) {
-      if (raw.command === null) continue
-      const token = scriptToken(raw.command)
-      if (token === null) continue
-      const abs = resolveScript(token, layer, locator, projects)
-      if (abs !== null) armed.add(installKey(abs))
-    }
-  }
-  return armed
 }
 
 // ---------------------------------------------------------------------------

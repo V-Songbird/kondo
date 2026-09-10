@@ -55,7 +55,8 @@ machine; nothing is ever sent anywhere.
   skills. File categories include saved Claude data for throwaway folders, projects that
   are gone, old and empty Code conversations, Code transcripts with a Desktop
   released marker, leftover session folders and snapshots, allowlisted caches,
-  old plugin versions and residue, hook scripts nothing runs. Select, review,
+  old plugin versions and residue. Hook scripts are kept because Kondo cannot
+  establish that they are unused across all execution sources. Select, review,
   then move to trash in one undoable step. Disk space is freed only when the
   trash is permanently emptied.
 - **Settings leftovers**, inside Clean up — entries flagged in Claude's configuration: registry

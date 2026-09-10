@@ -116,3 +116,23 @@ to the lexical allowlist. This is evidence for the mechanisms tested on the
 host, not a kernel-enforced sandbox. Node pathname resolution and subsequent
 I/O are separate operations: these checks do not eliminate every TOCTOU race
 against another process replacing directories concurrently.
+
+## Amendment (101): unchecked hook sources cannot prove disuse
+
+The recognized script tokens from user and verified project/local settings are
+not a complete execution inventory. Variables, quoted or compound commands,
+multiple scripts, sources outside those layers and dependencies invoked by a
+script can all hide references. Kondo must not subtract recognized references
+from `hooks/` to decide which files nothing runs.
+
+Cleanup therefore retains every hook script. The existing category reports zero
+candidates and a blocked reason; selecting it directly or in a mixed request is
+refused before effects. Missing, malformed or unreadable settings do not loosen
+this rule. Other permitted categories retain their reviewed cleanup and Undo.
+
+This buys no new read exception and does not expand the diagnostic recognizer:
+Kondo neither executes commands nor reads scripts to discover dependencies.
+Empty settings cannot remove the source-coverage limit. The fixture regression
+uses the literal `$HOME/.claude/hooks/live.js` command as data, with no shell or
+environment expansion. Hook declarations and the settings-write suspension are
+unchanged.

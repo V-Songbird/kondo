@@ -11,7 +11,6 @@ import type {
 } from '../shared/contract'
 import { collector } from '../electron/main/workspace/scan'
 import {
-  armedHookScripts,
   hooksFromLayers,
   readSettingsLayers,
   type SettingsLayer,
@@ -59,25 +58,26 @@ describe('hooks, their scripts, and the scripts nothing arms', () => {
     workdir = path.join(world.base, 'work', 'proj')
     verified = [{ dirName: flattenPath(workdir), absPath: workdir }]
 
+    const settings = writeJson({
+      hooks: {
+        // Armed and there.
+        SessionStart: [
+          { hooks: [{ type: 'command', command: '~/.claude/hooks/present.sh' }] }
+        ],
+        // Armed and gone — the finding this whole field exists for.
+        PreToolUse: [
+          { matcher: 'Bash', hooks: [{ type: 'command', command: 'bash ~/.claude/hooks/gone.sh' }] }
+        ],
+        // A path kondo does not expand.
+        Stop: [{ hooks: [{ type: 'command', command: PLUGIN_COMMAND }] }],
+        // No script at all: an inline command names none, and null says so.
+        Notification: [{ hooks: [{ type: 'command', command: 'echo hello' }] }]
+      }
+    })
     await writeFileTree(world.userRoot, {
-      'settings.json': writeJson({
-        hooks: {
-          // Armed and there.
-          SessionStart: [
-            { hooks: [{ type: 'command', command: '~/.claude/hooks/present.sh' }] }
-          ],
-          // Armed and gone — the finding this whole field exists for.
-          PreToolUse: [
-            { matcher: 'Bash', hooks: [{ type: 'command', command: 'bash ~/.claude/hooks/gone.sh' }] }
-          ],
-          // A path kondo does not expand.
-          Stop: [{ hooks: [{ type: 'command', command: PLUGIN_COMMAND }] }],
-          // No script at all: an inline command names none, and null says so.
-          Notification: [{ hooks: [{ type: 'command', command: 'echo hello' }] }]
-        }
-      }),
+      'settings.json': settings,
       'hooks/present.sh': 'echo hi\n',
-      // On disk, armed by nothing — the tidy category's whole subject.
+      // No inventoried declaration names this file; it must still be kept.
       'hooks/unarmed.sh': 'echo nobody runs me\n'
     })
 
@@ -205,11 +205,12 @@ describe('hooks, their scripts, and the scripts nothing arms', () => {
   // -------------------------------------------------------------------------
   // Scripts nothing arms
 
-  it('offers a hook script no settings layer runs, and never the armed one', async () => {
+  it('retains scripts even when no inventoried settings layer names them', async () => {
     const found = byCategory((await api.tidyPreview()).data)
-    expect(found['unarmed-hook-scripts'].count).toBe(1)
-    expect(found['unarmed-hook-scripts'].examples).toEqual(['~/.claude/hooks/unarmed.sh'])
-    expect(found['unarmed-hook-scripts'].bytes).toBeGreaterThan(0)
+    expect(found['unarmed-hook-scripts'].count).toBe(0)
+    expect(found['unarmed-hook-scripts'].examples).toEqual([])
+    expect(found['unarmed-hook-scripts'].bytes).toBe(0)
+    expect(found['unarmed-hook-scripts'].blocked).toContain('cannot establish')
 
     const offered = (await api.tidyPreview()).data.categories.flatMap((entry) => entry.examples)
     expect(offered).not.toContain('~/.claude/hooks/present.sh')
@@ -218,36 +219,19 @@ describe('hooks, their scripts, and the scripts nothing arms', () => {
     expect(offered.some((target) => target.includes('guard.sh'))).toBe(false)
   })
 
-  it('counts a script armed from any layer as armed', async () => {
-    const { layers } = await layersFor()
-    const armed = armedHookScripts(layers, world.locator, verified)
-
-    expect(armed.size).toBe(3)
-    expect(armed.has(path.resolve(world.userRoot, 'hooks', 'present.sh').toLowerCase())).toBe(
-      true
-    )
-    // Armed and absent is still armed: the set is what commands name, not
-    // what exists.
-    expect(armed.has(path.resolve(world.userRoot, 'hooks', 'gone.sh').toLowerCase())).toBe(true)
-    expect(armed.has(path.resolve(world.userRoot, 'hooks', 'unarmed.sh').toLowerCase())).toBe(
-      false
-    )
-  })
-
-  it('stops offering a script the moment a layer arms it', async () => {
-    await writeFileTree(world.userRoot, {
-      'settings.json': writeJson({
-        hooks: {
-          SessionStart: [
-            { hooks: [{ type: 'command', command: 'bash ~/.claude/hooks/unarmed.sh' }] }
-          ]
-        }
-      })
+  it('retains all scripts after the declared references change', async () => {
+    const settings = writeJson({
+      hooks: {
+        SessionStart: [
+          { hooks: [{ type: 'command', command: 'bash ~/.claude/hooks/unarmed.sh' }] }
+        ]
+      }
     })
+    await writeFileTree(world.userRoot, { 'settings.json': settings })
     const fresh = createWorkspace({ locator: world.locator, platform: process.platform })
     const found = byCategory((await fresh.tidyPreview()).data)
 
-    // `present.sh` is now the unarmed one, and `unarmed.sh` is not offered.
-    expect(found['unarmed-hook-scripts'].examples).toEqual(['~/.claude/hooks/present.sh'])
+    expect(found['unarmed-hook-scripts'].examples).toEqual([])
+    expect(found['unarmed-hook-scripts'].blocked).toContain('cannot establish')
   })
 })

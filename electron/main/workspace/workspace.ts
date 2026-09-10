@@ -53,7 +53,6 @@ import {
   type SessionInventory
 } from './sessions'
 import {
-  armedHookScripts,
   countStoreEntries,
   groupHooks,
   inheritedSkills,
@@ -506,17 +505,14 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
   /**
    * What a sweep would move, from a fresh pinned inventory. The
-   * preview and the sweep both come through here, so both subtract the same
-   * armed-script set from `hooks/` and neither can offer a script the other
-   * would have kept.
+   * preview and sweep both come through here, with the same category blocks.
    */
   const tidyCandidates = async (
     c: Collector
   ): Promise<{ scan: Scan<SessionInventory>; candidates: TidyCandidates; blocked: TidyBlocks; withheldScratchCount: number }> => {
     const shared = await freshContext(c)
     const scan = finish(await shared.inventory(), collector())
-    const armed = armedHookScripts(await shared.layers(), locator, await shared.projects())
-    const tidy = await scanTidyCandidates(locator, scan.data, now(), armed, c)
+    const tidy = await scanTidyCandidates(locator, scan.data, now(), c)
     return { scan, candidates: tidy.candidates, blocked: tidy.blocked, withheldScratchCount: tidy.withheldScratchCount }
   }
 

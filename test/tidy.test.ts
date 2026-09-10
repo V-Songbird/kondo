@@ -157,7 +157,8 @@ describe('temporary aliases across workspace and cleanup', () => {
 })
 
 const DIR = 'D--Projects-app'
-const ALL = [...tidyCategories]
+// Hook scripts are permanently withheld while execution-source coverage is partial.
+const ALL = tidyCategories.filter((category) => category !== 'unarmed-hook-scripts')
 
 /** Every entry under a root, root-relative and sorted — files and dirs both. */
 async function listTree(root: string): Promise<string[]> {
@@ -249,7 +250,7 @@ describe('the tidy sweep (ADR-0001)', () => {
     expect((await api.journalList()).data).toEqual([])
 
     const found = byCategory(preview.data)
-    expect(preview.data.categories.map((entry) => entry.category)).toEqual(ALL)
+    expect(preview.data.categories.map((entry) => entry.category)).toEqual(tidyCategories)
     expect(preview.data.staleAfterDays).toBe(STALE_AFTER_DAYS)
 
     const staleBytes = (await fs.stat(inStore(project(`${UUID_B}.jsonl`)))).size
@@ -449,7 +450,7 @@ describe('the tidy sweep (ADR-0001)', () => {
       expect(preview.errors).toEqual([])
       expect(preview.data.totalCount).toBe(0)
       expect(preview.data.totalBytes).toBe(0)
-      expect(preview.data.categories.map((entry) => entry.count)).toEqual(ALL.map(() => 0))
+      expect(preview.data.categories.map((entry) => entry.count)).toEqual(tidyCategories.map(() => 0))
 
       const before = await hashTree(tidy.userRoot)
       const swept = await reviewedSweep(clean, ALL)

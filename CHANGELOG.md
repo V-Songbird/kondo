@@ -13,6 +13,12 @@ All notable changes to kondo are documented here. The format follows
   copies with unverifiable fingerprints remain visible for review, preserving
   their files and history; completed changes retain Undo.
 
+- Clean up preserves all hook scripts because the settings inventory cannot
+  prove they are unused. References through variables, quoted or compound
+  commands, other scripts and unchecked sources can no longer make a live
+  script removable. The category explains the limitation and refuses selection;
+  other permitted cleanup and Undo remain available.
+
 - Settings leftovers preserves all skill preferences and plugin sources that
   cannot be fully checked, including directory-plugin disable preferences.
   Missing marketplace plugins require complete installation records and a

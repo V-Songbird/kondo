@@ -187,9 +187,6 @@ const RECLAIMABLE = [
 /** One directory per session id, keyed by that id (domain.md). */
 const SESSION_ENV = 'session-env'
 
-/** Where the user store keeps hook scripts (domain.md). */
-const HOOKS_DIR = 'hooks'
-
 /**
  * The shape `sessions.ts` matches a transcript filename by. `session-env/`
  * is joined to `projects/` on exactly this id, so a directory that is not
@@ -208,12 +205,6 @@ export async function scanTidyCandidates(
   locator: StoreLocator,
   inventory: SessionInventory,
   nowMs: number,
-  /**
-   * Every script inside the boundary some settings layer arms
-   * (`armedHookScripts`), keyed by `installKey`. Passed in rather than read
-   * here so the sweep and the preview subtract the same set.
-   */
-  armed: ReadonlySet<string>,
   c: Collector
 ): Promise<TidyScan> {
   const root = locator.userRoot
@@ -372,10 +363,13 @@ export async function scanTidyCandidates(
 
   await scanSessionEnv(locator, inventory, candidates, c)
   await scanPluginResidue(locator, candidates, c)
-  await scanUnarmedHookScripts(locator, armed, candidates, c)
   await scanDesktopCaches(locator, candidates, c)
 
-  const blocked: TidyBlocks = {}
+  // Settings omit execution sources and scripts may invoke helpers. Even an
+  // empty hooks object cannot establish disuse, so this category stays empty.
+  const blocked: TidyBlocks = {
+    'unarmed-hook-scripts': 'Hook scripts are kept: Kondo cannot establish that they are unused. Some hook sources and command forms are not checked, and scripts may call other scripts.'
+  }
   const busy = candidates['desktop-caches'].length > 0 ? await desktopAppBusy(locator, c) : null
   if (busy !== null) blocked['desktop-caches'] = busy
   return { candidates, blocked, withheldScratchCount: withheld.size }
@@ -392,41 +386,6 @@ async function inactiveScratch(target: string, root: string, nowMs: number, c: C
   } catch {
     c.fail('read-failed', 'scratch-projects', 'A scratch folder could not be checked for recent activity; it was withheld.')
     return false
-  }
-}
-
-/**
- * Files in `~/.claude/hooks/` that no settings layer runs. A script on disk
- * is not an armed hook (domain.md): the owner's store held two of them while
- * `settings.json` carried `hooks: {}`, and nothing else in kondo said so.
- *
- * The user store only. A project's `.claude/hooks/` holds the same kind of
- * script beside `__pycache__` and `*.test.js` noise, and a sweep step names
- * a path relative to one store — offering another store's files here would
- * be a step this plan cannot write.
- *
- * Files only: a directory under `hooks/` is somebody's helper tree, and a
- * command pointing into it is armed by a path this scan reads as a file.
- */
-async function scanUnarmedHookScripts(
-  locator: StoreLocator,
-  armed: ReadonlySet<string>,
-  candidates: TidyCandidates,
-  c: Collector
-): Promise<void> {
-  const root = path.join(locator.userRoot, HOOKS_DIR)
-  const rootDisplay = tildify(root, locator.home)
-  for (const entry of await safeReaddir(root, rootDisplay, c, locator.userRoot)) {
-    if (!entry.isFile()) continue
-    const absPath = path.join(root, entry.name)
-    if (armed.has(installKey(absPath))) continue
-    const display = `${rootDisplay}/${entry.name}`
-    const info = await safeStat(absPath, display, c, locator.userRoot)
-    candidates['unarmed-hook-scripts'].push({
-      paths: [`${HOOKS_DIR}/${entry.name}`],
-      bytes: info?.size ?? 0,
-      display
-    })
   }
 }
 

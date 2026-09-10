@@ -775,6 +775,51 @@ test('cleanup review and permanent trash confirmation cancel safely at 900px', a
   }
 })
 
+test('hook cleanup stays blocked for a HOME reference at both supported window sizes', async () => {
+  const root = path.join(base, 'home', '.claude')
+  const settings = path.join(root, 'settings.json')
+  const script = path.join(root, 'hooks', '101-live.js')
+  const original = await fs.readFile(settings, 'utf8')
+  const parsed = JSON.parse(original)
+  parsed.hooks = { Stop: [{ hooks: [{ type: 'command', command: 'node "$HOME/.claude/hooks/101-live.js"' }] }] }
+  await fs.mkdir(path.dirname(script), { recursive: true })
+  await fs.writeFile(script, 'throw new Error("Scanned commands must never execute")\n')
+  await fs.writeFile(settings, JSON.stringify(parsed))
+  const before = await fixtureSnapshot()
+  const journal = await journalBytes()
+  try {
+    for (const [width, height] of [[1360, 860], [900, 600]]) {
+      await client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+      await navigate('Library')
+      await navigate('Clean up')
+      await section('Cleanup sections', 'Files and caches')
+      const checkbox = `document.querySelector('input[aria-label="Select Hook scripts nothing runs"]')`
+      await client.waitFor(`${checkbox}?.disabled === true`)
+      assert.ok((await client.evaluate(`${checkbox}.closest('tr').textContent`)).includes('cannot establish that they are unused'))
+      assert.equal(await client.evaluate(`${checkbox}.checked`), false)
+      await client.evaluate(`${button('Files and caches')}.focus()`)
+      await press('Tab')
+      assert.equal(await client.evaluate(`document.activeElement === ${checkbox}`), false)
+      await assertInViewport('document.activeElement')
+      await assertNoHorizontalOverflow()
+      await capture(`101-hooks-keyboard-${width}`)
+      await client.evaluate(`${checkbox}.closest('tr').scrollIntoView({ block: 'center' })`)
+      await assertInViewport(`${checkbox}.closest('tr')`)
+      await capture(`101-hooks-kept-${width}`)
+      const preview = await call(`(await window.kondo.tidyPreview()).data`)
+      const result = await call(`await window.kondo.tidySweep(['reclaimable-caches', 'unarmed-hook-scripts'], ${JSON.stringify(preview.reviewToken)})`)
+      assert.equal(result.data, null)
+      assert.deepEqual(result.errors.map((error) => error.code), ['not-permitted'])
+      assert.deepEqual(await fixtureSnapshot(), before)
+      assert.equal(await journalBytes(), journal)
+    }
+  } finally {
+    await fs.writeFile(settings, original)
+    await fs.rm(script)
+    await client.send('Emulation.clearDeviceMetricsOverride')
+  }
+})
+
 test('file cleanup review applies once and Undo restores all fixture bytes', async () => {
   const snapshot = async (root) => {
     const files = []
