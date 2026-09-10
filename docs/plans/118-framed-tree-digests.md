@@ -1,6 +1,6 @@
 # Plan: unambiguous logical tree digests
 
-Status: **implemented — awaiting acceptance**
+Status: **done — owner accepted 2026-09-09**
 
 Identical skill manifests plus `a=bc` versus `ab=c` currently produce the same
 logical tree digest. The concatenation loses filename/content boundaries, so
@@ -67,3 +67,10 @@ Separate synthetic probes confirmed ambiguous encodings in `physicalDigest`
 and the test helper `hashTree`; evidence was returned to the coordinator for
 separate tracking. Those helpers were not changed. Critical new assertions also
 observe exact paths, bytes and writes instead of relying on `hashTree` alone.
+
+## Owner acceptance
+
+The owner accepted this implementation and authorized local main integration on
+2026-09-09. The combined reviewed source at8bac2b6 passed713 tests with14 existing
+Windows file-symlink skips,26/26 Electron tests, typecheck, lint, staged guards and
+build. This local acceptance does not establish final release approval.
