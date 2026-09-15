@@ -201,6 +201,12 @@ All notable changes to kondo are documented here. The format follows
 
 ### Security
 
+- The release workflow builds installers and a draft only for a tag on
+  `main`'s current tip; any other tag fails before packaging, naming the tag
+  commit and the candidate commit. A manual rehearsal never creates a draft,
+  even on a tag ref. The check runs from the tagged commit, so the publisher
+  still confirms the tag's commit before publishing.
+
 - Settings content that can hold credentials no longer reaches the window.
   Settings files list only documented top-level setting names and say when
   others exist. Hooks show their documented event, handler type, whether a
