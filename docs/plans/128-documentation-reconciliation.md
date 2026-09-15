@@ -1,7 +1,6 @@
 # Plan: documentation and Foreman reconciliation
 
-Status: **awaiting owner acceptance** — uncommitted on
-`claude/128-documentation-reconciliation`, based on `638dec7`
+Status: **done — accepted 2026-09-15**
 
 A reconciliation pass on 2026-09-14 and 2026-09-15 compared every tracked
 document and the local Foreman records with the code at `638dec7`. Several
@@ -88,3 +87,11 @@ Run on 2026-09-15 against the uncommitted branch:
 A new session can read the documentation map, AGENTS and CLAUDE, the roadmap
 and the plans index and learn what ships today, what is suspended, what is open
 and how to verify a change, without meeting a claim the code contradicts.
+
+## Owner acceptance
+
+The owner accepted this result and authorized its local integration into
+`main` on 2026-09-15; the reviewed documents were committed as `9671ed6`.
+At the owner's request the 8 superseded lessons were pruned from the local
+lesson store and the retired `fableEnabled` setting was removed from the local
+Foreman configuration. Nothing was pushed.
