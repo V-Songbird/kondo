@@ -108,9 +108,10 @@ export type EntityKind =
   | 'session'
   | 'project'
   /**
-   * One MCP server declaration. Read-only today: the files that hold them —
-   * `~/.claude.json` and `<project>/.mcp.json` — are ones kondo cannot yet
-   * write safely (ADR-0009), so the matrix refuses every operation.
+   * One MCP server declaration. The one change kondo plans for it is Claude's
+   * own per-project switch — the `disabledMcpServers` list of that project's
+   * `~/.claude.json` entry (ADR-0006) — whose execution 098 refuses. Approval
+   * and restriction are read and never written.
    */
   | 'mcp'
   /**
@@ -635,6 +636,39 @@ export type McpScope = 'user' | 'local' | 'project'
 export type McpTransport = 'stdio' | 'http' | 'sse' | 'ws' | 'unknown'
 
 /**
+ * What kondo could establish about one declaration in one place, from the
+ * files it reads (domain.md, entry 103). Claude Code decides it from three
+ * independent mechanisms — the per-project `disabledMcpServers` switch, the
+ * approval of a `.mcp.json` declaration, and the allow and deny lists — and
+ * the first of these that holds is what crosses:
+ *
+ * - `overridden` — a higher-precedence declaration of the same name is the
+ *   one Claude uses here, so this one is inert;
+ * - `restricted` — a `deniedMcpServers` entry names it;
+ * - `rejected` — a `disabledMcpjsonServers` entry rejects it;
+ * - `pending` — no approval kondo can read, so Claude Code asks before using
+ *   it (a `-p`, SDK or cloud session loads it without asking);
+ * - `disabled` — this project's `disabledMcpServers` names it;
+ * - `unknown` — a positive answer depends on something kondo may not read:
+ *   managed policy, git's view of a local settings file, or a file that did
+ *   not parse (ADR-0005);
+ * - `approved` — an approval Claude honours here lets the `.mcp.json`
+ *   declaration load;
+ * - `configured` — a user or local declaration nothing switches off.
+ *
+ * None of them says the server runs: kondo never starts or contacts one.
+ */
+export type McpServerStatus =
+  | 'configured'
+  | 'approved'
+  | 'pending'
+  | 'rejected'
+  | 'disabled'
+  | 'restricted'
+  | 'overridden'
+  | 'unknown'
+
+/**
  * One MCP server as kondo lists it. Deliberately thin: a declaration also
  * carries `env` and `headers`, which hold API keys and bearer tokens in the
  * wild, so nothing here can be built from either — not their values and not
@@ -658,14 +692,49 @@ export interface McpServerInfo extends EntityIdentity {
    * null for the user scope.
    */
   project: string | null
-  /** False when the owning project's disable list names it. */
-  enabled: boolean
+  /**
+   * What kondo could establish about this declaration where it is declared:
+   * the user scope, or the project whose registry entry or `.mcp.json` holds
+   * it. A project evaluates the user scope's declarations for itself —
+   * `ProjectDetail.inheritedMcpServers` carries those answers.
+   */
+  status: McpServerStatus
+  /**
+   * Why the status is anything but `configured` or `approved`, in one display
+   * sentence built in the main process, naming the file that decided it
+   * (ADR-0022). Null for those two.
+   */
+  statusReason: string | null
   /**
    * The path this declaration is tied to is no longer on disk — a server
-   * left behind by a project that has been deleted or moved. Entry 031 is
-   * what will be able to remove one.
+   * left behind by a project that has been deleted or moved. Its whole
+   * registry entry is a settings leftover, and removing one is refused while
+   * settings edits are (ADR-0010).
    */
   orphan: boolean
+}
+
+/**
+ * A user-scope declaration as one project sees it (entry 103). Claude's `/mcp`
+ * switch is per project even for a server declared for every project, so the
+ * project page lists what it inherits and offers exactly that switch — the
+ * shape `InheritedSkillState` gives a global skill.
+ */
+export interface InheritedMcpServerState {
+  /** The user-scope declaration, with its own global row's capabilities. */
+  server: McpServerInfo
+  /** The `project:code:<dirName>` id of the project looking at it (ADR-0008). */
+  projectId: string
+  /** What kondo could establish about the declaration in this project. */
+  status: McpServerStatus
+  /** Why, in the same terms as `McpServerInfo.statusReason`. */
+  statusReason: string | null
+  /**
+   * The per-project switch: `disable` while this project's
+   * `disabledMcpServers` does not name the server, `enable` while it does.
+   * Both edit that project's registry entry and nothing else.
+   */
+  capabilities: Capabilities
 }
 
 /**
@@ -1172,6 +1241,12 @@ export interface ProjectDetail {
    * (entry 062). Empty on the global row, whose own skills are `skills`.
    */
   inheritedSkills: InheritedSkillState[]
+  /**
+   * The user-scope MCP declarations this project inherits, with what each is
+   * in this project and the switch it has for it (entry 103). Empty on the
+   * global row, whose own declarations are `mcpServers`.
+   */
+  inheritedMcpServers: InheritedMcpServerState[]
   /** Empty on the global row: a session belongs to the project it recorded. */
   sessions: SessionSummary[]
   /**

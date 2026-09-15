@@ -228,9 +228,11 @@ is seen without a restart:
   Windows and 26 with `\`, 17 paths present under both spellings). This is
   the reverse map for `projects/` below. Per entry, kondo reads
   `mcpServers` (per-project MCP servers, 20 entries observed),
-  `disabledMcpServers` (7) and `disabledMcpjsonServers` (an empty array here).
-  `enabledMcpjsonServers` (also empty) and `allowedTools` are present but
-  unread, and the rest — `lastSessionFirstPrompt`, `lastCost`, token counts,
+  `disabledMcpServers` (7), `hasTrustDialogAccepted`, and the legacy
+  `disabledMcpjsonServers`, `enabledMcpjsonServers` and
+  `enableAllProjectMcpServers` approvals (empty here) that Claude's startup
+  migrates into the project's `settings.local.json`. `allowedTools` is present
+  but unread, and the rest — `lastSessionFirstPrompt`, `lastCost`, token counts,
   `lastSessionId` — is session telemetry kondo never surfaces. 52 keys pointed at directories that no longer exist ✅:
   that is the dead-project signal. These keys are also **half of
   the project set**: kondo lists the union of them and the `projects/`
@@ -270,28 +272,79 @@ process or `{ type, url, headers? }` for a remote one ✅. **`env` and
 either — not their values and not their key names. What it keeps is the name,
 the transport, and the file that declares it.
 
-| Scope | Where | Id | Disabled by |
+| Scope | Where | Id | Approval |
 |---|---|---|---|
-| `user` | `mcpServers` of `~/.claude.json` ✅ | `mcp:user:<name>` | nothing — the user scope has no disable list |
-| `local` | `projects[<abs path>].mcpServers` of `~/.claude.json` ✅ (20 entries observed) | `mcp:local:<flat>/<name>` | `projects[<abs path>].disabledMcpServers` ✅ (7 observed) |
-| `project` | `mcpServers` of `<project>/.mcp.json` ✅ | `mcp:project:<flat>/<name>` | `projects[<abs path>].disabledMcpjsonServers` ✅ (empty array here) |
+| `user` | `mcpServers` of `~/.claude.json` ✅ | `mcp:user:<name>` | none needed |
+| `local` | `projects[<abs path>].mcpServers` of `~/.claude.json` ✅ (20 entries observed) | `mcp:local:<flat>/<name>` | none needed |
+| `project` | `mcpServers` of `<project>/.mcp.json` ✅ | `mcp:project:<flat>/<name>` | Claude asks before using it |
 
 `<flat>` is the flattened project path (ADR-0009), which is what joins a
-declaration to the project directory it belongs to. A `local` declaration
-whose registry path fails its `stat` is reported with `orphan: true`, the
-dead-project signal in its MCP form. Only a path that is gone (ENOENT) makes
-it a leftover that `configOrphansPreview` offers to splice out (ADR-0010); any
-other failure also records a `stat-failed` error and is never offered.
-Discovery is tier-1 (ADR-0007): one registry
-parse, one `stat` per registry entry that actually declares a server, one
-`.mcp.json` read per verified project. The two disable lists are also what
-kondo's toggle plans (execution refused): `disable` adds the name to the
-project's `disabledMcpServers` (a `local` declaration) or
-`disabledMcpjsonServers` (a `project` one) and `enable` takes it out, each as
-one splice of that list's value carrying its planned digest (ADR-0010).
-The user scope has no list and stays
-read-only; a declaration is never moved between files and `.mcp.json` is
-never written (ADR-0002).
+declaration to the project directory it belongs to. Kondo reads `.mcp.json`
+for every project whose path is there and which the registry names or which
+holds a `.claude` store — a project with no store still has its committed
+servers loaded by Claude — while the stores a mutation resolves stay the
+verified ones. Discovery is tier-1 (ADR-0007): one registry parse, the
+settings layers that are read anyway, one `stat` per registry entry that
+actually declares a server, and one `.mcp.json` read per such project.
+
+**What Claude Code does with a declaration**, read from the 2.1.271 binary and
+cross-checked in the 2.1.269 and 2.1.270 binaries on 2026-09-15 ✅, against the
+[MCP guide](https://code.claude.com/docs/en/mcp),
+[settings](https://code.claude.com/docs/en/settings) and
+[managed MCP](https://code.claude.com/docs/en/managed-mcp) pages checked the
+same day ◇. Three independent mechanisms decide it:
+
+- **The per-project switch.** `projects[<abs path>].disabledMcpServers` in
+  `~/.claude.json` ✅ (7 entries observed) is what the `/mcp` toggle writes, by
+  exact name and whatever scope declared the server — a user-scope one
+  included, for that project alone. `enabledMcpServers` beside it is the opt-in
+  list for built-in servers that default to off, which kondo does not list.
+- **Approval of a `.mcp.json` server.** `enabledMcpjsonServers`,
+  `disabledMcpjsonServers` and `enableAllProjectMcpServers` in settings files,
+  which Claude's own approval prompt writes into that project's
+  `settings.local.json` ✅. A rejection in any settings file rejects the server.
+  An approval counts when the project's registry entry records
+  `hasTrustDialogAccepted: true`; in an untrusted project only user, managed or
+  `--settings` approvals count, plus a local file git does not track ✅. Names
+  in these keys match after Claude's normalization — every character outside
+  `[A-Za-z0-9_-]` becomes `_` ✅. Older versions kept the same three keys in the
+  registry entry; the current startup merges them into that project's
+  `settings.local.json` and deletes them ✅, so kondo reads them as statements
+  of that layer.
+- **Allow and deny lists.** `deniedMcpServers` and `allowedMcpServers` may sit
+  in any settings file and merge from every scope ◇. A deny entry matches an
+  exact `serverName`, an exact `serverCommand`, or a `serverUrl` with `*`
+  wildcards, and nothing overrides it; an allowlist blocks what it does not
+  match. `allowManagedMcpServersOnly` and a `managed-mcp.json` with exclusive
+  control are managed-only ◇.
+
+✅ **Kondo projection, verified with synthetic fixtures:** each declaration
+carries one status for the place it is declared for, the first of these that
+holds: `overridden` (a higher-precedence declaration of the same name is the
+one Claude reads), `restricted` (a readable `deniedMcpServers` names it),
+`rejected`, `pending`, `disabled` (the project's switch), `unknown`, then
+`approved` or `configured`. `unknown` replaces a positive answer whenever it
+depends on something kondo may not read: a settings layer or a registry that
+did not parse, an allowlist or a URL or command deny rule (kondo evaluates
+neither), or an untrusted project whose only approval sits in its local layer.
+Managed settings, `managed-mcp.json`, `--settings`, the approvals a running
+session holds and the environment stay outside the boundary and are stated
+rather than guessed. No status says a server connects.
+
+A `local` declaration whose registry path fails its `stat` is reported with
+`orphan: true`, the dead-project signal in its MCP form. Only a path that is
+gone (ENOENT) makes it a leftover that `configOrphansPreview` offers to splice
+out (ADR-0010); any other failure also records a `stat-failed` error and is
+never offered.
+
+That switch is also what kondo's toggle plans (execution refused): `disable`
+adds the name to the project's `disabledMcpServers` and `enable` takes it out,
+as one splice of the list's value carrying its planned digest (ADR-0010). A
+user-scope declaration is switched from a project's page, which names the
+project in the request — `ProjectDetail.inheritedMcpServers` is what that page
+lists. Approval is read and never planned, because Claude gates it behind its
+own prompt; `.mcp.json` is never written (ADR-0002), and a declaration is never
+moved between files.
 
 `~/.claude/.mcp.json` also exists inside the user store (empty `mcpServers`
 on the observed machine ✅) and is **not** one of the three scopes above;
@@ -317,7 +370,9 @@ summary carries only the 161 documented settings-file names it states, and
 null, a documented handler type or null, `hasMatcher`, the status of the first
 script its command names, and the file, layer and project that arm it; command
 text, matcher patterns and script paths stay in main. An MCP transport outside
-the documented set reads as `unknown`. Settings read failures and hook-script
+the documented set reads as `unknown`, and a declaration also carries one
+validated status with, where that status needs one, a fixed sentence naming the
+settings file that decided it. Settings read failures and hook-script
 stat failures carry a fixed sentence and the settings file's display path. A
 JSON syntax error from a settings file, the registry, `.mcp.json`, the plugin
 manifest or a journal line carries one fixed sentence, because V8's message
@@ -542,7 +597,10 @@ privacy erasure ([ADR-0016](adr/0016-desktop-session-boundary.md)).
 - `settings.json` (project scope, committed) and `settings.local.json`
   (local scope, git-ignored) — same schema family as user settings ◇.
   `settings.local.json` carrying `enabledPlugins` is observed in the wild ✅;
-  `hooks` and `permissions` are expected here too ◇.
+  `hooks` and `permissions` are expected here too ◇. Claude's MCP approval
+  prompt writes its answer here as well — `enabledMcpjsonServers`,
+  `disabledMcpjsonServers` or `enableAllProjectMcpServers` ✅ — which is why
+  this file decides whether a `.mcp.json` server loads.
 - `skills/`, `agents/`, `rules/`, `hooks/` ✅ — project-scope variants,
   observed in every sampled project store (`agents/*.md`, `rules/*.md`,
   `hooks/` scripts with `__pycache__` and `*.test.js` noise beside them).
@@ -756,13 +814,6 @@ boundary test observes. Names and sizes remain available to store reports.
 Checked against Claude Code documentation on 2026-09-06; each is open work in
 [ROADMAP.md](../ROADMAP.md).
 
-- MCP approval, settings restrictions and per-project disablement are distinct
-  states in Claude Code ✅. Kondo's current boolean and historical disable-list
-  reader do not represent all of them; its displayed `on` does not prove that
-  Claude has approved or connected that server. Reconcile reader and toggle
-  conventions before claiming complete MCP management support.
-  [MCP status](https://code.claude.com/docs/en/mcp#server-status),
-  [disable a server](https://code.claude.com/docs/en/mcp#disable-a-server-without-removing-it).
 - Plugin components can use layouts beyond `<install>/skills/` ✅, which is
   still the only layout Kondo's plugin-skills reader inventories.
   [Plugin skills](https://code.claude.com/docs/en/plugins-reference#skills).

@@ -17,7 +17,12 @@ validated states, chosen in the main process before a DTO is built:
   the first script its command names, and the settings file, layer and project
   that arm it. Command text, matcher patterns and script paths stay in main.
 - An MCP transport is `stdio`, `http`, `sse`, `ws` or `unknown`;
-  `streamable-http` reads as `http`.
+  `streamable-http` reads as `http`. A declaration also carries one validated
+  status — `configured`, `approved`, `pending`, `rejected`, `disabled`,
+  `restricted`, `overridden` or `unknown` — and, where that status needs one, a
+  fixed sentence naming the settings file that decided it. A declaration's
+  `env`, `headers`, command and URL stay in main, and a restriction rule kondo
+  does not evaluate leaves the status `unknown` rather than quoting the rule.
 - A failure while reading a settings file or statting a hook script keeps its
   code and the settings file's display path, with Kondo's own sentence instead
   of exception text. A JSON syntax error never contributes its message anywhere,

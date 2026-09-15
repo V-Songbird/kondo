@@ -240,7 +240,8 @@ describe('the Library catalog', () => {
       transport: 'stdio',
       source: '~/.claude.json',
       project: 'D:/Projects/removed',
-      enabled: true,
+      status: 'configured',
+      statusReason: null,
       orphan: true
     }
     const found = findings({ ...empty, mcp: [server] })

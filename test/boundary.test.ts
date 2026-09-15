@@ -118,6 +118,7 @@ function expectNoProtectedReads(calls: readonly (readonly unknown[])[]): void {
 describe('privacy boundary (ADR-0002)', () => {
   let world: FixtureWorld
   let workdir: string
+  let plain: string
   let api: KondoApi
   let protectedFiles: string[]
 
@@ -125,6 +126,14 @@ describe('privacy boundary (ADR-0002)', () => {
     world = await makeWorld()
     protectedFiles = await writeReadNeverFiles(world)
     workdir = path.join(world.base, 'work', 'proj')
+    // Registered and present with no `.claude` at all: its `.mcp.json` is the
+    // one file of it kondo may open (entry 103), and the decoys beside it stay shut.
+    plain = path.join(world.base, 'work', 'plain')
+    await writeFileTree(plain, {
+      'README.md': 'project file, off-limits',
+      'CLAUDE.md': 'project instructions, off-limits',
+      '.mcp.local.json': writeJson({ mcpServers: { sneaky: mcpServer() } })
+    })
     await writeFileTree(world.userRoot, {
       [`projects/${flattenPath(workdir)}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
       'settings.json': writeJson({ enabledPlugins: {} }),
@@ -162,8 +171,11 @@ describe('privacy boundary (ADR-0002)', () => {
     })
     await registerMcp(
       world,
-      { mcpServers: { registry: mcpServer() }, projects: { [workdir]: {} } },
-      { [workdir]: { mcpServers: { committed: mcpServer() } } }
+      { mcpServers: { registry: mcpServer() }, projects: { [workdir]: {}, [plain]: {} } },
+      {
+        [workdir]: { mcpServers: { committed: mcpServer() } },
+        [plain]: { mcpServers: { bare: mcpServer() } }
+      }
     )
     api = createWorkspace({ locator: world.locator, platform: process.platform })
   })
@@ -184,14 +196,18 @@ describe('privacy boundary (ADR-0002)', () => {
 
     const projects = await api.sessionProjects()
     expect(projects.data[0]).not.toHaveProperty('guessedPath')
-    const sessions = await api.sessionList(projects.data[0]!.id)
+    // `workdir` is the one with a transcript; `plain` is registered with none.
+    const project = `project:code:${flattenPath(workdir)}`
+    expect(projects.data.map((row) => row.id)).toContain(project)
+    const sessions = await api.sessionList(project)
     const review = await api.sessionTrashPreview([sessions.data[0]!.id])
     expect(review.errors).toEqual([])
     expect(review.data?.sessions.map((session) => session.id)).toEqual([sessions.data[0]!.id])
     await api.sessionDetail(sessions.data[0]!.id)
-    await api.sessionNearDuplicates(projects.data[0]!.id)
+    await api.sessionNearDuplicates(project)
     await api.projectsList()
-    await api.projectDetail(projects.data[0]!.id)
+    await api.projectDetail(project)
+    await api.projectDetail(`project:code:${flattenPath(plain)}`)
     await api.projectDetail('store:user:user')
     await api.storesOverview()
     await api.desktopSessions()
@@ -212,7 +228,9 @@ describe('privacy boundary (ADR-0002)', () => {
     expect(inventory.byDirName.get(flattenPath(workdir))?.guessedPath).toBe(workdir)
     const servers = await api.entityList('mcp')
     expect(servers.data.map((server) => server.id).sort()).toEqual([
-      `mcp:project:${flattenPath(workdir)}/committed`, 'mcp:user:registry'
+      `mcp:project:${flattenPath(plain)}/bare`,
+      `mcp:project:${flattenPath(workdir)}/committed`,
+      'mcp:user:registry'
     ].sort())
 
     for (const kind of ['agent', 'command', 'rule', 'output-style'] as const) {
@@ -236,8 +254,12 @@ describe('privacy boundary (ADR-0002)', () => {
       target === world.locator.userConfigFile ||
       within(claudeDir, target) ||
       target === workdir ||
+      // A project with no store: its root and the `.claude` that is not there.
+      target === plain ||
+      target === path.join(plain, '.claude') ||
       // The single ADR-0002 amendment: project-scope MCP servers.
-      target === path.join(workdir, '.mcp.json')
+      target === path.join(workdir, '.mcp.json') ||
+      target === path.join(plain, '.mcp.json')
 
     expect(reads).toHaveBeenCalled()
     expect(contentCalls.some((call) => call.method === 'createReadStream')).toBe(true)
@@ -266,7 +288,14 @@ describe('privacy boundary (ADR-0002)', () => {
       .filter((target) => !stores.some((root) => within(root, target)))
       .sort()
     expect(outside).toEqual(
-      [workdir, path.join(workdir, '.mcp.json'), world.locator.userConfigFile].sort()
+      [
+        workdir,
+        path.join(workdir, '.mcp.json'),
+        plain,
+        path.join(plain, '.claude'),
+        path.join(plain, '.mcp.json'),
+        world.locator.userConfigFile
+      ].sort()
     )
   })
 

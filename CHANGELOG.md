@@ -20,6 +20,59 @@ All notable changes to kondo are documented here. The format follows
   or not an absolute path. The window title names the profile too, so two
   profiles stay apart in the taskbar.
 
+- Install documentation now lists Kondo's data locations, uninstall retention
+  and removal, and all three root overrides for disposable-store rehearsals.
+
+- Packaged applications include the original IBM Plex OFL license and a
+  third-party notice identifying IBM Plex and Electron, linked from README.
+
+- Themes lets you choose Chalk (the default), Parchment, Sage, Slate, Carbon,
+  or the original vivid Signal design. Kondo remembers the choice locally and
+  applies it to the app and native window controls.
+
+- Library explains the item types and links skills, plugins and other supported
+  entries to their existing project management controls.
+- Named search, selection and move controls; keyboard session details; a skip
+  link; and Cancel/Escape focus handling for inline confirmations.
+
+- **A mark**: `k_`, the first letter of the wordmark and the caret that closes
+  it, drawn once in [src/assets/kondo-mark.svg](src/assets/kondo-mark.svg) and
+  used everywhere — the window and taskbar icon, the left rail, the splash, and
+  the head of both READMEs.
+
+- **A splash window** that owns kondo's first read. The main window stays
+  hidden until the renderer says its first scan has settled, so what replaces
+  the splash is a page with rows in it rather than a skeleton, and `Scanning…`
+  no longer appears on launch. The splash holds for 900 ms at minimum — a store
+  small enough to read in a blink used to make it a flash — and hands over
+  after 8 s regardless, so a read that never settles still shows a window.
+
+- **Library**, now the starting destination and the other lens on the same set: the
+  *named object* is the row rather than the project. One page per skill,
+  plugin, hook, MCP server, agent, command, rule, output style or settings
+  file, listing every scope it lives in with that scope's own state, the
+  settings file that decided it, and the digest that says whether two copies
+  are actually the same skill.
+  - It answers four questions no screen answered before: where does this skill
+    live, which hook declarations the scanned settings files hold, which
+    settings file switched that off, and am I done. On the owner's store the first three used to cost
+    11,517 project pages.
+  - `Needs a look` collects the findings and says why each one is a finding —
+    a hook naming a script that is not on disk, a declaration whose folder is
+    gone, a name repeated with different contents, a plugin switch with no
+    plugin. Getting it to zero is the answer to the fourth question. Every row
+    is evidence, never a verdict about what to remove.
+  - Five bridge channels were already wired and never called — `skillsList`,
+    `pluginsList`, `hooksList`, `settingsLayers`, `pluginSkills` — so this
+    needed **no main-process work at all**. `SkillOverrideState.layerPath` was
+    computed for every skill and referenced nowhere under `src/`; it is now
+    printed rather than hovered for.
+  - Read-only on purpose. Every mutation still runs from the project page,
+    where it is tested; moving the controls here wants a pending destination
+    row and a plan-without-applying step, and both are their own change.
+  - The catalog is a pure module beside `project-rows.ts` and
+    `orphan-rows.ts`, tested without a DOM.
+
 ### Changed
 
 - Each Claude profile keeps its own Kondo history, trash, caches and window
@@ -29,6 +82,59 @@ All notable changes to kondo are documented here. The format follows
   them. A data directory now records which profile it serves and refuses a
   launch that brings another one, rather than mixing two profiles' Undo
   history.
+
+- Connections now say what Claude Code does with each MCP server where it is
+  declared: configured or approved, waiting for approval, rejected, switched
+  off for that project, blocked by a settings rule, replaced by another
+  declaration of the same name, or unknown where the answer lies outside the
+  files Kondo may read. Each state names the file that decided it. A rejection
+  written only in a project's `settings.local.json` no longer reads as on; a
+  registered project whose only Claude file is `.mcp.json` now appears with its
+  servers; and a connection shared with every project is switched off one
+  project at a time, from that project's page. Those switches remain
+  temporarily unavailable because they edit settings, so Projects and Library
+  show the state and offer no control. Kondo does not read managed policy, does
+  not evaluate allowlists or URL and command rules, and never checks whether a
+  server is running.
+
+- Release targets explicitly select Windows x64 NSIS, Apple silicon arm64 DMG
+  and Linux x64 AppImage. Installation guidance distinguishes recorded Windows
+  validation from CI smoke requirements and documents scoped macOS quarantine
+  handling and distribution-specific FUSE compatibility libraries.
+
+- Library is now the starting screen. Four primary destinations explain their
+  purpose; settings leftovers and duplicate skills are inside Clean up.
+- Library opens the matching project category and preserves search/selection
+  on return. Projects starts with an overview and focuses on one category at
+  a time; paths, hashes and IDs use optional disclosures.
+- At narrow desktop widths, Library and Projects show a browser or detail
+  pane with a Back action. Keyboard focus follows navigation and results.
+- Cleanup has explicit choose/review/apply steps and explains that files in
+  trash still consume space. History places changes and Undo before permanent
+  trash deletion; partial cleanup results retain their immediate Undo action.
+
+- **No OS title bar.** The window is `titleBarStyle: 'hidden'` with a native
+  overlay for minimise/maximise/close in kondo's own colours, the page's top
+  strip drags the window, and the default `File Edit View Window` menu is gone
+  off macOS, where the system menu bar owns the editing accelerators.
+
+- Where you are inside a destination now lives in `App` rather than inside the
+  view. Going to History to undo something and coming back used to unmount the
+  Projects list and drop you at the top of an unfiltered list — on a real store
+  that is 11,517 rows and up to twelve presses of "Show 200 more" to get back.
+
+- The Signal visual system replaces Flat File's dark-only appearance:
+  bold sans headings, square controls and horizontal navigation, with six
+  selectable palettes ([DESIGN.md](DESIGN.md)). The original logo is retained.
+  - Paths and identifiers retain bundled IBM Plex Mono; explanations use
+    a native sans family with bundled IBM Plex Sans as fallback. Semantic
+    colors are shared by the page, previews and native window controls.
+  - Status labels retain their `-`, `~`, `!` and `?` markers, so color alone
+    never distinguishes disabled, old, broken and unknown entries.
+  - Reversible removal and permanent deletion remain separate controls with
+    explicit labels and confirmation flows.
+  - Flattened project keys retain their split treatment; legitimate paths
+    and filenames are not altered.
 
 ### Fixed
 
@@ -131,102 +237,6 @@ All notable changes to kondo are documented here. The format follows
   summarized rather than resolved (ADR-0021), MCP and plugin inventory limits
   are stated, the `.mcp.json` privacy exception is named, and the roadmap
   records the shipped safety work.
-
-### Added
-
-- Install documentation now lists Kondo's data locations, uninstall retention
-  and removal, and all three root overrides for disposable-store rehearsals.
-
-- Packaged applications include the original IBM Plex OFL license and a
-  third-party notice identifying IBM Plex and Electron, linked from README.
-
-- Themes lets you choose Chalk (the default), Parchment, Sage, Slate, Carbon,
-  or the original vivid Signal design. Kondo remembers the choice locally and
-  applies it to the app and native window controls.
-
-- Library explains the item types and links skills, plugins and other supported
-  entries to their existing project management controls.
-- Named search, selection and move controls; keyboard session details; a skip
-  link; and Cancel/Escape focus handling for inline confirmations.
-
-- **A mark**: `k_`, the first letter of the wordmark and the caret that closes
-  it, drawn once in [src/assets/kondo-mark.svg](src/assets/kondo-mark.svg) and
-  used everywhere — the window and taskbar icon, the left rail, the splash, and
-  the head of both READMEs.
-
-- **A splash window** that owns kondo's first read. The main window stays
-  hidden until the renderer says its first scan has settled, so what replaces
-  the splash is a page with rows in it rather than a skeleton, and `Scanning…`
-  no longer appears on launch. The splash holds for 900 ms at minimum — a store
-  small enough to read in a blink used to make it a flash — and hands over
-  after 8 s regardless, so a read that never settles still shows a window.
-
-- **Library**, now the starting destination and the other lens on the same set: the
-  *named object* is the row rather than the project. One page per skill,
-  plugin, hook, MCP server, agent, command, rule, output style or settings
-  file, listing every scope it lives in with that scope's own state, the
-  settings file that decided it, and the digest that says whether two copies
-  are actually the same skill.
-  - It answers four questions no screen answered before: where does this skill
-    live, which hook declarations the scanned settings files hold, which
-    settings file switched that off, and am I done. On the owner's store the first three used to cost
-    11,517 project pages.
-  - `Needs a look` collects the findings and says why each one is a finding —
-    a hook naming a script that is not on disk, a declaration whose folder is
-    gone, a name repeated with different contents, a plugin switch with no
-    plugin. Getting it to zero is the answer to the fourth question. Every row
-    is evidence, never a verdict about what to remove.
-  - Five bridge channels were already wired and never called — `skillsList`,
-    `pluginsList`, `hooksList`, `settingsLayers`, `pluginSkills` — so this
-    needed **no main-process work at all**. `SkillOverrideState.layerPath` was
-    computed for every skill and referenced nowhere under `src/`; it is now
-    printed rather than hovered for.
-  - Read-only on purpose. Every mutation still runs from the project page,
-    where it is tested; moving the controls here wants a pending destination
-    row and a plan-without-applying step, and both are their own change.
-  - The catalog is a pure module beside `project-rows.ts` and
-    `orphan-rows.ts`, tested without a DOM.
-
-### Changed
-
-- Release targets explicitly select Windows x64 NSIS, Apple silicon arm64 DMG
-  and Linux x64 AppImage. Installation guidance distinguishes recorded Windows
-  validation from CI smoke requirements and documents scoped macOS quarantine
-  handling and distribution-specific FUSE compatibility libraries.
-
-- Library is now the starting screen. Four primary destinations explain their
-  purpose; settings leftovers and duplicate skills are inside Clean up.
-- Library opens the matching project category and preserves search/selection
-  on return. Projects starts with an overview and focuses on one category at
-  a time; paths, hashes and IDs use optional disclosures.
-- At narrow desktop widths, Library and Projects show a browser or detail
-  pane with a Back action. Keyboard focus follows navigation and results.
-- Cleanup has explicit choose/review/apply steps and explains that files in
-  trash still consume space. History places changes and Undo before permanent
-  trash deletion; partial cleanup results retain their immediate Undo action.
-
-- **No OS title bar.** The window is `titleBarStyle: 'hidden'` with a native
-  overlay for minimise/maximise/close in kondo's own colours, the page's top
-  strip drags the window, and the default `File Edit View Window` menu is gone
-  off macOS, where the system menu bar owns the editing accelerators.
-
-- Where you are inside a destination now lives in `App` rather than inside the
-  view. Going to History to undo something and coming back used to unmount the
-  Projects list and drop you at the top of an unfiltered list — on a real store
-  that is 11,517 rows and up to twelve presses of "Show 200 more" to get back.
-
-- The Signal visual system replaces Flat File's dark-only appearance:
-  bold sans headings, square controls and horizontal navigation, with six
-  selectable palettes ([DESIGN.md](DESIGN.md)). The original logo is retained.
-  - Paths and identifiers retain bundled IBM Plex Mono; explanations use
-    a native sans family with bundled IBM Plex Sans as fallback. Semantic
-    colors are shared by the page, previews and native window controls.
-  - Status labels retain their `-`, `~`, `!` and `?` markers, so color alone
-    never distinguishes disabled, old, broken and unknown entries.
-  - Reversible removal and permanent deletion remain separate controls with
-    explicit labels and confirmation flows.
-  - Flattened project keys retain their split treatment; legitimate paths
-    and filenames are not altered.
 
 ### Security
 

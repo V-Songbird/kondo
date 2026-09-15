@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { KondoApi } from '../shared/contract'
+import type { KondoApi, McpServerInfo } from '../shared/contract'
 import { slashed } from '../electron/main/workspace/display'
 import { createLocator } from '../electron/main/workspace/locator'
 import { claimDataRoot } from '../electron/main/workspace/profile'
@@ -496,8 +496,19 @@ describe('settings-derived data crosses deny-by-default (117, ADR-0022)', () => 
       { code: 'parse-failed', path: projectFile('settings.local.json'), message: INVALID_JSON },
       { code: 'stat-failed', path: projectFile('settings.json'), message: 'Kondo could not check a script this settings file names.' }
     ])
+    // Two files, one entry each: the layer that decides this project's MCP
+    // approval, and the declaration file itself. Neither is reported twice,
+    // and the unreadable layer is why the declaration reads as unknown rather
+    // than as on (entry 103).
     expect(envelopes.mcp.errors).toEqual([
+      { code: 'parse-failed', path: projectFile('settings.local.json'), message: INVALID_JSON },
       { code: 'parse-failed', path: slashed(path.join(workdir, '.mcp.json')), message: INVALID_JSON }
+    ])
+    expect(
+      (envelopes.mcp.data as McpServerInfo[]).map((server) => [server.name, server.status])
+    ).toEqual([
+      ['local', 'unknown'],
+      ['registry', 'configured']
     ])
     expect(envelopes.globalDetail.data!.mcpServers.map(({ name, transport }) => ({ name, transport })))
       .toEqual([{ name: 'registry', transport: 'unknown' }])

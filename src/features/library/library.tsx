@@ -20,6 +20,7 @@ import {
   hookName,
   objectKey,
   managementProjects,
+  mcpStatusFlag,
   scopeLabel
 } from './catalog'
 import type { CatalogInput, Flag, LibraryKind, LibraryObject } from './catalog'
@@ -594,18 +595,19 @@ function McpPage({ object, input, management }: ObjectPageProps) {
       {management}
       <Section title="Where it is configured" count={members.length}>
         <table className="ledger">
-          <thead><tr><th>Location</th><th>Configuration</th><th>Details</th></tr></thead>
+          <thead><tr><th>Location</th><th>In Claude Code</th><th>Details</th></tr></thead>
           <tbody>{members.map((server) => <tr key={server.id}>
             <td>{server.project ?? (server.scope === 'user' ? 'Global' : server.scope)}</td>
             <td>{server.orphan ? <span className="stamp-bad">project is gone</span>
-              : server.enabled ? <span className="stamp">configured</span> : <span className="stamp-off">disabled setting</span>}</td>
+              : <Chip flag={mcpStatusFlag(server.status)} />}
+              {server.statusReason !== null && <p className="mt-1 text-xs text-ink-2">{server.statusReason}</p>}</td>
             <td><details className="technical-details"><summary>Technical details</summary>
               <p>Connection type: {server.transport}</p><p className="break-all">File: {server.source}</p>
             </details></td>
           </tr>)}</tbody>
         </table>
         <p className="mt-3 text-xs">
-          Kondo reads local configuration; it does not test whether a connection is running or approved in Claude Code. Private connection values are hidden.
+          These states come from the files Kondo reads: Claude’s registry, a project’s <code>.mcp.json</code> and its settings files. Kondo does not read managed policy and does not test whether a connection is running. Private connection values are hidden.
         </p>
       </Section>
     </div>

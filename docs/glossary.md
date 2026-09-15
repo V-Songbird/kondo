@@ -118,9 +118,12 @@ current list; the saved ID is available in Conversation details.
 - **MCP server** — a Model Context Protocol server declared for Claude: at
   user scope in `~/.claude.json`, at project scope in `<project>/.mcp.json`,
   or locally for one project in `~/.claude.json`'s `projects` map. Kondo lists
-  their declarations under Connections; its on/off switches are refused while
-  settings edits are suspended (098), and it does not check runtime
-  connectivity or approval.
+  their declarations under Connections with what Claude Code does with each
+  one where it is declared — whether a `.mcp.json` server is approved, and
+  whether a project switches it off — and says it cannot tell where that
+  depends on something outside its boundary. It never checks runtime
+  connectivity, and the switch itself stays refused while settings edits are
+  suspended (098).
 - **Agent / command / rule / output style** — the other things a scope can
   hold beside skills: `agents/*.md`, `commands/*.md`, `rules/*.md`,
   `output-styles/*.md` under `~/.claude` or `<project>/.claude`. Kondo lists

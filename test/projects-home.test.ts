@@ -107,7 +107,11 @@ describe('the projects home', () => {
           [storeless]: {}
         }
       },
-      { [workdir]: { mcpServers: { teamsrv: mcpServer() } } }
+      {
+        [workdir]: { mcpServers: { teamsrv: mcpServer() } },
+        // The storeless project's one Claude file (entry 103).
+        [storeless]: { mcpServers: { plainsrv: mcpServer() } }
+      }
     )
 
     api = createWorkspace({ locator: world.locator, platform: process.platform })
@@ -180,6 +184,20 @@ describe('the projects home', () => {
     expect(row?.counts.skills).toBe(0)
     // A display path: forward slashes on every OS (ADR-0008 keeps splitting out of the renderer).
     expect(row?.path).toBe(slashed(storeless))
+  })
+
+  it('lists the MCP servers of a project whose only Claude file is .mcp.json (entry 103)', async () => {
+    const detail = await api.projectDetail(`project:code:${flattenPath(storeless)}`)
+    expect(detail.errors).toEqual([])
+    expect(detail.data?.row.hasStore).toBe(false)
+    expect(detail.data?.mcpServers.map((server) => [server.name, server.scope, server.status])).toEqual([
+      ['plainsrv', 'project', 'pending']
+    ])
+    expect(detail.data?.row.counts.mcpServers).toBe(1)
+    // The shared declarations reach it too, with what this project says about them.
+    expect(detail.data?.inheritedMcpServers.map((entry) => [entry.server.name, entry.status])).toEqual([
+      ['usersrv', 'configured']
+    ])
   })
 
   it('names a row by its last path segment, with the parent beside it (entry 060)', async () => {
@@ -260,6 +278,11 @@ describe('the projects home', () => {
       'localsrv',
       'teamsrv'
     ])
+    // A user-scope declaration is switched per project, so it is listed here
+    // rather than counted among the project's own (entry 103).
+    expect(data?.inheritedMcpServers.map((entry) => [entry.server.name, entry.status])).toEqual([
+      ['usersrv', 'configured']
+    ])
     expect(data?.sessions).toHaveLength(1)
     expect(data?.storage).toBeNull()
     // The two counts the listing could not make are made here.
@@ -279,6 +302,8 @@ describe('the projects home', () => {
     expect(data?.outputStyles.map((entry) => entry.name)).toEqual(['terse'])
     expect(data?.hooks).toHaveLength(1)
     expect(data?.mcpServers.map((server) => server.name)).toEqual(['usersrv'])
+    // Nothing inherits on the global row: these declarations are its own.
+    expect(data?.inheritedMcpServers).toEqual([])
     expect(data?.settings.map((layer) => layer.id)).toEqual(['settings:user:user'])
     // Sessions belong to the project they were recorded in, never here.
     expect(data?.sessions).toEqual([])
