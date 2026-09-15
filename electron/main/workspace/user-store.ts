@@ -21,6 +21,7 @@ import type {
   ProjectRowCounts,
   PluginEffectiveState,
   PluginInfo,
+  PluginLayerState,
   PluginScopeState,
   SettingsKey,
   SettingsLayerInfo,
@@ -622,6 +623,7 @@ export async function scanPlugins(
   const ordered = [...layers].sort(
     (a, b) => LAYER_RANK[a.info.layer] - LAYER_RANK[b.info.layer]
   )
+  for (const layer of ordered) reportUnreadablePluginStates(layer, c)
 
   // A plugin's enabled state belongs to a settings layer, not to the plugin
   // (ADR-0006), so every layer gets a row and its own matrix decision —
@@ -764,7 +766,10 @@ function resolveEffective(
   const walk = (chain: SettingsLayer[], owner: string | null): void => {
     for (const layer of chain) {
       const enabled = pluginStateIn(layer, key)
-      if (enabled === null) continue
+      // A member kondo cannot read is not a statement, so it ends nothing: an
+      // invalid higher layer never becomes a definitive answer, and it never
+      // stops a lower layer that does speak from being one (ADR-0021).
+      if (enabled === null || enabled === 'unknown') continue
       effective.push({ projectId: owner, layerId: layer.info.id, enabled })
       return
     }
@@ -780,22 +785,51 @@ function resolveEffective(
 const ENABLED_PLUGINS = 'enabledPlugins'
 
 /**
- * What one settings layer says about a plugin: true, false, or null when it
- * says nothing at all — which is what makes precedence resolvable, since a
- * silent layer cannot win over one that speaks.
+ * What one settings layer says about a plugin: true, false, `'unknown'` for a
+ * member that is present but neither, or null when it says nothing at all —
+ * which is what makes precedence resolvable, since a silent layer cannot win
+ * over one that speaks.
+ *
+ * Only a boolean is a statement. Claude's convention for this key is a
+ * boolean (ADR-0006), so kondo cannot know what a hand-written `"false"` or
+ * `0` means to Claude; coercing one with `Boolean` would answer a question it
+ * has no evidence for and read a string as *enabled* (ADR-0005, ADR-0021).
+ * `'unknown'` still means "this layer mentions the plugin", which is what
+ * keeps a broken member clearable and targetable by an edit.
  *
  * The object form is Claude's own and the only one kondo writes. The legacy
  * array form enumerates what it enables, so a key absent from it is silence
  * rather than a false.
  */
-export function pluginStateIn(layer: SettingsLayer, key: string): boolean | null {
+export function pluginStateIn(layer: SettingsLayer, key: string): PluginLayerState {
   const enabled = layer.parsed?.[ENABLED_PLUGINS]
   if (Array.isArray(enabled)) return enabled.includes(key) ? true : null
-  if (typeof enabled === 'object' && enabled !== null) {
-    const value = (enabled as Record<string, unknown>)[key]
-    return value === undefined ? null : Boolean(value)
+  const object = asObject(enabled)
+  if (object === null) return null
+  const value = object[key]
+  if (value === undefined) return null
+  return typeof value === 'boolean' ? value : 'unknown'
+}
+
+/**
+ * One itemized problem per `enabledPlugins` member that is neither `true` nor
+ * `false`, reported once per settings layer rather than once per plugin row: a
+ * member naming nothing installed may have no row of its own, and the fault
+ * belongs to the file either way.
+ *
+ * The value never crosses (ADR-0022) and neither does a key outside the
+ * `<name>@<marketplace>` grammar, which is file text rather than an identity —
+ * the same rule `readPluginInventory` follows for installation records.
+ */
+function reportUnreadablePluginStates(layer: SettingsLayer, c: Collector): void {
+  const object = asObject(layer.parsed?.[ENABLED_PLUGINS])
+  if (object === null) return
+  for (const [key, value] of Object.entries(object)) {
+    if (typeof value === 'boolean') continue
+    c.fail('parse-failed', layer.info.path, PLUGIN_KEY.test(key)
+      ? `${key} in enabledPlugins is neither true nor false; kondo cannot tell whether it is on or off here.`
+      : 'An enabledPlugins entry with an unrecognized id is neither true nor false; kondo cannot tell whether it is on or off here.')
   }
-  return null
 }
 
 // ---------------------------------------------------------------------------

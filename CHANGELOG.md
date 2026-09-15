@@ -138,6 +138,12 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- A plugin whose settings file holds something other than `true` or `false` no
+  longer reads as switched on. Kondo now shows that layer as an unrecognized
+  value, lists the file and the plugin among the scan's problems, and lets
+  whichever layer does state a real setting be the one in effect. The plugin
+  control presses none of its three positions for such a layer and says why.
+
 - Installers now carry attribution for every component they ship. The
   third-party notices add React, React DOM, scheduler and Tailwind CSS beside
   the IBM Plex fonts and Electron, and each release build checks the notices

@@ -235,13 +235,18 @@ function skillObjects(input: CatalogInput): LibraryObject[] {
 
 function pluginObjects(input: CatalogInput): LibraryObject[] {
   return input.plugins.map((plugin) => {
-    const stated = plugin.scopes.filter((scope) => scope.enabled !== null)
+    // Only a boolean is a statement, so a member kondo could not read never
+    // joins the on/off tally — counting it would flag a row "off" on the
+    // strength of a value nobody can read. It gets its own flag instead.
+    const stated = plugin.scopes.filter((scope) => typeof scope.enabled === 'boolean')
+    const unreadable = plugin.scopes.some((scope) => scope.enabled === 'unknown')
     const on = stated.filter((scope) => scope.enabled === true).length
     const flags: Flag[] = []
+    if (unreadable) flags.push({ text: 'unrecognized value', tone: 'unknown' })
     if (!plugin.installed) {
       flags.push({ text: 'leftover', tone: 'bad' })
     } else if (stated.length === 0) {
-      flags.push({ text: 'nothing says', tone: 'unknown' })
+      if (!unreadable) flags.push({ text: 'nothing says', tone: 'unknown' })
     } else if (on === stated.length) {
       flags.push({ text: stated.length === 1 ? 'on' : `on in ${on}`, tone: 'ok' })
     } else if (on === 0) {

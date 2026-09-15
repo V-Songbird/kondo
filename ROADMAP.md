@@ -67,7 +67,6 @@ Four decisions frame this work and are not up for re-argument here:
 - **Every plugin installation and component layout (106):** inventory across
   scopes, and one fixture per supported layout.
 - **Unreadable hook scripts reported as unverifiable rather than missing (127).**
-- **Non-boolean `enabledPlugins` values never read as a definite plugin state (129).**
 
 ### Privacy and safety
 
