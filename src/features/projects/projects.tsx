@@ -5,6 +5,8 @@ import type {
   InheritedSkillState,
   JournalEntryInfo,
   KondoApi,
+  McpServerInfo,
+  McpServerStatus,
   PlacedEntryInfo,
   ProjectPluginChoice,
   ProjectPluginState,
@@ -27,6 +29,7 @@ import { Refusal } from '../../ui/refusal'
 import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { flatKeyParts, formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
 import { ReviewRefusal } from '../tidy/review-refusal'
+import { mcpStatusFlag } from '../library/catalog'
 import { PluginControl } from './plugin-control'
 
 /**
@@ -723,76 +726,40 @@ function ProjectPage({
 
               {section === 'connections' && (
                 <>
-                  <p className="mb-5 text-ink-2">Connections let Claude use external tools through MCP. This list shows saved configuration, not whether a server is running or connected.</p>
+                  <p className="mb-5 text-ink-2">Connections let Claude use external tools through MCP. This list shows the saved configuration and what Claude Code does with it here, not whether a server is running or connected.</p>
+                  <p className="mb-5 text-ink-2">Turning one on or off for a project edits Claude’s settings, which Kondo cannot do safely yet. Claude Code’s own <code>/mcp</code> panel switches a connection for the project you are in.</p>
                   <Section
                     title="Connections (MCP)"
                     tone="teal"
                     count={detail.mcpServers.length}
                     empty="No connections are configured here."
                   >
-                    <table className="ledger">
-                      <thead>
-                        <tr>
-                          <th>Server</th>
-                          <th>Where</th>
-                          <th>Details</th>
-                          <th />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.mcpServers.map((server) => {
-                          // The matrix decides direction and permission (ADR-0006):
-                          // the project's disable list in ~/.claude.json is the
-                          // switch, and a scope with no such list says so on screen.
-                          const operation: ToggleOperation = server.capabilities.disable.allowed
-                            ? 'disable'
-                            : 'enable'
-                          const reason = server.capabilities[operation].allowed
-                            ? null
-                            : server.capabilities[operation].reason
-                          return (
-                            <tr key={server.id} data-force={server.enabled ? undefined : 'off'}>
-                              <td className="font-medium whitespace-nowrap">
-                                {server.name}
-                                {!server.enabled && <span className="stamp-off ml-2">off</span>}
-                                {server.orphan && (
-                                  <span
-                                    className="stamp-bad ml-2"
-                                    title="The folder this declaration points at is no longer on disk."
-                                  >
-                                    project is gone
-                                  </span>
-                                )}
-                              </td>
-                              <td>
-                                <span className="stamp">{server.scope === 'user' ? 'All projects' : server.scope === 'local' ? 'This project only' : 'This project'}</span>
-                              </td>
-                              <td className="text-ink-2">
-                                <details>
-                                  <summary>Connection details</summary>
-                                  <div className="mt-2 text-xs break-words">Transport: {server.transport}<br />Settings file: {server.source}</div>
-                                </details>
-                              </td>
-                              <td className="text-right">
-                                <button
-                                  type="button"
-                                  disabled={reason !== null || busy}
-                                  aria-label={`${operation === 'disable' ? 'Disable' : 'Enable'} connection ${server.name}`}
-                                  className="btn btn-quiet btn-sm"
-                                  onClick={() =>
-                                    void run((api) => api.entityMutate(server.id, { op: operation }))
-                                  }
-                                >
-                                  {operation === 'disable' ? 'Disable' : 'Enable'}
-                                </button>
-                                <Refusal reason={reason} />
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
+                    <McpTable
+                      rows={detail.mcpServers.map((server) => ({
+                        server,
+                        status: server.status,
+                        statusReason: server.statusReason
+                      }))}
+                    />
                   </Section>
+                  {!row.global && (
+                    <Section
+                      title="Shared from All projects"
+                      tone="blush"
+                      count={detail.inheritedMcpServers.length}
+                      empty="No shared connections are available for this project."
+                    >
+                      {/* A user-scope declaration reaches every project, and
+                          Claude switches it off one project at a time. */}
+                      <McpTable
+                        rows={detail.inheritedMcpServers.map((entry) => ({
+                          server: entry.server,
+                          status: entry.status,
+                          statusReason: entry.statusReason
+                        }))}
+                      />
+                    </Section>
+                  )}
                 </>
               )}
 
@@ -1148,6 +1115,79 @@ function InheritedSkillTable({
                   {operation === 'disable' ? 'Off here' : 'Follow shared setting'}
                 </button>
                 <Refusal reason={reason} />
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
+/**
+ * One MCP declaration per row: where it is declared, what Claude Code does
+ * with it here, and why (entry 103). No switch — the change is a settings
+ * edit, refused whole (ADR-0010) — so the section says that once above the
+ * table instead of offering a control that cannot run.
+ */
+function McpTable({
+  rows
+}: {
+  rows: Array<{ server: McpServerInfo; status: McpServerStatus; statusReason: string | null }>
+}) {
+  return (
+    <table className="ledger">
+      <thead>
+        <tr>
+          <th>Server</th>
+          <th>Where</th>
+          <th>In Claude Code</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(({ server, status, statusReason }) => {
+          const flag = mcpStatusFlag(status)
+          const inUse = status === 'configured' || status === 'approved'
+          return (
+            <tr key={server.id} data-force={inUse ? undefined : 'off'}>
+              <td className="font-medium whitespace-nowrap">
+                {server.name}
+                {server.orphan && (
+                  <span
+                    className="stamp-bad ml-2"
+                    title="The folder this declaration points at is no longer on disk."
+                  >
+                    project is gone
+                  </span>
+                )}
+              </td>
+              <td>
+                <span className="stamp">
+                  {server.scope === 'user'
+                    ? 'All projects'
+                    : server.scope === 'local'
+                      ? 'This project only'
+                      : 'This project'}
+                </span>
+              </td>
+              <td>
+                <span className={flag.tone === 'fact' ? 'stamp' : `stamp-${flag.tone}`}>
+                  {flag.text}
+                </span>
+                {statusReason !== null && (
+                  <p className="mt-1 text-xs text-ink-2">{statusReason}</p>
+                )}
+              </td>
+              <td className="text-ink-2">
+                <details>
+                  <summary>Connection details</summary>
+                  <div className="mt-2 text-xs break-words">
+                    Transport: {server.transport}
+                    <br />
+                    Settings file: {server.source}
+                  </div>
+                </details>
               </td>
             </tr>
           )

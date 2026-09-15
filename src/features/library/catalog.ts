@@ -2,6 +2,7 @@ import type {
   HookGroup,
   HookInfo,
   McpServerInfo,
+  McpServerStatus,
   PlacedEntryInfo,
   PluginInfo,
   ProjectRow,
@@ -126,6 +127,32 @@ export function allHooks(groups: HookGroup[]): HookInfo[] {
 /** What a hook is called: its documented event; the matcher pattern stays in main. */
 export function hookName(hook: HookInfo): string {
   return hook.event ?? 'Unrecognized event'
+}
+
+/**
+ * What one MCP status is called on screen, in the register its tone names
+ * (entry 103). One vocabulary for the Library and the project pages, so the
+ * same declaration reads the same in both.
+ */
+export function mcpStatusFlag(status: McpServerStatus): Flag {
+  switch (status) {
+    case 'configured':
+      return { text: 'configured', tone: 'fact' }
+    case 'approved':
+      return { text: 'approved', tone: 'ok' }
+    case 'pending':
+      return { text: 'waiting for approval', tone: 'unknown' }
+    case 'rejected':
+      return { text: 'rejected', tone: 'off' }
+    case 'disabled':
+      return { text: 'off here', tone: 'off' }
+    case 'restricted':
+      return { text: 'blocked by settings', tone: 'off' }
+    case 'overridden':
+      return { text: 'replaced here', tone: 'unknown' }
+    default:
+      return { text: 'cannot tell', tone: 'unknown' }
+  }
 }
 
 /** Navigation uses only project ids already returned by the workspace. */
@@ -268,9 +295,18 @@ function mcpObjects(input: CatalogInput): LibraryObject[] {
   }
   return [...byName].map(([name, members]) => {
     const flags: Flag[] = []
+    // The states Claude decides separately (entry 103), most in need of a look
+    // first: a gone folder, something kondo could not establish, a server
+    // Claude Code has not been allowed to use, then plainly off or configured.
+    const inUse = (server: McpServerInfo): boolean =>
+      server.status === 'configured' || server.status === 'approved'
     if (members.some((member) => member.orphan)) {
       flags.push({ text: 'project is gone', tone: 'bad' })
-    } else if (members.every((member) => !member.enabled)) {
+    } else if (members.some((member) => member.status === 'unknown')) {
+      flags.push({ text: 'unknown', tone: 'unknown' })
+    } else if (members.some((member) => member.status === 'pending')) {
+      flags.push({ text: 'waiting for approval', tone: 'unknown' })
+    } else if (members.every((member) => !inUse(member))) {
       flags.push({ text: 'off', tone: 'off' })
     } else {
       flags.push({ text: 'on', tone: 'ok' })

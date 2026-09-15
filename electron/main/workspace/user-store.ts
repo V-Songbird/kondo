@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
+  InheritedMcpServerState,
   InheritedSkillState,
   ConfigOrphan,
   ConfigOrphanKind,
@@ -11,6 +12,7 @@ import type {
   HookType,
   McpScope,
   McpServerInfo,
+  McpServerStatus,
   McpTransport,
   PlacedEntryInfo,
   PlacedKind,
@@ -47,7 +49,9 @@ import {
   capabilitiesFor,
   inheritedSkillCapabilities,
   mcpCapabilities,
-  skillCapabilities
+  mcpSwitchCapabilities,
+  skillCapabilities,
+  type McpSwitchState
 } from './capabilities'
 import { flattenProjectPath } from './projects'
 import { projectId } from './sessions'
@@ -1060,6 +1064,24 @@ function removeEdit(object: JsonObject, member: JsonMember): SpliceEdit {
 /** The file a team commits at the project root; the ADR-0002 exception. */
 const MCP_FILE = '.mcp.json'
 
+/**
+ * Claude's own MCP keys (domain.md). `disabledMcpServers` in a project's
+ * registry entry is the `/mcp` switch: one list of names, consulted whatever
+ * scope the declaration has. The three `Mcpjson` keys are the approval of a
+ * `.mcp.json` declaration and live in settings files — older Claude Code
+ * versions kept them in the registry entry, and its startup migrates those
+ * into that project's local layer. The last two are the allow and deny lists,
+ * which any settings file may hold.
+ */
+export const DISABLED_MCP_SERVERS = 'disabledMcpServers'
+const DISABLED_MCPJSON = 'disabledMcpjsonServers'
+const ENABLED_MCPJSON = 'enabledMcpjsonServers'
+const ENABLE_ALL_MCPJSON = 'enableAllProjectMcpServers'
+const DENIED_MCP_SERVERS = 'deniedMcpServers'
+const ALLOWED_MCP_SERVERS = 'allowedMcpServers'
+/** Claude's record that a workspace was trusted, in that project's entry. */
+const TRUST_ACCEPTED = 'hasTrustDialogAccepted'
+
 export function asObject(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -1095,80 +1117,244 @@ function transportOf(declaration: Record<string, unknown>): McpTransport {
   return typeof declaration['command'] === 'string' ? 'stdio' : 'unknown'
 }
 
-interface McpEntry {
-  scope: McpScope
-  /** The part of the id after the scope (ADR-0008). */
-  key: string
-  project: string | null
-  /** Display path of the declaring file. */
-  source: string
-  name: string
-  declaration: Record<string, unknown>
-  disabled: ReadonlySet<string>
-  orphan: boolean
+/**
+ * How Claude compares a name in an approval list with a declared one: every
+ * character outside `[A-Za-z0-9_-]` becomes `_` (read off the 2.1.271 binary).
+ * The switch list and a `serverName` restriction compare exactly instead.
+ */
+const normalized = (name: string): string => name.replace(/[^a-zA-Z0-9_-]/g, '_')
+
+/** What one settings file — or a legacy registry list — says about one name. */
+interface Approvals {
+  rejects: boolean
+  approves: boolean
+  /** `enableAllProjectMcpServers`, or null where nothing states it. */
+  all: boolean | null
 }
 
-function toMcpServer(entry: McpEntry): McpServerInfo {
-  const enabled = !entry.disabled.has(entry.name)
+function approvalsIn(parsed: Record<string, unknown> | null, name: string): Approvals {
+  const names = (key: string): boolean =>
+    [...stringSet(parsed?.[key])].some((member) => normalized(member) === normalized(name))
+  const all = parsed?.[ENABLE_ALL_MCPJSON]
   return {
-    id: `mcp:${entry.scope}:${entry.key}`,
-    kind: 'mcp',
-    capabilities: mcpCapabilities(entry.scope, enabled, entry.orphan),
-    name: entry.name,
-    scope: entry.scope,
-    // Only the transport is taken off the declaration. `env` and `headers`
-    // hold API keys and bearer tokens in the wild (domain.md), so neither
-    // their values nor their names are ever built into an entity.
-    transport: transportOf(entry.declaration),
-    source: entry.source,
-    project: entry.project,
-    enabled,
-    orphan: entry.orphan
+    rejects: names(DISABLED_MCPJSON),
+    approves: names(ENABLED_MCPJSON),
+    all: typeof all === 'boolean' ? all : null
   }
 }
 
 /**
- * Every MCP server declared in the three native places (domain.md): the
- * `mcpServers` of `~/.claude.json`, the `mcpServers` of each of its
- * `projects` entries, and the `mcpServers` of each verified project's
- * `.mcp.json`.
+ * The servers one settings file blocks by name, and whether it also states
+ * rules kondo does not evaluate — an allowlist, or a deny entry matching a URL
+ * or a command. Those leave a positive answer `unknown` rather than kondo
+ * guessing at Claude's pattern matching (plan 103).
+ */
+function restrictionsIn(layer: SettingsLayer): { blocks: string[]; unevaluated: boolean } {
+  const parsed = layer.parsed
+  const denied = parsed === null ? null : parsed[DENIED_MCP_SERVERS]
+  const blocks: string[] = []
+  let unevaluated = parsed !== null && Array.isArray(parsed[ALLOWED_MCP_SERVERS])
+  for (const entry of Array.isArray(denied) ? denied : []) {
+    const name = asObject(entry)?.['serverName']
+    if (typeof name === 'string') blocks.push(name)
+    else unevaluated = true
+  }
+  return { blocks, unevaluated }
+}
+
+/**
+ * Everything one place says about the MCP servers it can use: one project, or
+ * the user scope on its own (`project` null). Built once per place, so a
+ * single pass over the registry and the settings layers answers every
+ * declaration evaluated there.
+ */
+export interface McpPlace {
+  /** The flattened project (ADR-0009), or null for the user scope. */
+  project: string | null
+  /** Display path of the registry, which holds the switch. */
+  registry: string
+  /** That project's registry entry, or `{}` when it has none. */
+  entry: Record<string, unknown>
+  /** The registry did not parse, so neither switch nor legacy list was read. */
+  blind: boolean
+  /** Highest precedence first: this project's layers, then the user layer. */
+  layers: readonly SettingsLayer[]
+  /** The names the project's own registry entry declares. */
+  local: ReadonlySet<string>
+  /** The names its `.mcp.json` declares, and that file's display path. */
+  committed: ReadonlySet<string>
+  committedPath: string
+}
+
+/** What one MCP read produced: the declarations, and the places they were read in. */
+export interface McpReading {
+  servers: McpServerInfo[]
+  /** One place per project the read touched, by flattened project name. */
+  places: ReadonlyMap<string, McpPlace>
+  /** The user scope's own place, which every project inherits from. */
+  user: McpPlace
+}
+
+/** One fixed sentence per reason, plus the file that decided it (ADR-0022). */
+const MCP_REASON = {
+  overridden: (file: string): string =>
+    `Claude uses the declaration of this name in ${file} here, so this one is not read.`,
+  restricted: (file: string): string => `${file} blocks this server with deniedMcpServers.`,
+  rejected: (file: string): string => `${file} rejects this server with disabledMcpjsonServers.`,
+  pending:
+    'No settings file kondo reads approves this server, so Claude Code asks before using it.',
+  disabled: (file: string): string =>
+    `This project switches the server off with disabledMcpServers in ${file}.`,
+  unreadable: (file: string): string =>
+    `Kondo could not read ${file}, so it cannot tell whether Claude Code uses this server here.`,
+  rules: (file: string): string => `${file} limits MCP servers with rules kondo does not evaluate.`,
+  untrusted: (file: string): string =>
+    `Only ${file} approves this server and this project is not trusted, so whether Claude Code honours it depends on git.`
+}
+
+/** The status of one declaration in one place, and what its switch can do. */
+interface McpState extends McpSwitchState {
+  status: McpServerStatus
+  statusReason: string | null
+}
+
+/**
+ * What kondo can establish about one declaration in one place, in the order
+ * Claude Code decides it (plan 103): a name a higher scope has taken, a
+ * restriction, a rejection, an approval Claude has not been given, this
+ * project's own switch, then whatever could not be read. The positive answer
+ * comes last, so nothing reads as on while a source is missing (ADR-0005).
+ */
+function evaluateMcp(
+  scope: McpScope,
+  name: string,
+  place: McpPlace,
+  orphan: boolean
+): McpState {
+  const listed =
+    place.project === null ? false
+      : place.blind ? null
+        : stringSet(place.entry[DISABLED_MCP_SERVERS]).has(name)
+  const state = (
+    status: McpServerStatus,
+    statusReason: string | null,
+    blocked: string | null = null
+  ): McpState => ({ status, statusReason, listed, blocked, reason: statusReason, orphan })
+
+  // A higher-precedence declaration of the same name is the one Claude reads
+  // here (local, then project, then user), and the switch is a list of names,
+  // so this declaration has nothing of its own to offer.
+  const shadow =
+    scope === 'user'
+      ? place.local.has(name)
+        ? place.registry
+        : place.committed.has(name)
+          ? place.committedPath
+          : null
+      : scope === 'project' && place.local.has(name)
+        ? place.registry
+        : null
+  if (shadow !== null) {
+    return state('overridden', MCP_REASON.overridden(shadow), MCP_REASON.overridden(shadow))
+  }
+
+  const blocking = place.layers.find((layer) => restrictionsIn(layer).blocks.includes(name))
+  if (blocking !== undefined) return state('restricted', MCP_REASON.restricted(blocking.info.path))
+
+  const unreadable = place.layers.find((layer) => layer.info.exists && layer.parsed === null)
+  let approvalUnknown: string | null = null
+  if (scope === 'project') {
+    const layerOf = (which: 'local' | 'project' | 'user'): SettingsLayer | undefined =>
+      place.layers.find((layer) => layer.info.layer === which)
+    const local = layerOf('local')
+    const fromLocal = approvalsIn(local?.parsed ?? null, name)
+    const fromProject = approvalsIn(layerOf('project')?.parsed ?? null, name)
+    const fromUser = approvalsIn(layerOf('user')?.parsed ?? null, name)
+    // Claude's startup merges a legacy registry list into this project's local
+    // layer, so it reads as one more statement of that layer.
+    const legacy: Approvals = place.blind
+      ? { rejects: false, approves: false, all: null }
+      : approvalsIn(place.entry, name)
+    const rejecting = [
+      { says: fromLocal, path: local?.info.path },
+      { says: fromProject, path: layerOf('project')?.info.path },
+      { says: fromUser, path: layerOf('user')?.info.path },
+      { says: legacy, path: place.registry }
+    ].find((source) => source.says.rejects)
+    // A rejection in any settings file rejects the server, trusted or not.
+    if (rejecting !== undefined) {
+      return state('rejected', MCP_REASON.rejected(rejecting.path ?? place.registry))
+    }
+    if (unreadable !== undefined) {
+      approvalUnknown = MCP_REASON.unreadable(unreadable.info.path)
+    } else if (place.blind) {
+      approvalUnknown = MCP_REASON.unreadable(place.registry)
+    } else {
+      // A legacy `true` for every server applies only where the local file
+      // states nothing, exactly as the migration merges it.
+      const localAll = fromLocal.all ?? (legacy.all === true ? true : null)
+      const localApproves = fromLocal.approves || legacy.approves
+      if (place.entry[TRUST_ACCEPTED] === true) {
+        const all = localAll ?? fromProject.all ?? fromUser.all
+        const approved =
+          all === true || localApproves || fromProject.approves || fromUser.approves
+        if (!approved) return state('pending', MCP_REASON.pending)
+      } else if (fromUser.approves || fromUser.all === true) {
+        // A user settings approval stands whether or not the project is trusted.
+      } else if (localApproves || localAll === true) {
+        // Claude honours a local approval in an untrusted project only while
+        // git does not track the file, and `.git` is outside ADR-0002.
+        approvalUnknown = MCP_REASON.untrusted(local?.info.path ?? place.registry)
+      } else {
+        return state('pending', MCP_REASON.pending)
+      }
+    }
+  }
+
+  if (listed === true) return state('disabled', MCP_REASON.disabled(place.registry))
+  if (approvalUnknown !== null) return state('unknown', approvalUnknown)
+  if (listed === null) {
+    return state('unknown', MCP_REASON.unreadable(place.registry), MCP_REASON.unreadable(place.registry))
+  }
+  if (unreadable !== undefined) return state('unknown', MCP_REASON.unreadable(unreadable.info.path))
+  const rules = place.layers.find((layer) => restrictionsIn(layer).unevaluated)
+  if (rules !== undefined) return state('unknown', MCP_REASON.rules(rules.info.path))
+  return state(scope === 'project' ? 'approved' : 'configured', null)
+}
+
+/**
+ * Every MCP server declared in the three native places (domain.md) — the
+ * `mcpServers` of `~/.claude.json`, the `mcpServers` of each of its `projects`
+ * entries, and the `mcpServers` of each project's `.mcp.json` — evaluated in
+ * the place it is declared for, against that place's registry entry and
+ * settings layers (entry 103).
  *
  * Tier-1 (ADR-0007): one parse of the registry, one stat per registry entry
- * that actually declares a server, and one small read per verified project.
- * Nothing walks a project tree — `.mcp.json` is opened by name, which is the
- * single exception ADR-0002 grants outside a `.claude` directory.
+ * that actually declares a server, and one small read per project kondo may
+ * open a `.mcp.json` for. Nothing walks a project tree — the file is opened by
+ * name, which is the single exception ADR-0002 grants outside `.claude`.
  *
  * A registry entry whose path is gone still yields its servers, marked
- * `orphan`: that is the whole point of listing them, and entry 031 is what
- * will be able to remove one.
+ * `orphan`: listing them is the point, and Leftovers removes the entry itself
+ * once settings edits are permitted again (ADR-0010).
  */
-export async function scanMcpServers(
+export async function readMcp(
   locator: StoreLocator,
   projects: VerifiedProject[],
+  layers: SettingsLayer[],
   c: Collector
-): Promise<McpServerInfo[]> {
+): Promise<McpReading> {
   const configDisplay = tildify(locator.userConfigFile, locator.home)
+  const failures = c.errors.length
   const config = asObject(await safeReadJson(locator.userConfigFile, configDisplay, c, {
     file: locator.userConfigFile
   }))
-  const servers: McpServerInfo[] = []
-  const nothingDisabled: ReadonlySet<string> = new Set()
-
-  for (const [name, declaration] of mcpDeclarations(config)) {
-    servers.push(
-      toMcpServer({
-        scope: 'user',
-        key: name,
-        project: null,
-        source: configDisplay,
-        name,
-        declaration,
-        disabled: nothingDisabled,
-        // The registry is the owning path, and it was just read.
-        orphan: false
-      })
-    )
-  }
+  // A registry that did not parse leaves the switch and the legacy approval
+  // lists unread, which is a state of its own and never an off (ADR-0005). A
+  // registry that is not there is different: an absent one is Claude's own
+  // starting state, and `safeReadJson` reports nothing for it.
+  const blind = config === null && c.errors.length > failures
+  const userLayers = layers.filter((layer) => layer.info.layer === 'user')
 
   // Flattened name → the registry entry it came from (ADR-0009). Claude
   // writes some projects under both slash spellings, so the first spelling of
@@ -1179,12 +1365,90 @@ export async function scanMcpServers(
     if (!registry.has(flat)) registry.set(flat, { absPath, entry: asObject(value) ?? {} })
   }
 
+  // One `.mcp.json` per project kondo may open one for: present, and either in
+  // Claude's registry or holding a `.claude` store (entry 103).
+  const committed = new Map<
+    string,
+    { path: string; declarations: Array<[string, Record<string, unknown>]> }
+  >()
+  for (const project of projects) {
+    const file = path.join(project.absPath, MCP_FILE)
+    const display = tildify(file, locator.home)
+    committed.set(project.dirName, {
+      path: display,
+      declarations: mcpDeclarations(await safeReadJson(file, display, c, { file }))
+    })
+  }
+
+  const places = new Map<string, McpPlace>()
+  const placeOf = (flat: string): McpPlace => {
+    const held = places.get(flat)
+    if (held !== undefined) return held
+    const entry = registry.get(flat)?.entry ?? {}
+    const own = committed.get(flat)
+    const place: McpPlace = {
+      project: flat,
+      registry: configDisplay,
+      entry,
+      blind,
+      layers: [...projectLayers(layers, projectId(flat)), ...userLayers],
+      local: new Set(mcpDeclarations(entry).map(([name]) => name)),
+      committed: new Set((own?.declarations ?? []).map(([name]) => name)),
+      committedPath: own?.path ?? configDisplay
+    }
+    places.set(flat, place)
+    return place
+  }
+  const user: McpPlace = {
+    project: null,
+    registry: configDisplay,
+    entry: {},
+    blind,
+    layers: userLayers,
+    local: new Set(),
+    committed: new Set(),
+    committedPath: configDisplay
+  }
+
+  const servers: McpServerInfo[] = []
+  const add = (
+    scope: McpScope,
+    key: string,
+    place: McpPlace,
+    source: string,
+    name: string,
+    declaration: Record<string, unknown>,
+    orphan: boolean
+  ): void => {
+    const state = evaluateMcp(scope, name, place, orphan)
+    servers.push({
+      id: `mcp:${scope}:${key}`,
+      kind: 'mcp',
+      capabilities: mcpCapabilities(scope, state),
+      name,
+      scope,
+      // Only the transport is taken off the declaration. `env` and `headers`
+      // hold API keys and bearer tokens in the wild (domain.md), so neither
+      // their values nor their names are ever built into an entity.
+      transport: transportOf(declaration),
+      source,
+      project: place.project,
+      status: state.status,
+      statusReason: state.statusReason,
+      orphan
+    })
+  }
+
+  for (const [name, declaration] of mcpDeclarations(config)) {
+    // The registry is the owning path, and it was just read.
+    add('user', name, user, configDisplay, name, declaration, false)
+  }
+
   for (const [flat, { absPath, entry }] of registry) {
     const declarations = mcpDeclarations(entry)
     // The stat is paid only by an entry that declares a server: a registry
     // with thousands of projects costs as many stats as it has MCP users.
     if (declarations.length === 0) continue
-    const disabled = stringSet(entry['disabledMcpServers'])
     // ADR-0002 allows exactly this — an existence check on the project root,
     // never a listing and never a read of what is inside it.
     let orphan = false
@@ -1195,46 +1459,59 @@ export async function scanMcpServers(
       if (!isEnoent(cause)) c.fail('stat-failed', tildify(absPath, locator.home), cause)
     }
     for (const [name, declaration] of declarations) {
-      servers.push(
-        toMcpServer({
-          scope: 'local',
-          key: `${flat}/${name}`,
-          project: flat,
-          source: configDisplay,
-          name,
-          declaration,
-          disabled,
-          orphan
-        })
-      )
+      add('local', `${flat}/${name}`, placeOf(flat), configDisplay, name, declaration, orphan)
     }
   }
 
   for (const project of projects) {
-    const file = path.join(project.absPath, MCP_FILE)
-    const display = tildify(file, locator.home)
-    // Claude gates a committed server through the registry, not through the
-    // file it is declared in, so the disable list is the project's own.
-    const disabled = stringSet(registry.get(project.dirName)?.entry['disabledMcpjsonServers'])
-    for (const [name, declaration] of mcpDeclarations(await safeReadJson(file, display, c, { file }))) {
-      servers.push(
-        toMcpServer({
-          scope: 'project',
-          key: `${project.dirName}/${name}`,
-          project: project.dirName,
-          source: display,
-          name,
-          declaration,
-          disabled,
-          // The file was read from the project, so the project is there.
-          orphan: false
-        })
-      )
+    // Every project read for has a place, declarations of its own or not: it
+    // inherits the user scope's and switches those for itself.
+    const place = placeOf(project.dirName)
+    const own = committed.get(project.dirName)
+    for (const [name, declaration] of own?.declarations ?? []) {
+      // The file was read from the project, so the project is there.
+      add('project', `${project.dirName}/${name}`, place, own?.path ?? configDisplay, name, declaration, false)
     }
   }
 
   servers.sort((a, b) => a.id.localeCompare(b.id))
-  return servers
+  return { servers, places, user }
+}
+
+/** Every declaration, for a caller that needs no per-project answers. */
+export async function scanMcpServers(
+  locator: StoreLocator,
+  projects: VerifiedProject[],
+  layers: SettingsLayer[],
+  c: Collector
+): Promise<McpServerInfo[]> {
+  return (await readMcp(locator, projects, layers, c)).servers
+}
+
+/**
+ * The user-scope declarations as one project sees them (entry 103). Claude's
+ * switch is per project even for a server declared for every project, so each
+ * project resolves the same declarations against its own registry entry and
+ * settings layers, and offers the switch that entry holds.
+ */
+export function inheritedMcpServers(
+  reading: McpReading,
+  dirName: string
+): InheritedMcpServerState[] {
+  const place = reading.places.get(dirName)
+  if (place === undefined) return []
+  return reading.servers
+    .filter((server) => server.scope === 'user')
+    .map((server) => {
+      const state = evaluateMcp('user', server.name, place, false)
+      return {
+        server,
+        projectId: projectId(dirName),
+        status: state.status,
+        statusReason: state.statusReason,
+        capabilities: mcpSwitchCapabilities(state)
+      }
+    })
 }
 
 // ---------------------------------------------------------------------------

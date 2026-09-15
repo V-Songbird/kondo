@@ -36,6 +36,7 @@ import {
   configOrphansPlan,
   createKindContext,
   kinds,
+  mcpProjectsOf,
   listingFor,
   listingForId,
   pluginClearPlan,
@@ -55,6 +56,7 @@ import {
 import {
   countStoreEntries,
   groupHooks,
+  inheritedMcpServers,
   inheritedSkills,
   userStoreReport,
   type VerifiedProject
@@ -106,6 +108,8 @@ const PLUGIN_ID_PREFIX = 'plugin:'
 interface InventoryState {
   scan: Scan<SessionInventory>
   verified: VerifiedProject[]
+  /** The wider set a `.mcp.json` may be opened for (entry 103, ADR-0002). */
+  mcpProjects: VerifiedProject[]
   /** What `inventoryFingerprint` read when this inventory was built. */
   fingerprint: string
 }
@@ -174,7 +178,12 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     if (held === null || refresh || held.fingerprint !== fingerprint) {
       inventoryState = (async () => {
         const scan = await scanSessionInventory(locator, platform, options.guessExists)
-        return { scan, verified: verifyProjects(scan.data.projects), fingerprint }
+        return {
+          scan,
+          verified: verifyProjects(scan.data.projects),
+          mcpProjects: mcpProjectsOf(scan.data),
+          fingerprint
+        }
       })()
     }
     return inventoryState as Promise<InventoryState>
@@ -213,23 +222,33 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
   const context = (
     c: Collector,
     parentId?: string,
-    only?: VerifiedProject[]
+    only?: { stores: VerifiedProject[]; mcp: VerifiedProject[] }
   ): KindContext =>
     createKindContext({
       locator,
       c,
       now: now(),
       inventory: async () => (await inventory()).scan.data,
-      projects: only ? async () => only : async () => (await inventory()).verified,
+      projects: only ? async () => only.stores : async () => (await inventory()).verified,
+      mcpProjects: only
+        ? async () => only.mcp
+        : async () => (await inventory()).mcpProjects,
       parentId
     })
 
   /** Pin one forced inventory to this call, including its verified store roots. */
   const freshContext = async (c: Collector): Promise<KindContext> => {
-    const { scan, verified } = await inventory(true)
+    const { scan, verified, mcpProjects } = await inventory(true)
     c.errors.push(...scan.errors)
     c.unknown.push(...scan.unknown)
-    return createKindContext({ locator, c, now: now(), inventory: async () => scan.data, projects: async () => verified })
+    return createKindContext({
+      locator,
+      c,
+      now: now(),
+      inventory: async () => scan.data,
+      projects: async () => verified,
+      mcpProjects: async () => mcpProjects
+    })
   }
 
   const stale = (at: string, detail?: string): Scan<null> => ({
@@ -559,9 +578,12 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         return badRequest(null, `projectDetail expects a ${PROJECT_ID_PREFIX} id or ${GLOBAL_ROW}.`)
       }
       const c = collector()
-      const { scan, verified } = await inventory()
+      const { scan, verified, mcpProjects } = await inventory()
 
       let only: VerifiedProject[] = []
+      // A project with no store can still hold a `.mcp.json`, and a page for
+      // it reads that one file and no other project's (entry 103).
+      let onlyMcp: VerifiedProject[] = []
       let row: ProjectRow
       if (global) {
         row = await globalRow(c)
@@ -571,6 +593,8 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         if (!record) return unknownId(null, id)
         const store = verified.find((candidate) => candidate.dirName === dirName)
         if (store) only = [store]
+        const readable = mcpProjects.find((candidate) => candidate.dirName === dirName)
+        if (readable) onlyMcp = [readable]
         const rows = (await kinds.project.discover(context(c))) ?? []
         const project = rows.find((candidate) => candidate.id === id)
         row = {
@@ -592,7 +616,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       // user store and — for a project — that project's `.claude`, and the
       // filter then keeps what belongs to the scope asked for. The join is on
       // the DTOs' own `projectId` fields, never on a parsed id (ADR-0008).
-      const shared = context(c, undefined, only)
+      const shared = context(c, undefined, { stores: only, mcp: onlyMcp })
       const owner = global ? null : id
       const mine = <T extends { projectId: string | null }>(entries: T[] | null): T[] =>
         (entries ?? []).filter((entry) => entry.projectId === owner)
@@ -646,6 +670,10 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
           // The full layers (parsed, not the seam's summaries): what each says
           // about a skill is the whole question.
           inheritedSkills: global ? [] : inheritedSkills(skills ?? [], await shared.layers(), id),
+          // The user scope's declarations, answered for this project: Claude's
+          // switch for one of them lives in this project's entry (entry 103).
+          inheritedMcpServers:
+            dirName === null ? [] : inheritedMcpServers(await shared.mcp(), dirName),
           sessions,
           staleAfterDays: STALE_AFTER_DAYS,
           storage: overview?.data ?? null

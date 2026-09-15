@@ -60,7 +60,9 @@ import {
   stringSet,
   readSettingsLayers,
   readPluginInventory,
-  scanMcpServers,
+  readMcp,
+  inheritedMcpServers,
+  DISABLED_MCP_SERVERS,
   scanPlacedEntries,
   scanPluginSkills,
   scanConfigOrphans,
@@ -68,6 +70,7 @@ import {
   scanSkills,
   scanSkillUsage,
   type ConfigOrphanRecord,
+  type McpReading,
   type PluginRecord,
   type PluginInventory,
   type SettingsLayer,
@@ -104,6 +107,15 @@ export interface KindContext {
   now: number
   inventory(): Promise<SessionInventory>
   projects(): Promise<VerifiedProject[]>
+  /**
+   * The projects kondo may open a `.mcp.json` for: present, and either named
+   * by Claude's registry or holding a `.claude` store (entry 103). Wider than
+   * the stores a mutation resolves, because the file is a read-side exception
+   * (ADR-0002) and never a write target.
+   */
+  mcpProjects(): Promise<VerifiedProject[]>
+  /** The MCP declarations and the places they were read in, read at most once. */
+  mcp(): Promise<McpReading>
   layers(): Promise<SettingsLayer[]>
   plugins(): Promise<PluginRecord[]>
   pluginInventory(): Promise<PluginInventory>
@@ -135,11 +147,32 @@ export interface KindContextSources {
   now: number
   inventory(): Promise<SessionInventory>
   projects(): Promise<VerifiedProject[]>
+  /** Narrows the `.mcp.json` reads; the inventory's own answer when omitted. */
+  mcpProjects?(): Promise<VerifiedProject[]>
   parentId?: string | null
+}
+
+/**
+ * The projects a `.mcp.json` may be opened for, off one inventory (entry 103):
+ * the path is there, and Claude's registry names it or it holds a store. A
+ * project with no `.claude` is one of them — its committed servers are still
+ * Claude's to load — while the stores a mutation resolves stay the verified
+ * ones (`verifyProjects` in `workspace.ts`).
+ */
+export function mcpProjectsOf(inventory: SessionInventory): VerifiedProject[] {
+  return inventory.projects
+    .filter(
+      (project) =>
+        project.location === 'here' &&
+        project.guessedPath !== null &&
+        (project.hasStore || project.sources.includes('registry'))
+    )
+    .map((project) => ({ dirName: project.dirName, absPath: project.guessedPath as string }))
 }
 
 export function createKindContext(sources: KindContextSources): KindContext {
   let layers: Promise<SettingsLayer[]> | null = null
+  let mcpReading: Promise<McpReading> | null = null
   let plugins: Promise<PluginRecord[]> | null = null
   let pluginInventory: Promise<PluginInventory> | null = null
   let skills: Promise<SkillInfo[]> | null = null
@@ -152,6 +185,16 @@ export function createKindContext(sources: KindContextSources): KindContext {
     now: sources.now,
     inventory: sources.inventory,
     projects: sources.projects,
+    mcpProjects:
+      sources.mcpProjects ?? (async () => mcpProjectsOf(await sources.inventory())),
+    mcp: () =>
+      (mcpReading ??= (async () =>
+        readMcp(
+          sources.locator,
+          await context.mcpProjects(),
+          await context.layers(),
+          sources.c
+        ))()),
     layers: () =>
       (layers ??= (async () =>
         readSettingsLayers(sources.locator, await sources.projects(), sources.c))()),
@@ -778,16 +821,16 @@ const session: EntityKindDefinition<SessionSummary, SessionDetail> = {
 }
 
 /**
- * MCP servers, read-only in every scope. Discovery is tier-1 (ADR-0007): the
- * registry parse plus one `.mcp.json` per verified project, no walk of
- * anything. The matrix refuses enable, disable and move alike until entry 031
- * brings a write path that `~/.claude.json` can survive (ADR-0009), so the
- * seats below stay unwired on purpose.
+ * MCP servers. Discovery is tier-1 (ADR-0007): the registry parse, the
+ * settings layers that decide approval, and one `.mcp.json` per project kondo
+ * may open one for — no walk of anything. The one change a toggle plans is
+ * Claude's own per-project switch (entry 103); approval and restriction are
+ * read and never written, and 098 refuses executing the plan.
  */
 const mcp: EntityKindDefinition<McpServerInfo> = {
   kind: 'mcp',
   async discover(context) {
-    return scanMcpServers(context.locator, await context.projects(), context.c)
+    return (await context.mcp()).servers
   },
   read(id, context) {
     return findById(id, mcp.discover(context))
@@ -796,43 +839,60 @@ const mcp: EntityKindDefinition<McpServerInfo> = {
     if (request.op !== 'enable' && request.op !== 'disable') {
       return matrixRefusal('mcp', entity.scope, request.op)
     }
-    return mcpTogglePlan(entity, request.op, context)
+    return mcpTogglePlan(entity, request.op, request.targetId, context)
   }
 }
 
-/** Which registry list gates a declaration, by where the declaration lives (domain.md). */
-const MCP_DISABLE_LIST: Record<string, string> = {
-  local: 'disabledMcpServers',
-  project: 'disabledMcpjsonServers'
-}
-
 /**
- * The store change behind an MCP toggle, in Claude's own words (ADR-0006,
- * entry 061): the project's entry in `~/.claude.json` carries a list of the
- * servers switched off for it — `disabledMcpServers` for servers declared in
- * that entry, `disabledMcpjsonServers` for those declared in the project's
- * `.mcp.json` — and the toggle adds the name to, or takes it out of, that
- * list. The whole list is one member, so the edit is one `spliceMember`-shaped
+ * The store change behind an MCP switch, in Claude's own words (ADR-0006,
+ * entry 103): the project's entry in `~/.claude.json` carries the names it
+ * switches off — `disabledMcpServers`, whatever scope the declaration has —
+ * and the switch adds this name to that list or takes it out. A user-scope
+ * declaration is switched per project, so the project doing the switching
+ * travels as `request.targetId`, exactly as an inherited skill's does.
+ *
+ * The whole list is one member, so the edit is one `spliceMember`-shaped
  * change to its value and every other byte of the registry keeps its place;
  * the step is a `splice` guarded by the digest of the text it was planned
- * against, because Claude rewrites this file during every session
- * (ADR-0010). `.mcp.json` itself is never written (ADR-0002).
+ * against, because Claude rewrites this file during every session (ADR-0010).
+ * `.mcp.json` itself is never written (ADR-0002), and approving a declaration
+ * is the prompt Claude Code shows rather than anything kondo plans.
  */
 async function mcpTogglePlan(
   entity: McpServerInfo,
   operation: ToggleOperation,
+  targetId: string | undefined,
   context: KindContext
 ): Promise<PlanResult> {
-  const decision = entity.capabilities[operation]
+  let project = entity.project
+  let decision = entity.capabilities[operation]
+  if (entity.scope === 'user') {
+    // The user row refuses both directions and says why: the switch belongs to
+    // a project, and that project's own row is what answers here.
+    if (targetId === undefined || !targetId.startsWith(PROJECT_PREFIX)) {
+      return refused(
+        'not-permitted',
+        decision.reason ?? `kondo cannot ${operation} this MCP server.`
+      )
+    }
+    const dirName = targetId.slice(PROJECT_PREFIX.length)
+    const inherited = inheritedMcpServers(await context.mcp(), dirName).find(
+      (entry) => entry.server.id === entity.id
+    )
+    if (inherited === undefined) {
+      return refused('unknown-id', `No project with id "${targetId}" in the current scan.`)
+    }
+    project = dirName
+    decision = inherited.capabilities[operation]
+  }
   if (!decision.allowed) {
     return refused(
       'not-permitted',
       decision.reason ?? `kondo cannot ${operation} this MCP server.`
     )
   }
-  const listKey = MCP_DISABLE_LIST[entity.scope]
-  if (listKey === undefined || entity.project === null) {
-    return refused('not-permitted', `${entity.name} is not gated by a project's disable list.`)
+  if (project === null) {
+    return refused('not-permitted', `${entity.name} is not switched off by a project.`)
   }
 
   const { locator } = context
@@ -856,21 +916,24 @@ async function mcpTogglePlan(
   // first key whose flattened form is this project's directory name. The key
   // is used exactly as the file spells it, never rebuilt from a path.
   const projects = asObject(config['projects']) ?? {}
-  const key = Object.keys(projects).find((candidate) => flattenProjectPath(candidate) === entity.project)
+  const key = Object.keys(projects).find((candidate) => flattenProjectPath(candidate) === project)
   if (key === undefined) {
     return refused(
       'not-permitted',
-      `${display} has no entry for this project, so there is no disable list to write.`
+      `${display} has no entry for this project, so there is no switch to write.`
     )
   }
-  const current = stringSet((asObject(projects[key]) ?? {})[listKey])
+  const current = stringSet((asObject(projects[key]) ?? {})[DISABLED_MCP_SERVERS])
   const next =
     operation === 'disable'
       ? [...current, entity.name]
       : [...current].filter((name) => name !== entity.name)
-  const edit = editMember(text, ['projects', key, listKey], JSON.stringify(next))
+  const edit = editMember(text, ['projects', key, DISABLED_MCP_SERVERS], JSON.stringify(next))
   if (edit === null) {
-    return refused('bad-request', `kondo cannot edit ${listKey} in ${display} without reformatting it.`)
+    return refused(
+      'bad-request',
+      `kondo cannot edit ${DISABLED_MCP_SERVERS} in ${display} without reformatting it.`
+    )
   }
   return {
     ok: true,

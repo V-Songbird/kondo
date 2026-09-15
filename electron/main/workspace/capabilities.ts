@@ -101,15 +101,19 @@ function hook(): Capabilities {
 const NOT_A_TOGGLE = 'A settings file is a file, not a toggle.'
 const SESSIONS_ARE_SWEPT =
   'Sessions are not on or off; Clean up moves them to kondo’s trash.'
-// ADR-0009: an MCP server is declared in `~/.claude.json` or in a project's
-// `.mcp.json`, and kondo can write neither safely yet — the registry is
-// rewritten by Claude mid-session, so a whole-file write would discard its
-// changes. Entry 031 brought the splice step and entry 061 wired the toggle
-// to it: a project's `disabledMcpServers` / `disabledMcpjsonServers` list in
-// `~/.claude.json` is Claude's own per-project switch (domain.md). The user
-// scope has no such list, and a declaration is never moved between files.
-const MCP_USER_HAS_NO_SWITCH =
-  'Claude has no disable list for a user-scope MCP server; remove the declaration from ~/.claude.json to stop it.'
+// ADR-0006: Claude's own switch for an MCP server is the `disabledMcpServers`
+// list of one project's `~/.claude.json` entry, matched by name whatever scope
+// the declaration has (domain.md, entry 103). It is per project even for a
+// user-scope server, so the row for a user declaration on its own refuses both
+// directions and points at the project pages, where `mcpSwitchCapabilities`
+// answers. Approval of a `.mcp.json` declaration is Claude's own prompt and
+// kondo plans none of it.
+const MCP_SWITCHED_PER_PROJECT =
+  'Claude switches an MCP server off per project; open a project to switch it there.'
+const MCP_NOT_SWITCHED_OFF = 'This project does not switch this server off.'
+const MCP_ALREADY_SWITCHED_OFF = 'This project already switches this server off.'
+const MCP_SWITCH_UNREADABLE =
+  'Kondo could not read this project’s entry in ~/.claude.json, so it will not write the switch.'
 const MCP_STAYS_PUT =
   'An MCP server is declared where Claude reads it; kondo does not move declarations between files.'
 const MCP_PROJECT_IS_GONE =
@@ -205,18 +209,19 @@ const MATRIX: Record<EntityKind, Record<string, Capabilities>> = {
   project: {
     code: neither(SESSIONS_ARE_SWEPT)
   },
-  // Read-only in every scope, and refused here rather than in a view, so an
-  // id from the listing cannot be mutated by whatever gets hold of one.
+  // A declaration never moves and is never kondo's to remove. What a toggle
+  // reaches is one project's switch, and `mcpCapabilities` narrows these rows
+  // to what that project's entry already says (entry 103).
   mcp: {
-    user: neither(MCP_USER_HAS_NO_SWITCH),
+    user: neither(MCP_SWITCHED_PER_PROJECT),
     local: {
-      enable: deny(ALREADY_ENABLED),
+      enable: deny(MCP_NOT_SWITCHED_OFF),
       disable: ALLOW,
       move: deny(MCP_STAYS_PUT),
       trash: deny(NOT_KONDOS_TO_REMOVE)
     },
     project: {
-      enable: deny(ALREADY_ENABLED),
+      enable: deny(MCP_NOT_SWITCHED_OFF),
       disable: ALLOW,
       move: deny(MCP_STAYS_PUT),
       trash: deny(NOT_KONDOS_TO_REMOVE)
@@ -274,17 +279,53 @@ export function scopesFor(kind: EntityKind): readonly string[] {
  * Only `off` narrows anything. `name-only` and `user-invocable-only` leave
  * the skill loaded (domain.md), so a bench move still means what it means.
  */
+/** What one project's registry entry says about one declaration (entry 103). */
+export interface McpSwitchState {
+  /**
+   * Whether that project's `disabledMcpServers` names the server, or null when
+   * kondo could not read the entry at all.
+   */
+  listed: boolean | null
+  /** A reason both directions are refused: gone, shadowed, or unreadable. */
+  blocked: string | null
+  /** Why the server is not simply in use here, when it is not; else null. */
+  reason: string | null
+  orphan: boolean
+}
+
 /**
- * The mcp row narrowed by what the project's disable list already says
- * (entry 061): a listed server offers `enable`, an unlisted one `disable`, and
- * a declaration whose project folder is gone offers neither — its whole entry
- * is a configuration orphan, and Leftovers is where that goes (ADR-0010).
+ * The mcp row narrowed by the state of that project's switch (entry 103): a
+ * declaration in use offers `disable`, a listed one `enable`, and one whose
+ * folder is gone, whose name a higher scope has taken, or whose entry kondo
+ * could not read offers neither. A refusal carries the status's own reason, so
+ * "why is this not on" is answered beside the control (ADR-0010 keeps the
+ * separate question of whether the plan may run).
  */
-export function mcpCapabilities(scope: string, enabled: boolean, orphan: boolean): Capabilities {
-  const row = capabilitiesFor('mcp', scope)
-  if (scope === 'user') return row
-  if (orphan) return { ...row, enable: deny(MCP_PROJECT_IS_GONE), disable: deny(MCP_PROJECT_IS_GONE) }
-  return enabled ? row : { ...row, enable: ALLOW, disable: deny(ALREADY_DISABLED) }
+export function mcpCapabilities(scope: string, state: McpSwitchState): Capabilities {
+  if (scope === 'user') return capabilitiesFor('mcp', 'user')
+  return mcpSwitchCapabilities(state)
+}
+
+/**
+ * The same switch for a user-scope declaration one project inherits, which has
+ * no row of its own: the project's entry decides, and the user row's refusal
+ * is about the Global page rather than this one.
+ */
+export function mcpSwitchCapabilities(state: McpSwitchState): Capabilities {
+  const stays = { move: deny(MCP_STAYS_PUT), trash: deny(NOT_KONDOS_TO_REMOVE) }
+  const both = (reason: string): Capabilities => ({
+    ...stays,
+    enable: deny(reason),
+    disable: deny(reason)
+  })
+  if (state.orphan) return both(MCP_PROJECT_IS_GONE)
+  if (state.blocked !== null) return both(state.blocked)
+  if (state.listed === null) return both(MCP_SWITCH_UNREADABLE)
+  return {
+    ...stays,
+    enable: state.listed ? ALLOW : deny(state.reason ?? MCP_NOT_SWITCHED_OFF),
+    disable: state.listed ? deny(MCP_ALREADY_SWITCHED_OFF) : ALLOW
+  }
 }
 
 const PROJECT_SAYS_NOTHING = 'This project does not switch the skill off itself; it follows Global.'
