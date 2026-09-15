@@ -870,6 +870,11 @@ test('settings-derived secrets stay out of pages, tooltips and bridge responses 
     })()`)
   }
   const technical = `document.querySelector('nav[aria-label="Project sections"]')`
+  /** Returning to the list refocuses the previous row on the next frame; wait before the next key press. */
+  const backToLibrary = async () => {
+    await keyboardActivate(button('Back to Library'))
+    await client.waitFor(`document.activeElement?.hasAttribute('data-library-key') === true || document.activeElement?.id === 'library-search'`)
+  }
   /** The focused top of the page, then the changed section, when screenshots are requested. */
   const shoot = async (name, heading) => {
     if (!process.env.KONDO_E2E_SHOTS) return
@@ -923,17 +928,18 @@ test('settings-derived secrets stay out of pages, tooltips and bridge responses 
         await shoot(`117-library-hook-${theme}-${width}`, 'What it runs')
         assert.deepEqual(await leaks(), [])
 
-        await keyboardActivate(button('Back to Library'))
+        await backToLibrary()
         const layer = `[...document.querySelectorAll('[data-library-key]')].find((item) => item.textContent.includes('Global · user'))`
         await client.waitFor(`${layer} !== undefined`)
         await keyboardActivate(layer)
+        await client.waitFor(`document.querySelector('.workspace-detail h1')?.textContent === 'Global · user'`)
         await client.waitFor(`document.querySelector('.workspace-detail details') !== null`)
         await client.evaluate(`document.querySelector('.workspace-detail details').open = true`)
         await client.waitFor(`document.body.innerText.includes('Other top-level settings are not shown')`)
         await assertNoHorizontalOverflow()
         await shoot(`117-library-settings-${theme}-${width}`, 'What it states')
         assert.deepEqual(await leaks(), [])
-        await keyboardActivate(button('Back to Library'))
+        await backToLibrary()
       }
     }
 
