@@ -155,10 +155,23 @@ A passing check does not establish:
 - **Anything from a version match.** The version gate proves only that the tag
   names the `package.json` version.
 
-The comparison uses main's tip when the job runs. A push to `main` before then
-fails the run, and so does "Re-run all jobs" once `main` has moved; "Re-run
-failed jobs" keeps a provenance result that already passed. Push nothing to
-`main` until the draft exists.
+The comparison uses main's tip when the job runs, so a push to `main` before
+then fails the run. Push nothing to `main` until the draft exists. A re-run
+keeps the original commit and tag ref
+([GitHub: re-running workflows](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)).
+In the run's **Re-run jobs** menu, **Re-run all jobs** repeats `provenance`,
+which fails once `main` has moved past the tag. **Re-run failed jobs** re-runs
+only the failed jobs and the jobs that depend on them
+([REST reference](https://docs.github.com/en/rest/actions/workflow-runs#re-run-failed-jobs-from-a-workflow-run)),
+so a `provenance` result that already passed stands. Once `main` has moved, the
+remedy is a new candidate: take the new tip through steps 1–3 and tag it.
+Never move `main` back or bypass the check. Reusing the version number means
+the owner first deletes the draft and the old tag.
+
+`test/release-provenance.test.mjs` exercises the script against temporary
+repositories: a candidate tag on main, a side-branch tag, a superseded or moved
+tag, missing refs, shallow checkouts and rehearsals. It also asserts the job
+graph and the `publish` condition in `release.yml`.
 
 ## Release steps
 
