@@ -47,9 +47,10 @@ All notable changes to kondo are documented here. The format follows
   refuses the whole operation and retains its history and recovery bytes.
   Unrelated moves, trash and their Undo remain available.
 
-- Corrected the shipped hook-move claim: hook declarations remain read-only.
-  Inventory covers the settings layers Kondo reads, with limited script
-  diagnostics; it does not establish which hooks execute. No behavior changed.
+- Documentation no longer claims hook declarations can move between settings
+  files; they remain read-only. Inventory covers the settings layers Kondo
+  reads, with limited script diagnostics; it does not establish which hooks
+  execute. No behavior changed.
 
 - Cleanup, selected conversation removal and duplicate-skill removal retain
   the reviewed candidates. Changed files, resumed conversations or changed

@@ -9,14 +9,12 @@ themeSource: shared/themes.ts
 # Design system: Signal
 
 Kondo uses Signal's strong typography, square geometry and clear boundaries.
-The owner selected this direction after comparing five visual systems and five
-restrained variations of Signal. Chalk is the default. Parchment, Sage, Slate,
-Carbon and Signal Original are selectable appearances of the same interface.
-This supersedes the previous dark-only Flat File treatment.
+Chalk is the default. Parchment, Sage, Slate, Carbon and Signal Original are
+selectable appearances of the same interface.
 
 ## Brand
 
-The original [kondo mark](src/assets/kondo-mark.svg) remains unchanged. Show the
+Use the [kondo mark](src/assets/kondo-mark.svg) as drawn. Show the
 complete image without cropping, filters, recoloring or a substituted glyph.
 The wordmark uses the bundled IBM Plex Mono face. Its static underscore keeps
 the original cyan brand color; it does not follow the theme accent. Neither the
@@ -98,7 +96,7 @@ at the compact breakpoint. A strong page-heading band establishes the current
 purpose. Reading sections have a square boundary, a solid surface and visible
 header rules. Paths and technical details wrap inside their own region.
 
-Library and Projects retain the established browser/detail workflow. At
+Library and Projects use a browser/detail workflow. At
 1180px and above both panes fit beside one another. At 1179px and below only
 the browser or selected detail is displayed, with an explicit return control.
 App focus handling uses the same breakpoint. Changing a theme never resets
@@ -111,13 +109,13 @@ hard shadow is optional emphasis for a primary action; it carries no state.
 ## Controls and states
 
 A button is a clearly bounded native control with a readable action label.
-The former decorative ASCII brackets have been removed. Main controls are at
+Main controls are at
 least 33px high, section tabs 32px, and dense row controls at least 28px. Controls may wrap their
 labels when necessary instead of widening the entire document.
 
 - Primary action: accent background with its paired foreground.
 - Quiet action: square outlined control, without competing emphasis.
-- Reversible removal: `off` text and boundary, labeled Move to trash or Remove.
+- Reversible removal: `off` text and boundary, labeled Move to trash.
 - Permanent deletion: `bad` text and a stronger boundary, offered only after
   its separate confirmation. Keep the trash receives the initial focus.
 - Disabled: readable secondary ink, a dashed boundary and an adjacent explanation.
@@ -128,16 +126,16 @@ outline; heading bands use a contrasting local focus color. Escape cancels
 inline confirmations and returns focus to the initiating action. After an
 operation, focus moves to its result. No destructive choice is preselected.
 
-Statuses retain the existing sigils: `-` means stated off, `~` means already
-happened, `!` means failed or broken, and `?` means uncertain. These marks must
-not disappear during restyling. Status chips use both text and a square outline;
+Statuses use sigils: `-` means stated off, `~` means already happened, `!`
+means failed or broken, and `?` means uncertain. Keep them in every theme and
+restyling. Status chips use both text and a square outline;
 off states also use a dashed outline. Color alone never carries their meaning.
 An honest null remains an em dash; a measured zero remains `0`.
 
 ## Task flow and feedback
 
 A render failure replaces the application content with a focused heading,
-the existing `band-pencil` error alert, the build version and a native Reload
+the `band-pencil` error alert, the build version and a native Reload
 Kondo button. Keep the drag strip and current theme. Error text wraps inside
 the reading measure and is displayed literally, including markup-like text.
 
@@ -148,8 +146,8 @@ only Kondo's appearance and preserves the user's working context.
 
 Cleanup keeps the choose → review → apply → undo sequence. Nothing is selected
 for the user. Moving files to trash still consumes disk space; only explicitly
-emptying trash frees it. Settings removal has its own scope review, and duplicate
-skills retain visible location information because equal contents do not imply
+emptying trash frees it. Settings leftovers are review-only while settings
+changes are refused, and duplicate skills retain visible location information because equal contents do not imply
 equal availability across projects.
 
 A changed removal review shows a focused alert with the affected selection, a

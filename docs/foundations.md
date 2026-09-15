@@ -12,15 +12,17 @@ electron/main/      the only code that touches disk
   index.ts          app bootstrap + composition root (thin; no domain logic)
   ipc.ts            channel registration — one line per channel, delegates to workspace
   workspace/        locator, kind registry, store adapters, analysis (Electron-free, injectable)
-electron/preload/   the context-isolated bridge: window.kondo, typed by shared/contract
+electron/preload/   the context-isolated bridge: window.kondo (typed by shared/contract),
+                    plus the kondoReady / kondoReload lifecycle keys
 src/                renderer: React UI; no Node, no fs, no paths
 shared/contract.ts  THE seam contract: types + channel names, imported by all three
+shared/themes.ts    the theme catalog (Chalk default), platform-free
 ```
 
 Rules the structure enforces:
 
-- The **composition root** is `whenReady` in `electron/main/index.ts`: it
-  resolves `homedir`, `APPDATA`, `userData`, platform, and env once, builds
+- The **composition root** is `startPrimaryInstance` in
+  `electron/main/index.ts`, after `app.whenReady()`: it resolves `homedir`, `APPDATA`, `userData`, platform, and env once, builds
   the locator from them with `createLocator`, and passes it to
   `createWorkspace`. Nothing under `workspace/` imports `electron`, which is
   what lets the whole domain run under vitest with fixture roots and no
@@ -35,9 +37,7 @@ Rules the structure enforces:
 - The **contract is written once**. `shared/contract.ts` holds every seam
   type, the `KondoApi` interface, and the channel-name map. Preload and main
   both import it; drift between "what main handles" and "what the renderer
-  types" is a compile error, not a runtime surprise. (Skilldex hand-mirrored
-  its contract in two places; that was its top source of latent bugs. We keep
-  the seam, fix the duplication.)
+  types" is a compile error, not a runtime surprise.
 - **Ids cross the seam, never paths** (ADR-0008). Every scan result carries
   opaque ids; mutating or drilling into an entity means sending an id back,
   which main resolves against its own last scan. A renderer bug — or a
@@ -76,15 +76,18 @@ entity through the kind registry. Structure:
   (`skill`, `plugin`, `hook`, `settings`, `session`, `project`, `mcp`,
   `agent`, `command`, `rule`, `output-style`, `store` — the first segment of
   every id, ADR-0008) is described by one or more entries supplying
-  `discover`, `read` and one `plan(entity, request)` seat that answers every
-  operation with a mutation plan or a refusal (entry 035, ADR-0004
+  `discover`, `read` and one `plan(entity, request, context)` seat that
+  answers every operation with a mutation plan or a refusal (ADR-0004
   amendment): `skill`, `plugin`, `pluginSkill` (a plugin's own skills, keyed
   on the parent id), `hook`, `settings`, `project`, `session`,
   `desktopSession` (two entries for one kind, because code and desktop
   sessions live in different stores), `mcp`, and one placed-kind entry each
   for agents, commands, rules and output styles. The exported `listings`
-  table dispatches by id prefix (`listingForId`, `listingFor`), so a new kind
-  needs a registry row, a listing row and a matrix row — never a new channel.
+  table dispatches through `listingForId` (longest id prefix) and
+  `listingFor` (kind and parent), so a new kind needs a registry row, a
+  listing row and a matrix row — never a new channel. There is no `kinds`
+  channel either: the renderer learns kinds and capabilities from the
+  entities it already receives.
   `store` has a matrix row and no entry: nothing lists a store as an entity;
   the row exists so the tidy sweep's journal entry can name what it acted on.
   An entity listing or mutation never names an adapter: the workspace method
@@ -121,8 +124,9 @@ entity through the kind registry. Structure:
   the entities it builds with their `kind` and their matrix row, so the
   renderer receives capabilities alongside the data and never has to parse
   an id to learn what it may do.
-- **`analysis.ts`** — staleness (`STALE_AFTER_DAYS`, `isStale`), a pure
-  function over scanned data. Orphan-sidecar detection lives in
+- **`analysis.ts`** — staleness (`STALE_AFTER_DAYS`, `isStale`) and
+  scratch-project name classification (`isScratchProjectName`), pure
+  functions over scanned data. Orphan-sidecar detection lives in
   `sessions.ts`. Duplicate detection lives in `kinds.ts`: `skillDuplicates`
   digests only skills whose names repeat, and a copy it cannot read makes its
   group not identical (032, 118); `sessionNearDuplicates` compares one
@@ -214,7 +218,8 @@ The extra validation belongs to removal review rather than cached inventory
 listings. Inventory cache fingerprints alone cannot establish transcript
 freshness or duplicate equivalence. Review tokens are transient main-process
 state and are not filesystem paths or serialized mutation plans. Mutation, Undo
-and empty-trash execution share a workspace queue so separate valid reviews
+and empty-trash execution share the serial queue inside `createMutations`
+(`mutations.ts`) so separate valid reviews
 cannot race through preflight together. External writers do not join this queue.
 
 ## Kondo's own footprint
@@ -238,41 +243,10 @@ window colors after successful saves. Renderer startup applies the same shared
 palette before mounting React. Missing preferences use Chalk; invalid or
 unreadable preferences provide a usable fallback with an error shown in Themes.
 
-## Growth path
-
-v0.1 hard-coded the read-only adapters into `workspace.ts`. v0.2 replaced
-that with the **kind registry** and the **capability matrix** described
-above: kinds supply `discover / read / capabilities / enable / disable`,
-identity is per ADR-0008, and write permission is a kind × scope ×
-operation lookup rather than a boolean. The snapshot-cache, error-isolation
-and id-allow-list skeleton stayed exactly as it was — that skeleton is the
-part proven by skilldex; the registry is where kondo goes one level up.
-
-Historical write-path structure (v0.2; settings execution is now suspended under 098):
-
-- **Three mutations are wired.** The skill toggle fills the `skill` entry's
-  `enable` / `disable` seats. The skill move (`skillMovePlan`) and the plugin
-  toggle (`pluginTogglePlan`) sit *beside* the registry as standalone
-  planners, because the seat's shape — `enable(entity)` — cannot carry the
-  destination a move needs or the settings layer a plugin toggle plans to edit.
-  Every other entry spreads `noPlanYet`. That divergence is the registry's
-  open design question: the vision's next kinds (MCP servers, agents,
-  commands, rules) each need a toggle and a move, and each as a standalone
-  planner means its own workspace method, channel, IPC line and preload
-  line. Entry 035 then replaced the two seats with one
-  `plan(entity, request)` seat and a generic mutate channel before those
-  kinds landed; the registry described above is that result.
-- **Project roots are resolved lazily.** `mutations.ts` fixes `user` and
-  `desktop`; `project:<flat>` resolves through `extraRoot` against the
-  verified-project list of the current inventory, which ADR-0009 now
-  populates from Claude's registry rather than an un-flattening guess.
-- **No `kinds` channel.** The renderer learns kinds and capabilities from
-  the entities it already receives; a listing of the registry itself only
-  ships if a view needs one.
-
 ## Renderer navigation
 
-`App` owns four management destinations, initially Library, plus Themes, and their navigation state:
+`App` owns four management destinations — Library (the start screen),
+Projects, Clean up and History — plus Themes, and their navigation state:
 Library query/type/selected item, Projects query/selected project/category and
 browser/detail mode, and the selected Clean up subsection. Library joins the
 existing scan results by opaque IDs and opens the matching project category.

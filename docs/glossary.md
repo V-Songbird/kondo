@@ -10,8 +10,9 @@ not choose any of them, so the screen shows the right-hand column and the
 code keeps the left. This table is the mapping layer between the two: types,
 IPC channel names and `shared/contract.ts` fields never move to the right-hand
 spelling, and a string a user can read should use the right-hand one. Some
-screens still show internal terms, such as Library's `Scope` column and the
-scope id in a skill's trash summary; entry 110 reconciles them.
+screens still show internal terms, such as Library's `Scope` and `Location`
+columns, `Global` for the user scope in Library, and the scope id in a skill's
+trash summary; entry 110 reconciles them.
 
 | Internal term | What the UI shows |
 | --- | --- |
@@ -33,7 +34,7 @@ scope id in a skill's trash summary; entry 110 reconciles them.
 | Global / user scope | All projects |
 | Inherited from Global | Shared from All projects |
 | Inherit / follows global | Follow shared setting |
-| MCP server | Connection (MCP) |
+| MCP server | Connections (MCP) |
 | Session (in project management) | Conversation |
 | Effective plugin state | Configured here |
 
@@ -72,13 +73,15 @@ current list; the saved ID is available in Conversation details.
   why this and *unlocated project* are separate states and not one flag. The
   tidy sweep offers its `projects/<key>` directory whole, under
   `dead-projects`.
-- **Scratch project** — a project directory that looks throwaway: its known
-  path sits under the OS temp directory, its name carries a
-  `.claude-worktrees` or `.claude-jobs` marker, or the directory holds no
-  transcript and has no path Kondo can find. A name alone never makes it removable: a
-  tree holding `memory/`, recent activity or unreadable activity evidence is
-  withheld and counted separately (entries 058 and 102). Offered whole under
-  the tidy sweep's `scratch-projects` after review.
+- **Scratch project** — a directory under `projects/` that looks throwaway:
+  its known path sits under the OS temp directory or its name carries a
+  `.claude-worktrees` or `.claude-jobs` marker, or it holds no transcript, no
+  `memory/` and no path Kondo can find. A name alone never makes it removable:
+  a marker- or temp-named tree holding `memory/`, recent activity or unreadable
+  activity evidence is withheld and counted separately, and so is a
+  transcript-less unlocated tree with recent activity. A transcript-less tree
+  holding `memory/` is offered nowhere. Offered whole under the tidy sweep's
+  `scratch-projects` after review.
 - **Category exclusivity** — no store path is offered under two tidy
   categories. The whole-tree categories claim their `projects/<key>`
   directory first and the per-file categories skip everything inside it;
@@ -88,7 +91,8 @@ current list; the saved ID is available in Conversation details.
 - **Empty session** — a zero-byte transcript, the tidy sweep's definition.
   A transcript with lines but no user or assistant message is not yet
   detected.
-- **Orphan** — a session's sibling directory whose transcript is gone.
+- **Orphan** — a session's sibling directory, or a desktop-released marker,
+  whose transcript is gone.
 - **Duplicate** — two sessions judged to be the same work: identical session
   id in two stores (`SessionSummary.mirroredIn`, tier 1), or same project +
   near-identical opening prompt (`sessionNearDuplicates`, tier 2, one project

@@ -54,10 +54,11 @@ each rule links to the document that carries the detail.
   native concurrency and recovery evidence.
 - **Docs move with code.** Learned a store fact → update domain.md (with a
   ✅/◇ marker). Made a lasting decision → add an ADR. Planned a feature →
-  plan file first. A PR that leaves a doc wrong is incomplete. The commit
-  hook enforces two pairings: a `shared/contract.ts` change needs a
-  `docs/adr/` edit, and an `electron/main/workspace/` change needs a
-  `docs/domain.md` edit ([docs/testing.md](docs/testing.md#the-guards)).
+  plan file first. A PR that leaves a doc wrong is incomplete. Two
+  paired-change guards read the staged index (`npm run guards`, or the
+  opt-in pre-commit hook): a `shared/contract.ts` change needs a `docs/adr/`
+  edit, and an `electron/main/workspace/` change needs a `docs/domain.md` edit
+  ([docs/testing.md](docs/testing.md#the-guards)).
 - **Adapters degrade, never die.** Unknown files, malformed JSON, unreadable
   entries produce itemized errors alongside partial data (ADR-0005).
 
