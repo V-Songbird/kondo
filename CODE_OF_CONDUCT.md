@@ -21,8 +21,10 @@ Responses should reflect the impact and severity of the behavior.
 ## Reporting
 
 Do not post sensitive conduct reports or personal evidence in public issues.
-Use GitHub's built-in reporting controls for abusive content or accounts.
-A private project conduct contact has not yet been designated; the repository
-owner must name that contact and an escalation route, including for concerns
-about a maintainer. No project response time or confidentiality guarantee is
-promised here. Security vulnerabilities use [SECURITY.md](SECURITY.md).
+Email [songbird@tuta.com](mailto:songbird@tuta.com) to raise a conduct concern
+privately. The repository owner designated this contact on 2026-09-15; it is
+also the security contact, and delivery has not been independently tested.
+Because that address reaches the maintainer, report a concern about the
+maintainer through GitHub's built-in reporting controls for abusive content or
+accounts. No project response time or confidentiality guarantee is promised
+here. Security vulnerabilities use [SECURITY.md](SECURITY.md).
