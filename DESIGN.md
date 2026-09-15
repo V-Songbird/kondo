@@ -30,7 +30,9 @@ and `chrome-ink` colors and remains a dedicated drag region above the controls.
 
 [shared/themes.ts](shared/themes.ts) is the only palette catalog. It supplies
 renderer CSS variables, the Themes previews and native window colors. CSS has
-no duplicate copy of Chalk or any other palette. The renderer installs Chalk,
+no duplicate copy of Chalk or any other palette. The splash is the one
+exception: `splash.html` and the splash window's background keep their own
+fixed colors. The renderer installs Chalk,
 then the saved appearance, before mounting the application behind its splash.
 
 | Theme | Appearance | Character |
@@ -110,7 +112,7 @@ hard shadow is optional emphasis for a primary action; it carries no state.
 
 A button is a clearly bounded native control with a readable action label.
 The former decorative ASCII brackets have been removed. Main controls are at
-least 33px high; dense row controls are at least 28px. Controls may wrap their
+least 33px high, section tabs 32px, and dense row controls at least 28px. Controls may wrap their
 labels when necessary instead of widening the entire document.
 
 - Primary action: accent background with its paired foreground.
@@ -156,8 +158,8 @@ Session confirmation displays the current reviewed size and activity; duplicate
 skill confirmation retains the location. Kept scratch/worktree folders are
 counted separately and never appear selected for removal.
 
-Technical paths, hashes and raw settings use native details disclosures when
-they are not needed for the immediate decision. Partial scans, warnings and
+Technical paths and hashes use native details disclosures when they are not
+needed for the immediate decision. Partial scans, warnings and
 capability refusals remain visible. Partial applications retain Undo beside the
 result. Loading keeps its reserved text slot and static bars; no fabricated
 progress, shimmering placeholder or animation is needed. Reduced-motion users

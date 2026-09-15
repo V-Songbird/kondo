@@ -19,9 +19,10 @@ drift. Unknown ≠ error (see ADR-0005).
 
 The names below are Claude's and kondo's, not the user's. Where an adapter
 writes a string a person will read — a capability refusal, the summary a
-mutation plan carries into History — it uses the right-hand column of
+mutation plan carries into History — it should use the right-hand column of
 [glossary.md](glossary.md)'s UI-words table instead. A store fact keeps its
-spelling here; the screen never shows it.
+spelling here. Some strings still show internal terms, such as the scope id in
+a skill's trash summary; entry 110 reconciles the in-app wording.
 
 ## The three store kinds
 
@@ -109,12 +110,12 @@ usage):
 | Entry | What it is |
 |---|---|
 | `projects/` | Session transcripts, one subdirectory per working directory. The heart of kondo's session features. |
-| `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'name-only' \| 'user-invocable-only' \| 'off' }` ✅ — the four values Claude Code's own settings schema admits, read off the 2.1.258 binary (entry 029). Its description, verbatim: `name-only` lists the skill without its description, `user-invocable-only` hides it from the model but keeps `/name`, `off` hides it from both, absent = on. **Only `off` is a disabling**; the middle two leave the skill loaded. Precedence is the ordinary local > project > user ✅, and `/skills` writes the key into the *local* layer. It does **not** reach plugin-shipped skills ✅: Claude pins those to `on` before consulting it, and only managed-policy and CLI-flag settings override that — neither of which kondo reads. Kondo resolves it per skill and carries the winner as `SkillInfo.override`, with `enabled` false when it says `off` (entry 029); configuration cleanup preserves every override because its skill sources cannot be completely enumerated (100, ADR-0010). **It is also what kondo's skill toggle plans** (entry 045; execution refused under 098): `disable` splices `<skill>: "off"` into the scope's layer — the one already naming the skill, else `settings.local.json`, the file `/skills` writes — and `enable` removes the member from every layer in the chain that says `off`. A project page switches a *global* skill off for that project alone the same way (entry 062): the `off` lands in the project's own layer and only that project's layers are ever withdrawn from, so `ProjectDetail.inheritedSkills` reads each global skill against the project's local and project layers and reports `off here` apart from `off in Global`. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
+| `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'name-only' \| 'user-invocable-only' \| 'off' }` ✅ — the four values Claude Code's own settings schema admits, read off the 2.1.258 binary (entry 029). Its description, verbatim: `name-only` lists the skill without its description, `user-invocable-only` hides it from the model but keeps `/name`, `off` hides it from both, absent = on. **Only `off` is a disabling**; the middle two leave the skill loaded. Precedence is the ordinary local > project > user ✅, and `/skills` writes the key into the *local* layer. It does **not** reach plugin-shipped skills ✅: Claude pins those to `on` before consulting it, and only managed-policy and CLI-flag settings override that — neither of which kondo reads. Kondo resolves it per skill and carries the winner as `SkillInfo.override`, with `enabled` false when it says `off` (entry 029); configuration cleanup preserves every override because its skill sources cannot be completely enumerated (100, ADR-0010). **It is also what kondo's skill toggle plans** (entry 045; execution refused under 098): `disable` splices `<skill>: "off"` into the scope's layer — the one already naming the skill, else `settings.local.json`, the file `/skills` writes — and `enable` removes the member from every layer in the chain that says `off`. A project page switches a *global* skill off for that project alone the same way (entry 062): the `off` lands in the project's own layer and only that project's layers are ever withdrawn from, so `ProjectDetail.inheritedSkills` reads each global skill against the project's local and project layers and reports `off here` apart from `off in All projects`. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
 | `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo plans to disable (execution refused under 098); a key that is simply absent is silence, not a false. A legacy array form is read (a listed key is enabled) but never written. |
 | `skills/` | User-scope skills, one directory per skill with a `SKILL.md`. |
 | `skills.disabled/` | **Kondo's parking spot, not Claude's convention** ✅. The directory exists on the owner's machine, but the string `skills.disabled` occurs nowhere in the Claude Code 2.1.255 or 2.1.258 binaries (entry 029) — nothing reads it. A skill moved here does stop loading, for the plain reason that it is no longer in `skills/`, which is the "remove from `.claude/skills`" half of Claude's own advice. Claude's *named* per-skill switch is `skillOverrides` above, and since entry 045 that is what the toggle plans (execution refused under 098): nothing new is moved here. Kondo still reads the directory back as the `user-disabled` scope and offers each skill in it the way back into `skills/` (ADR-0006). |
 | `plugins/cache/<mp>/<plugin>/<ver>/skills/` | Skills a plugin ships ✅. These belong to the plugin, not the user: kondo's skills catalogue deliberately excludes them, because benching or relocating one leaves the plugin referring to a directory that is no longer there. They belong to the plugins view, alongside the plugin that owns them, where `pluginSkills(pluginId)` reads them on demand when a plugin's row is opened. The `plugin` skill scope and its capability-matrix row keep that listing read-only. |
-| `plugins/` | Plugin machinery ✅: `installed_plugins.json` (`version: 2`, `plugins[<name>@<marketplace>]` = array of `{ scope, installPath, version, installedAt, lastUpdated, gitCommitSha }`), `known_marketplaces.json`, `plugin-catalog-cache.json` (holds keys differing only by case — parse case-sensitively), `cache/<marketplace>/<plugin>/<version>/` (the installed code), `marketplaces/`, `data/<plugin>-<marketplace>/`, `.install-manifests/<id>.json`, `.last_inuse_sweep`. Residue accumulates ✅: 28 of 39 cached version directories were not the installed version, `.in_use` markers sat on every version (so the marker does not mean "current"), 4 install manifests and 47 of 55 `data/` directories belonged to plugins no longer installed. Kondo sweeps both (entry 033): `superseded-plugin-versions` offers every `cache/<mp>/<plugin>/<version>/` tree that is **not** the `installPath` its manifest entry names — the installed version is never a candidate, and the walk starts from the manifest outwards so that holds by construction rather than by a check — and `orphan-plugin-residue` offers the `data/` directories and `.install-manifests/` files whose `<name>@<marketplace>` id the manifest does not declare. `data/` slugs are derived forwards from each declared id (`@` → `-`), because reading a directory name backwards into an id is ambiguous the moment either half holds a dash. An `installed_plugins.json` that is missing, unreadable or malformed offers **nothing** rather than treating every plugin as uninstalled (ADR-0005); an empty `plugins: {}` is a different answer and does mean everything under `data/` is residue. A cache tree for a plugin absent from the manifest entirely falls under neither category — none was observed, since every cached marketplace/plugin pair was still installed. |
+| `plugins/` | Plugin machinery ✅: `installed_plugins.json` (`version: 2`, `plugins[<name>@<marketplace>]` = array of `{ scope, installPath, version, installedAt, lastUpdated, gitCommitSha }`), `known_marketplaces.json`, `plugin-catalog-cache.json` (holds keys differing only by case — parse case-sensitively), `cache/<marketplace>/<plugin>/<version>/` (the installed code), `marketplaces/`, `data/<plugin>-<marketplace>/`, `.install-manifests/<id>.json`, `.last_inuse_sweep`. Residue accumulates ✅: 28 of 39 cached version directories were not the installed version, `.in_use` markers sat on every version (so the marker does not mean "current"), 4 install manifests and 47 of 55 `data/` directories belonged to plugins no longer installed. Kondo sweeps both (entry 033): `superseded-plugin-versions` offers every `cache/<mp>/<plugin>/<version>/` tree that **no** installation entry of that plugin names as its `installPath` — the walk starts from the manifest's plugin ids and skips each version directory an entry names, and that explicit check is what keeps every installed version out of the candidates — and `orphan-plugin-residue` offers the `data/` directories and `.install-manifests/` files whose `<name>@<marketplace>` id the manifest does not declare. `data/` slugs are derived forwards from each declared id (`@` → `-`), because reading a directory name backwards into an id is ambiguous the moment either half holds a dash. An `installed_plugins.json` that is missing, unreadable or malformed offers **nothing** rather than treating every plugin as uninstalled (ADR-0005); an empty `plugins: {}` is a different answer and does mean everything under `data/` is residue. A cache tree for a plugin absent from the manifest entirely falls under neither category — none was observed, since every cached marketplace/plugin pair was still installed. |
 | `commands/` | User-scope slash commands (`.md` files) ✅. Read as placed entries — see below. |
 | `hooks/` | Hook scripts ✅. Two scripts observed while `settings.json` `hooks` was `{}`. That does not prove disuse: Kondo inventories only selected settings layers, not every execution source. Each hook row keeps only the status of the first script its command names (`present`, `missing`, or `unverifiable`); the command and the path stay in main (117). Variables are not expanded and paths outside the approved roots are not probed (ADR-0002). ✅ Synthetic fixtures (101): cleanup retains **all** hook scripts, including ones absent from the recognized references. `unarmed-hook-scripts` remains a compatible category identifier with zero candidates and an explicit blocked reason. |
 | `agents/`, `output-styles/`, `rules/` | User-scope subagents, output styles and rules ◇ (documented by Claude Code; absent on this machine). Read as placed entries — see below. |
@@ -186,12 +187,12 @@ is seen without a restart:
 - `projects` ✅ — an object keyed by the **absolute path** of every directory
   Claude Code has run in (4,335 keys observed; 4,309 spelled with `/` on
   Windows and 26 with `\`, 17 paths present under both spellings). This is
-  the reverse map for `projects/` below. Per entry, the keys kondo cares
-  about: `mcpServers` (per-project MCP servers, 20 entries observed),
-  `disabledMcpServers` (7), `enabledMcpjsonServers` / `disabledMcpjsonServers`
-  (empty arrays here), `allowedTools`. The rest — `lastSessionFirstPrompt`,
-  `lastCost`, token counts, `lastSessionId` — is session telemetry kondo
-  never surfaces. 52 keys pointed at directories that no longer exist ✅:
+  the reverse map for `projects/` below. Per entry, kondo reads
+  `mcpServers` (per-project MCP servers, 20 entries observed),
+  `disabledMcpServers` (7) and `disabledMcpjsonServers` (an empty array here).
+  `enabledMcpjsonServers` (also empty) and `allowedTools` are present but
+  unread, and the rest — `lastSessionFirstPrompt`, `lastCost`, token counts,
+  `lastSessionId` — is session telemetry kondo never surfaces. 52 keys pointed at directories that no longer exist ✅:
   that is the dead-project signal (entry 030). These keys are also **half of
   the project set**: kondo lists the union of them and the `projects/`
   directories below, joined on the flattened path, so a directory Claude has
@@ -244,9 +245,11 @@ the transport, and the file that declares it.
 
 `<flat>` is the flattened project path (ADR-0009), which is what joins a
 declaration to the project directory it belongs to. A `local` declaration
-whose registry path is no longer on disk is reported with `orphan: true` —
-the dead-project signal in its MCP form, and what `configOrphansPreview`
-offers to splice out (ADR-0010). Discovery is tier-1 (ADR-0007): one registry
+whose registry path fails its `stat` is reported with `orphan: true`, the
+dead-project signal in its MCP form. Only a path that is gone (ENOENT) makes
+it a leftover that `configOrphansPreview` offers to splice out (ADR-0010); any
+other failure also records a `stat-failed` error and is never offered.
+Discovery is tier-1 (ADR-0007): one registry
 parse, one `stat` per registry entry that actually declares a server, one
 `.mcp.json` read per verified project. The two disable lists are also what
 kondo's toggle plans (entry 061; execution refused under 098): `disable` adds
@@ -381,9 +384,12 @@ scan and a mutation can never disagree about where an entry lives.
   verified — which is not evidence of anything) and `unreadable` (the registry
   named it and the stat failed some other way: a permission kondo does not
   have, a volume no longer mounted, an I/O error). Only ENOENT is evidence of
-  deletion, so only `gone` makes a cleanup candidate; an `unreadable` project
-  carries a `stat-failed` scan error and is offered in no category, because an
-  unmounted volume still holds every byte it ever did (entry 075, ADR-0005).
+  deletion, so only `gone` makes a dead-project candidate; an `unreadable`
+  project carries a `stat-failed` scan error and is never offered as dead,
+  because an unmounted volume still holds every byte it ever did (entry 075,
+  ADR-0005). Throwaway names are judged separately: a worktree or job marker,
+  or a registry path under the temp root, can offer an inactive directory
+  without `memory/` whatever its location (entries 058 and 102).
 - Scale is real: **9,171 project directories** observed on one machine ✅
   (9,031 of them under a temp directory — benchmark and scratchpad runs);
   11,517 registry-plus-directory members on 2026-09-05, 8,498 of them
@@ -430,16 +436,19 @@ scan and a mutation can never disagree about where an entry lives.
     2026-09-05, two of them live projects — `D:\Projects\Knowledge\GRFEditor`
     among them — whose memory is the only thing Claude has recorded there).
     So "no transcript" is not "scratch" (entry 058): the tidy sweep offers a
-    transcript-less directory whole only when it also holds no `memory/` and
-    its path is *unlocated* — nothing recorded, nothing behind it. One whose
-    path is `gone` is a dead project; one holding `memory/` under a live or
+    transcript-less directory whole only when it holds no `memory/`, shows no
+    recent activity, and either carries a throwaway name (a worktree or job
+    marker, or a registry path under the temp root) or has an *unlocated*
+    path. Throwaway names are checked first; otherwise one whose path is
+    `gone` is a dead project, and one holding `memory/` under a live or
     unlocated path is Claude's record of a project and is offered nowhere.
   - Occasional top-level `.json` files ◇ (five seen in one directory; not
     yet understood, reported as unknown).
 - Transcript lines are typed events. First line observed with keys `type`,
   `leafUuid`, `sessionId` ✅; message lines carry timestamps and roles ◇.
-  Kondo reads the first and last lines to bound a session in time, and
-  message timestamps (streamed, never whole-file) for worked time.
+  Kondo streams a transcript line by line, never whole, for its line and
+  message counts, first user prompt and first and last timestamps; worked
+  time is not computed yet.
 - Two sessions in one project can be the *same work restarted*: the same
   opening prompt, a fresh uuid ✅. `sessionNearDuplicates(projectId)` groups
   them on the first `type: "user"` message, normalized to lower-case letters

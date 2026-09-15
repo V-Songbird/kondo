@@ -7,7 +7,8 @@ for bugs and feature requests. For vulnerabilities, follow
 
 ## Setup
 
-- Node 22.12+ (`.nvmrc` provided; `fnm use` / `nvm use`).
+- Node 22.12 or later. `.nvmrc` names the 22 line for `fnm use` / `nvm use`;
+  check that `node -v` reports at least 22.12.
 - `npm install`, then `npm run dev` for the app with hot reload.
 - `npm run guards`, `npm test`, `npm run typecheck`, `npm run lint` must all
   pass before review. Tests use synthetic stores; never point tests at real data.
@@ -18,14 +19,15 @@ for bugs and feature requests. For vulnerabilities, follow
 
 `npm run guards` runs Jig's repository checks for privacy, process boundaries
 and paired documentation changes. Paired-change checks inspect the staged
-index and can report skipped when no relevant files are staged. CI runs the
+index and report themselves skipped when nothing is staged. CI runs the
 same runner plus `node .jig/checks/run.mjs --selftest` to exercise guard fixtures.
 
 Hooks are a per-clone opt-in. Inspect `git config --show-origin --get core.hooksPath`
 and any existing hooks before opting in with `git config --local core.hooksPath .jig/hooks`.
 This redirects **all** hooks, not only pre-commit; preserve any previous setting.
 To undo, restore that setting, or use `git config --local --unset core.hooksPath`
-if no local value existed. See [Jig activation](.jig/activation.md).
+if no local value existed. [Jig activation](.jig/activation.md) describes a
+clone that has opted in.
 The hook skips checks if Node is unavailable in its environment; initialize
 fnm before committing and run the checks explicitly. CI remains required.
 The tracked hook file is not yet marked executable, so Git on macOS and Linux
@@ -54,9 +56,12 @@ may not run it (entry 126); run `npm run guards` before committing there.
 
 ## Changing the seam
 
-`shared/contract.ts` is the IPC contract; changing it is a four-file move,
+`shared/contract.ts` is the IPC contract; changing it is a five-file move,
 always in one PR: the contract (types + `channels`), the workspace method,
-the preload line, and the renderer usage. Add a case to
+its registration in `electron/main/ipc.ts`, the preload line, and the renderer
+usage. New work adds an operation on the generic entity channels rather than
+a new channel (ADR-0004), and the paired-change guard reports a staged
+contract change that has no staged ADR edit beside it. Add a case to
 `test/workspace.test.ts` for any new method, and to the boundary sweep in
 `test/boundary.test.ts` if it reads new paths. New error semantics get a
 `ScanErrorCode` entry with a doc comment saying what the UI should do with

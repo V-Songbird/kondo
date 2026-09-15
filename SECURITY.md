@@ -49,10 +49,10 @@ quitting Kondo and removing that exact directory; removing retained trash
 permanently loses those contents and their undo, without reverting earlier
 Claude-store changes. Kondo never copies store content
 anywhere else. Identity and token files — `.credentials.json` in the user
-store, the desktop store's device and token files, and the account and
-machine keys of `~/.claude.json` — are statted for size but never opened or
-surfaced; of `~/.claude.json` kondo keeps only the project paths and, later,
-MCP server names (ADR-0009).
+store and the desktop store's device and token files — are statted for size
+but never opened or surfaced. Of `~/.claude.json`, kondo uses only the project
+registry, MCP server declarations with their disable lists, and `skillUsage`;
+its account and machine keys are never surfaced (ADR-0009, ADR-0022).
 
 Settings files, `~/.claude.json` and `.mcp.json` can hold credentials in
 arbitrary keys, commands and nested values. Their data reaches the renderer only

@@ -59,10 +59,12 @@ machine; nothing is ever sent anywhere.
   approval state are not read yet. On/off changes are temporarily unavailable.
   Kondo does not test live connectivity.
 - **Settings files** — summaries of user, project and local files: location,
-  size and top-level setting names. Skills and Plugins show their supported
-  scope-specific settings states. Kondo does not calculate a complete effective
-  Claude configuration or read managed policy, command-line overrides or live
-  session settings ([ADR-0021](docs/adr/0021-summarize-settings-files.md)).
+  size and the top-level setting names Claude Code documents, with a note when
+  a file holds other names. Values are not shown. Skills and Plugins show their
+  supported scope-specific settings states. Kondo does not calculate a complete
+  effective Claude configuration or read managed policy, command-line overrides
+  or live session settings ([ADR-0021](docs/adr/0021-summarize-settings-files.md),
+  [ADR-0022](docs/adr/0022-project-settings-data-deny-by-default.md)).
 - **Clean up** — review files and caches, settings leftovers, or duplicate
   skills. File categories include saved Claude data for throwaway folders, projects that
   are gone, old and empty Code conversations, Code transcripts with a Desktop
@@ -311,7 +313,8 @@ remain in that terminal for subsequent launches).
 
 ## Getting started from source
 
-Requires Node 22.12+ (an `.nvmrc` is provided; `fnm use` or `nvm use` picks it up).
+Requires Node 22.12 or later. The `.nvmrc` names the 22 line for `fnm use` or
+`nvm use`; check that `node -v` reports at least 22.12.
 
 ```bash
 npm install

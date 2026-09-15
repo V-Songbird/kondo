@@ -9,7 +9,9 @@ The definitions below are kondo's internal vocabulary. A first-time user did
 not choose any of them, so the screen shows the right-hand column and the
 code keeps the left. This table is the mapping layer between the two: types,
 IPC channel names and `shared/contract.ts` fields never move to the right-hand
-spelling, and no string a user can read is ever left on the left-hand one.
+spelling, and a string a user can read should use the right-hand one. Some
+screens still show internal terms, such as Library's `Scope` column and the
+scope id in a skill's trash summary; entry 110 reconciles them.
 
 | Internal term | What the UI shows |
 | --- | --- |
@@ -22,7 +24,7 @@ spelling, and no string a user can read is ever left on the left-hand one.
 | Orphan | Leftover |
 | Desktop-released session | Conversation deleted in the desktop app |
 | Desktop caches (`desktop-caches`) | Caches the desktop app rebuilds |
-| Skill duplicate group | Skills kept twice |
+| Skill duplicate group | Duplicate skills |
 | Trash a duplicate copy | Move this copy to trash |
 | Settings layer | Settings file |
 | Scope | Where it applies |
@@ -63,7 +65,8 @@ current list; the saved ID is available in Conversation details.
   shared by its ids, its store name and its settings layers.
 - **Unlocated project** — a project directory whose real path kondo could
   not find in the registry or by guessing. Not evidence the folder is gone,
-  and never a cleanup candidate. `location: 'unlocated'`.
+  so never a dead project; a transcript-less one with no `memory/` and no
+  recent activity can still be a scratch project. `location: 'unlocated'`.
 - **Dead project** — a project the registry names whose path no longer
   exists on disk. `location: 'gone'` — the failed stat is evidence, which is
   why this and *unlocated project* are separate states and not one flag. The
@@ -71,8 +74,8 @@ current list; the saved ID is available in Conversation details.
   `dead-projects`.
 - **Scratch project** — a project directory that looks throwaway: its known
   path sits under the OS temp directory, its name carries a
-  `.claude-worktrees` or `.claude-jobs` marker, or the directory holds nothing
-  and has no path Kondo can find. A name alone never makes it removable: a
+  `.claude-worktrees` or `.claude-jobs` marker, or the directory holds no
+  transcript and has no path Kondo can find. A name alone never makes it removable: a
   tree holding `memory/`, recent activity or unreadable activity evidence is
   withheld and counted separately (entries 058 and 102). Offered whole under
   the tidy sweep's `scratch-projects` after review.
