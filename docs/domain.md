@@ -325,17 +325,23 @@ one Claude reads), `restricted` (a readable `deniedMcpServers` names it),
 `rejected`, `pending`, `disabled` (the project's switch), `unknown`, then
 `approved` or `configured`. `unknown` replaces a positive answer whenever it
 depends on something kondo may not read: a settings layer or a registry that
-did not parse, an allowlist or a URL or command deny rule (kondo evaluates
-neither), or an untrusted project whose only approval sits in its local layer.
+did not parse, a project folder kondo could not look at, an allowlist or a URL
+or command deny rule (kondo evaluates neither), or an untrusted project whose
+only approval sits in its local layer.
 Managed settings, `managed-mcp.json`, `--settings`, the approvals a running
 session holds and the environment stay outside the boundary and are stated
 rather than guessed. No status says a server connects.
 
-A `local` declaration whose registry path fails its `stat` is reported with
-`orphan: true`, the dead-project signal in its MCP form. Only a path that is
-gone (ENOENT) makes it a leftover that `configOrphansPreview` offers to splice
-out (ADR-0010); any other failure also records a `stat-failed` error and is
-never offered.
+A `local` declaration's registry path is looked at once, and the look has three
+answers ✅. A path that is there adds nothing. A path that is **gone** (ENOENT)
+reports `orphan: true` — the dead-project signal in its MCP form — and makes
+the whole registry entry a leftover `configOrphansPreview` offers to splice out
+(ADR-0010). Any **other** failure is neither: kondo could not look, which is
+not evidence of deletion, so the declaration is not an orphan, records its
+`stat-failed` error, reads `unknown` with a fixed sentence naming the folder
+kondo could not check, and has both switch directions refused — without the
+Leftovers sentence, because Leftovers never offers it. Only ENOENT is deletion,
+the same split `sessions.ts` makes for a project's `location`.
 
 That switch is also what kondo's toggle plans (execution refused): `disable`
 adds the name to the project's `disabledMcpServers` and `enable` takes it out,

@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { slashed } from '../electron/main/workspace/display'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { KondoApi, McpServerInfo } from '../shared/contract'
+import type { KondoApi, McpServerInfo, ScanError } from '../shared/contract'
 import { capabilitiesFor } from '../electron/main/workspace/capabilities'
 import { createKindContext, kinds } from '../electron/main/workspace/kinds'
 import { applyEdits } from '../electron/main/workspace/mutations'
@@ -26,6 +26,9 @@ import {
  * the two keys that must never cross the seam. Read-only throughout — the
  * matrix row is asserted here as well, because it is what keeps the kind
  * read-only until entry 031.
+ *
+ * The registry path of a local declaration has three answers, not two (entry
+ * 135): there, gone, and could-not-look. Only the second is an orphan.
  */
 
 const SETTINGS_REFUSAL = 'Settings changes are temporarily unavailable because Kondo cannot safely exclude concurrent Claude writes. No files were changed.'
@@ -34,6 +37,7 @@ describe('mcp server discovery', () => {
   let world: FixtureWorld
   let live: string
   let dead: string
+  let sealed: string
   let projects: VerifiedProject[]
 
   beforeEach(async () => {
@@ -42,9 +46,14 @@ describe('mcp server discovery', () => {
     // Never created on disk: a project Claude still remembers and the user
     // has since deleted — the orphan case.
     dead = path.join(world.base, 'work', 'gone')
+    // On disk, but `denyStat` makes the look fail with something other than
+    // ENOENT — a permission kondo does not have, or a volume gone quiet. Not
+    // a deleted project, and not kondo's to offer for removal (entry 135).
+    sealed = path.join(world.base, 'work', 'unreadable')
     projects = [{ dirName: flattenPath(live), absPath: live }]
 
     await writeFileTree(live, { '.claude/settings.json': writeJson({}) })
+    await fs.mkdir(sealed, { recursive: true })
     await registerMcp(
       world,
       {
@@ -57,7 +66,8 @@ describe('mcp server discovery', () => {
             // Session telemetry sitting beside them; nothing reads it.
             lastCost: 1.23
           },
-          [dead]: { mcpServers: { 'dead-local': mcpServer() } }
+          [dead]: { mcpServers: { 'dead-local': mcpServer() } },
+          [sealed]: { mcpServers: { 'sealed-local': mcpServer() } }
         }
       },
       {
@@ -68,14 +78,34 @@ describe('mcp server discovery', () => {
     )
   })
   afterEach(async () => {
+    vi.restoreAllMocks()
     await world.cleanup()
   })
 
-  const scan = async (): Promise<Awaited<ReturnType<typeof scanMcpServers>>> => {
+  /** Deny exactly one path its `stat`, the way a directory kondo may not enter does. */
+  const denyStat = (target: string): void => {
+    const real = fs.stat.bind(fs)
+    vi.spyOn(fs, 'stat').mockImplementation(async (candidate) => {
+      if (String(candidate) === target) {
+        throw Object.assign(
+          new Error(`EACCES: permission denied, stat '${target}'`),
+          { code: 'EACCES' }
+        )
+      }
+      return real(candidate)
+    })
+  }
+
+  const read = async (): Promise<{ servers: McpServerInfo[]; errors: ScanError[] }> => {
     const c = collector()
     const layers = await readSettingsLayers(world.locator, projects, c)
     const servers = await scanMcpServers(world.locator, projects, layers, c)
-    expect(c.errors).toEqual([])
+    return { servers, errors: c.errors }
+  }
+
+  const scan = async (): Promise<Awaited<ReturnType<typeof scanMcpServers>>> => {
+    const { servers, errors } = await read()
+    expect(errors).toEqual([])
     return servers
   }
 
@@ -85,6 +115,7 @@ describe('mcp server discovery', () => {
       `mcp:local:${flattenPath(dead)}/dead-local`,
       `mcp:local:${flat}/benched`,
       `mcp:local:${flat}/live-local`,
+      `mcp:local:${flattenPath(sealed)}/sealed-local`,
       `mcp:project:${flat}/committed`,
       `mcp:project:${flat}/committed-off`,
       'mcp:user:user-wide'
@@ -120,6 +151,59 @@ describe('mcp server discovery', () => {
   it('marks a declaration whose project path is gone as an orphan', async () => {
     const orphans = (await scan()).filter((server) => server.orphan)
     expect(orphans.map((server) => server.name)).toEqual(['dead-local'])
+  })
+
+  it('leaves a declaration whose project path could not be read out of the orphans', async () => {
+    denyStat(sealed)
+    const { servers } = await read()
+    expect(servers.filter((server) => server.orphan).map((server) => server.name))
+      .toEqual(['dead-local'])
+  })
+
+  it('reads a declaration whose project path could not be read as unknown, naming the folder', async () => {
+    denyStat(sealed)
+    const server = (await read()).servers
+      .find((candidate) => candidate.name === 'sealed-local')!
+    expect(server.status).toBe('unknown')
+    expect(server.statusReason).toContain(slashed(sealed))
+    // ADR-0022: a fixed sentence that says kondo could not look, never that
+    // the folder is gone and never the errno's own text.
+    expect(server.statusReason).not.toContain('gone')
+    expect(server.statusReason).not.toContain('EACCES')
+    expect(server.statusReason).not.toContain('permission denied')
+  })
+
+  it('itemizes the failed look beside the declarations it did read (ADR-0005)', async () => {
+    denyStat(sealed)
+    const { servers, errors } = await read()
+    expect(errors.map((error) => [error.code, error.path]))
+      .toEqual([['stat-failed', slashed(sealed)]])
+    // The present and gone entries owe no error, and every scope still came back.
+    expect(servers.map((server) => server.id)).toHaveLength(7)
+  })
+
+  it('refuses both switch directions for an unreadable path without naming Leftovers', async () => {
+    denyStat(sealed)
+    const byId = new Map((await read()).servers.map((server) => [server.id, server]))
+    const server = byId.get(`mcp:local:${flattenPath(sealed)}/sealed-local`)!
+    for (const decision of [server.capabilities.enable, server.capabilities.disable]) {
+      expect(decision.allowed).toBe(false)
+      expect(decision.reason).not.toContain('Leftovers')
+      expect(decision.reason).not.toContain('gone')
+    }
+    // The genuinely gone one keeps the refusal that points at Leftovers.
+    const orphan = byId.get(`mcp:local:${flattenPath(dead)}/dead-local`)!
+    expect(orphan.capabilities.enable.reason).toContain('Leftovers')
+    expect(orphan.capabilities.disable.reason).toContain('Leftovers')
+  })
+
+  it('offers only the gone project to Leftovers, never the unreadable one', async () => {
+    denyStat(sealed)
+    const api = createWorkspace({ locator: world.locator, platform: process.platform })
+    const offered = (await api.configOrphansPreview()).data ?? []
+    expect(offered.map((orphan) => orphan.name)).toContain('dead-local')
+    expect(offered.map((orphan) => orphan.name)).not.toContain('sealed-local')
+    expect(offered.map((orphan) => orphan.source).join(' ')).not.toContain(slashed(sealed))
   })
 
   it('never surfaces an env or headers value, nor their key names', async () => {
@@ -164,7 +248,7 @@ describe('mcp server discovery', () => {
     )
     expect(c.errors.map((error) => error.code)).toEqual(['parse-failed'])
     // The registry's own scopes still came back whole.
-    expect(servers.map((server) => server.scope)).toEqual(['local', 'local', 'local', 'user'])
+    expect(servers.map((server) => server.scope)).toEqual(['local', 'local', 'local', 'local', 'user'])
   })
 
   it('answers empty rather than throwing when no registry exists at all', async () => {
