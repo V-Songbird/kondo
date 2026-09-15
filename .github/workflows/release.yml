@@ -88,6 +88,22 @@ jobs:
       - run: node .jig/checks/run.mjs --selftest
       - run: npm run build
       - run: npx electron-builder --publish never
+      # Attribution is part of the artifact, so a notice missing from or stale
+      # in the packaged resources fails the leg here — before the smoke, which
+      # is the expensive part, and long before any installer is uploaded.
+      # electron-builder suffixes the macOS directory with the architecture, so
+      # the directory is discovered rather than fixed per OS, the same way the
+      # macOS smoke below globs it (docs/release.md, "Packaging").
+      - name: Verify the packaged third-party notices
+        shell: bash
+        run: |
+          shopt -s nullglob
+          directories=(release/win-unpacked/resources release/linux-unpacked/resources release/mac*/Kondo.app/Contents/Resources)
+          if [ "${#directories[@]}" -ne 1 ]; then
+            echo "Expected one packaged resources directory, found ${#directories[@]}" >&2
+            exit 1
+          fi
+          node scripts/verify-packaged-notices.mjs "${directories[0]}"
       - name: Install NSIS and smoke the installed Windows app
         if: runner.os == 'Windows'
         shell: pwsh

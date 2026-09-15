@@ -8,6 +8,11 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Installers now carry attribution for every component they ship. The
+  third-party notices add React, React DOM, scheduler and Tailwind CSS beside
+  the IBM Plex fonts and Electron, and each release build checks the notices
+  inside its own packaged resources before uploading the installer.
+
 - Physical move and Undo recovery now distinguishes filesystem entry boundaries,
   streamed file bytes and stored link targets. Interrupted legacy or mismatched
   fingerprints stay visible for review without reading or changing endpoints;
