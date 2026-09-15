@@ -18,6 +18,9 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
+- [119 — Release tag provenance](119-release-tag-provenance.md) — a release
+  tag must be main's reviewed tip before anything is packaged, and a rehearsal
+  never drafts a release.
 - [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
   — the experiments that separate an Electron, smoke-harness or kondo startup
   cause; none has run yet.
