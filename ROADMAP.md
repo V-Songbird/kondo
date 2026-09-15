@@ -60,18 +60,24 @@ Four decisions frame this work and are not up for re-argument here:
 
 ### Accuracy and compatibility
 
-- **An unreadable local MCP project path must not read as a removable orphan
-  (135).**
 - **Every companion file counted in removal size estimates (105).** Until then,
   a transcript's size must not be labelled the full removal size.
 - **Every plugin installation and component layout (106):** inventory across
   scopes, and one fixture per supported layout.
 - **Unreadable hook scripts reported as unverifiable rather than missing (127).**
 - **Non-boolean `enabledPlugins` values never read as a definite plugin state (129).**
+- **A `CLAUDE_CONFIG_DIR` set in a Claude settings `env` block followed (138).**
+- **A legacy `.config.json` registry in a configuration home read (139).**
+- **Transcripts stored under `CLAUDE_CODE_PROJECT_DIR_NAME` located (140).**
+- **MCP allowlists and URL or command deny rules evaluated (143).**
+- **`.mcp.json` reads measured on a large registry before the release
+  candidate (144).**
 
 ### Privacy and safety
 
 - Kondo's data directory never resolving inside a Claude store (115).
+- A profile data root keyed by its resolved path, and a refusal that names the
+  store set (141).
 
 ### Product claims (110)
 
@@ -109,6 +115,8 @@ In-app wording reconciled with the accepted decisions. Acceptance criteria:
 - The Jig edit-guard false positive and the repository session lane (125).
 - The pre-commit hook's Unix mode (126).
 - The real-store guard scanning every test file type, not only `test/**/*.ts` (134).
+- Repository checks that never collect `.claude/worktrees` (137).
+- The bundle inventory diffed against the notice table in CI (142).
 
 ### Publication
 
@@ -116,10 +124,10 @@ In-app wording reconciled with the accepted decisions. Acceptance criteria:
 - A public identity and destination for strategy A, a separate public
   repository with a new root commit
   ([plan 111](docs/plans/111-public-history-decision.md)).
-- Finally, 114 revalidates the exact candidate: fresh hosted checks on all
-  three platforms, packaged smoke, cleanup and recovery rehearsal, a privacy
-  re-audit of the final SHA and the release notes. The release itself is the
-  owner's to cut ([docs/release.md](docs/release.md)).
+- Finally, once 120 is settled, 114 revalidates the exact candidate: fresh
+  hosted checks on all three platforms, packaged smoke, cleanup and recovery
+  rehearsal, a privacy re-audit of the final SHA and the release notes. The
+  release itself is the owner's to cut ([docs/release.md](docs/release.md)).
 
 ## Later
 
@@ -130,6 +138,7 @@ In-app wording reconciled with the accepted decisions. Acceptance criteria:
   ADR-0016; they are not part of the supported session workflow.
 - Time analytics: worked time per session (active spans, not wall clock),
   timelines per project and per week.
+- An in-app picker for the Claude profile kondo reads (145).
 - Code signing and macOS notarization, when ADR-0011's conditions hold.
 
 ## Non-goals
