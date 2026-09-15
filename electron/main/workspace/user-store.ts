@@ -1241,6 +1241,8 @@ const MCP_REASON = {
     `This project switches the server off with disabledMcpServers in ${file}.`,
   unreadable: (file: string): string =>
     `Kondo could not read ${file}, so it cannot tell whether Claude Code uses this server here.`,
+  unreachable: (folder: string): string =>
+    `Kondo could not check whether ${folder} is still there, so it cannot tell whether Claude Code uses this declaration.`,
   rules: (file: string): string => `${file} limits MCP servers with rules kondo does not evaluate.`,
   untrusted: (file: string): string =>
     `Only ${file} approves this server and this project is not trusted, so whether Claude Code honours it depends on git.`
@@ -1253,17 +1255,40 @@ interface McpState extends McpSwitchState {
 }
 
 /**
+ * What the one permitted look at a local declaration's registry path
+ * established (entry 135). Three answers, not two: the folder is there, it is
+ * gone, or kondo could not look at all — a permission it does not have, a
+ * volume no longer mounted, an I/O error. Only ENOENT is deletion, exactly as
+ * `defaultExists` in sessions.ts splits it, because only deletion makes the
+ * registry entry a leftover Leftovers offers to splice out (ADR-0010).
+ */
+interface McpReach {
+  /** ENOENT: the folder is not there, and the entry is a leftover. */
+  orphan: boolean
+  /** Why kondo could not tell, when it could not; else null. */
+  unreachable: string | null
+}
+
+/** The answer for a path kondo looked at and found, and for one it never had to check. */
+const REACHED: McpReach = { orphan: false, unreachable: null }
+
+/**
  * What kondo can establish about one declaration in one place, in the order
  * Claude Code decides it (entry 103): a name a higher scope has taken, a
  * restriction, a rejection, an approval Claude has not been given, this
  * project's own switch, then whatever could not be read. The positive answer
  * comes last, so nothing reads as on while a source is missing (ADR-0005).
+ *
+ * A registry path kondo could not look at leaves every direction refused and
+ * takes the last unknown slot before that positive answer (entry 135): the
+ * switch it would write belongs to a project kondo cannot even find, and the
+ * folder is the most specific thing there is to say about it.
  */
 function evaluateMcp(
   scope: McpScope,
   name: string,
   place: McpPlace,
-  orphan: boolean
+  reach: McpReach
 ): McpState {
   const listed =
     place.project === null ? false
@@ -1272,8 +1297,15 @@ function evaluateMcp(
   const state = (
     status: McpServerStatus,
     statusReason: string | null,
-    blocked: string | null = null
-  ): McpState => ({ status, statusReason, listed, blocked, reason: statusReason, orphan })
+    blocked: string | null = reach.unreachable
+  ): McpState => ({
+    status,
+    statusReason,
+    listed,
+    blocked,
+    reason: statusReason,
+    orphan: reach.orphan
+  })
 
   // A higher-precedence declaration of the same name is the one Claude reads
   // here (local, then project, then user), and the switch is a list of names,
@@ -1346,6 +1378,7 @@ function evaluateMcp(
   }
 
   if (listed === true) return state('disabled', MCP_REASON.disabled(place.registry))
+  if (reach.unreachable !== null) return state('unknown', reach.unreachable)
   if (approvalUnknown !== null) return state('unknown', approvalUnknown)
   if (listed === null) {
     return state('unknown', MCP_REASON.unreadable(place.registry), MCP_REASON.unreadable(place.registry))
@@ -1370,7 +1403,10 @@ function evaluateMcp(
  *
  * A registry entry whose path is gone still yields its servers, marked
  * `orphan`: listing them is the point, and Leftovers removes the entry itself
- * once settings edits are permitted again (ADR-0010).
+ * once settings edits are permitted again (ADR-0010). An entry whose path
+ * kondo could not look at is not that (entry 135): it yields its servers with
+ * the failure itemized beside them, and each one says kondo could not check,
+ * because Leftovers offers only a path that is gone.
  */
 export async function readMcp(
   locator: StoreLocator,
@@ -1452,9 +1488,9 @@ export async function readMcp(
     source: string,
     name: string,
     declaration: Record<string, unknown>,
-    orphan: boolean
+    reach: McpReach
   ): void => {
-    const state = evaluateMcp(scope, name, place, orphan)
+    const state = evaluateMcp(scope, name, place, reach)
     servers.push({
       id: `mcp:${scope}:${key}`,
       kind: 'mcp',
@@ -1469,13 +1505,13 @@ export async function readMcp(
       project: place.project,
       status: state.status,
       statusReason: state.statusReason,
-      orphan
+      orphan: reach.orphan
     })
   }
 
   for (const [name, declaration] of mcpDeclarations(config)) {
     // The registry is the owning path, and it was just read.
-    add('user', name, user, configDisplay, name, declaration, false)
+    add('user', name, user, configDisplay, name, declaration, REACHED)
   }
 
   for (const [flat, { absPath, entry }] of registry) {
@@ -1485,15 +1521,19 @@ export async function readMcp(
     if (declarations.length === 0) continue
     // ADR-0002 allows exactly this — an existence check on the project root,
     // never a listing and never a read of what is inside it.
-    let orphan = false
+    let reach = REACHED
     try {
       await fs.stat(absPath)
     } catch (cause) {
-      orphan = true
-      if (!isEnoent(cause)) c.fail('stat-failed', tildify(absPath, locator.home), cause)
+      const folder = tildify(absPath, locator.home)
+      if (isEnoent(cause)) reach = { orphan: true, unreachable: null }
+      else {
+        c.fail('stat-failed', folder, cause)
+        reach = { orphan: false, unreachable: MCP_REASON.unreachable(folder) }
+      }
     }
     for (const [name, declaration] of declarations) {
-      add('local', `${flat}/${name}`, placeOf(flat), configDisplay, name, declaration, orphan)
+      add('local', `${flat}/${name}`, placeOf(flat), configDisplay, name, declaration, reach)
     }
   }
 
@@ -1504,7 +1544,7 @@ export async function readMcp(
     const own = committed.get(project.dirName)
     for (const [name, declaration] of own?.declarations ?? []) {
       // The file was read from the project, so the project is there.
-      add('project', `${project.dirName}/${name}`, place, own?.path ?? configDisplay, name, declaration, false)
+      add('project', `${project.dirName}/${name}`, place, own?.path ?? configDisplay, name, declaration, REACHED)
     }
   }
 
@@ -1537,7 +1577,8 @@ export function inheritedMcpServers(
   return reading.servers
     .filter((server) => server.scope === 'user')
     .map((server) => {
-      const state = evaluateMcp('user', server.name, place, false)
+      // Every project here is one the inventory verified, so its path was found.
+      const state = evaluateMcp('user', server.name, place, REACHED)
       return {
         server,
         projectId: projectId(dirName),

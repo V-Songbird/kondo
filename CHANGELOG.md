@@ -138,6 +138,13 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- A connection declared for a project folder Kondo cannot check no longer reads
+  as a deleted project. Only a folder that is really absent is reported gone and
+  offered under Settings leftovers. A folder that refuses the check now reads
+  `cannot tell`, names itself in the explanation, and keeps both switch
+  directions refused rather than promising that Leftovers will clear it. The
+  failure is still reported beside the connections that were read.
+
 - A plugin whose settings file holds something other than `true` or `false` no
   longer reads as switched on. Kondo now shows that layer as an unrecognized
   value, lists the file and the plugin among the scan's problems, and lets

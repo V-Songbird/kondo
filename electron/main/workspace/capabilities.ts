@@ -286,20 +286,30 @@ export interface McpSwitchState {
    * kondo could not read the entry at all.
    */
   listed: boolean | null
-  /** A reason both directions are refused: gone, shadowed, or unreadable. */
+  /**
+   * A reason both directions are refused: shadowed, an entry that did not
+   * parse, or a project folder kondo could not look at (entry 135). A folder
+   * that is gone is `orphan` instead, and gets the Leftovers sentence.
+   */
   blocked: string | null
   /** Why the server is not simply in use here, when it is not; else null. */
   reason: string | null
+  /** The project folder is gone (ENOENT), so the whole entry is a leftover. */
   orphan: boolean
 }
 
 /**
  * The mcp row narrowed by the state of that project's switch (entry 103): a
  * declaration in use offers `disable`, a listed one `enable`, and one whose
- * folder is gone, whose name a higher scope has taken, or whose entry kondo
- * could not read offers neither. A refusal carries the status's own reason, so
- * "why is this not on" is answered beside the control (ADR-0010 keeps the
- * separate question of whether the plan may run).
+ * folder is gone, whose folder kondo could not look at, whose name a higher
+ * scope has taken, or whose entry kondo could not read offers neither. A
+ * refusal carries the status's own reason, so "why is this not on" is answered
+ * beside the control (ADR-0010 keeps the separate question of whether the plan
+ * may run).
+ *
+ * Only a gone folder gets the Leftovers sentence, because Leftovers offers
+ * only a gone folder (entry 135). A folder kondo could not look at arrives as
+ * `blocked`, already carrying the sentence that says so and claims nothing.
  */
 export function mcpCapabilities(scope: string, state: McpSwitchState): Capabilities {
   if (scope === 'user') return capabilitiesFor('mcp', 'user')

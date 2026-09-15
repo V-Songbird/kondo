@@ -33,3 +33,9 @@ system for domain.md updates.
   evidence a project was deleted and a permission error or an unmounted volume
   is not. Collapsing the two would have offered a whole volume's transcripts
   for trashing.
+- The seam says both without always spending a second word on it. An MCP
+  declaration keeps one boolean, `orphan`, for the gone half, because that is
+  what Leftovers keys on; the "could not look" half rides the `unknown` status
+  and its sentence, which every reader already renders. A reader that folds the
+  two back together is the bug — `readMcp` did, and stamped "project is gone"
+  on folders it had merely been refused.
