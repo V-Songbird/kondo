@@ -1,9 +1,9 @@
 # Keep private working records local
 
 Keep `ROADMAP.jsonl` and all of `.foreman/` out of Git, alongside private agent
-memory, workstation IDE setup, and generated Jig planning records. The owner
-approved this publication policy on 2026-09-06. Preserve the local files and
-their complete working history; remove only their index entries.
+memory, workstation IDE setup, and generated Jig planning records. Preserve the
+local files and their complete working history; remove only their index
+entries.
 
 Publish reusable project knowledge in `ROADMAP.md`, plans, ADRs, and contributor
 documentation. Shared Claude settings, portable rules, the fixture-run skill,
@@ -27,6 +27,7 @@ into public documentation before relying on them across clones. Task numbers
 in public documents may refer to private history, so those documents must carry
 enough context without requiring access to the queue.
 
-Ignore rules and `git rm --cached` protect future snapshots. They do not remove
-previously committed data from Git history. History rewriting and publication
-are outside this change.
+Ignore rules and `git rm --cached` protect future snapshots; they do not remove
+previously committed data from Git history. How the repository is published
+without that history is the
+[public-history decision](../plans/111-public-history-decision.md).

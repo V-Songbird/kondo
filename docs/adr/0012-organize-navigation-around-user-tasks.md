@@ -1,19 +1,19 @@
 # Organize navigation around user tasks
 
 Kondo opens in Library and offers four primary destinations: Library,
-Projects, Clean up and History. A named item is the starting point for
-discovery; a project is the context for management. Clean up groups file
-cleanup, settings leftovers and duplicate skills, with separate selections
-and confirmations. History presents changes and Undo before permanent trash
-deletion. Preserve the Flat File identity while explaining the purpose of
-each destination and disclosing technical metadata only when needed.
+Projects, Clean up and History, with a separate Themes control beside them. A
+named item is the starting point for discovery; a project is the context for
+management. Clean up groups file cleanup, settings leftovers and duplicate
+skills, with separate selections and confirmations. History presents changes
+and Undo before permanent trash deletion. Each destination explains its
+purpose and discloses technical metadata only when needed.
 
-The earlier project-first view required users to know an item's location
-before finding it. The five-destination view separated closely related
-cleanup tasks and placed full project inventories on one long page. At the
-minimum desktop width, a sidebar, browser and detail squeezed the actual
-management controls. These were obstacles to the owner's goal of making
-Kondo useful without detailed knowledge of Claude's storage conventions.
+A project-first view required users to know an item's location before finding
+it; a destination per kind separated closely related cleanup tasks and placed
+full project inventories on one long page; and at the minimum desktop width a
+sidebar, browser and detail squeezed the management controls. These were
+obstacles to making Kondo useful without detailed knowledge of Claude's
+storage conventions.
 
 ## Considered options
 
@@ -39,15 +39,10 @@ Kondo useful without detailed knowledge of Claude's storage conventions.
   not establish runtime connectivity. Findings require review before removal.
 - Moving files to trash is reversible while restore data exists and still
   consumes disk space. Permanent deletion remains a separate explicit action.
+- Themes changes only Kondo's appearance (the Signal system, Chalk by default
+  and five alternatives). Visiting it preserves the destinations' context, and
+  its preference methods (ADR-0004) change no Claude configuration or
+  management capability.
 
-The [workflow plan](../plans/2026-09-06-ux-workflow.md) and
-[design system](../../DESIGN.md) describe the implementation and validation.
-
-## Appearance amendment
-
-The [Signal themes plan](../plans/2026-09-06-signal-themes.md) supersedes only
-the Flat File visual constraint above. Signal retains the brand and logo,
-with Chalk as the default appearance and five alternatives. A separate Themes
-control sits beside the four management destinations. Visiting it preserves
-their context; its preference methods are covered by ADR-0004 and do not
-change Claude configuration or management capabilities.
+The [design system](../../DESIGN.md) describes the look and its review
+requirements.

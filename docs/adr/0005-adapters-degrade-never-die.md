@@ -5,11 +5,12 @@ Kondo reads undocumented, version-drifting, occasionally half-written state
 oddities). If a scan throws on the first bad file, the app is useless on
 exactly the messy machines it exists for.
 
-Decision: every store adapter returns `{ data, errors }`. `data` is whatever
-was readable; `errors` is an itemized list (path, operation, message). A
-malformed transcript line is skipped and counted. An unknown file or
-directory is reported as *unknown*, not as an error — new Claude versions
-adding entries is normal life, and the "unknown" list is kondo's early-warning
+Decision: every store scan returns `Scan<T> = { data, errors, unknown }`.
+`data` is whatever was readable; `errors` is an itemized list of
+`ScanError { code, path, message }`, with codes rather than prose so the UI can
+react. A malformed transcript line is skipped and counted. An unknown file or
+directory is reported in `unknown`, not as an error — new Claude versions
+adding entries is normal life, and the unknown list is kondo's early-warning
 system for domain.md updates.
 
 ## Considered options
@@ -28,7 +29,7 @@ system for domain.md updates.
 - Schema drift surfaces as an unknown-entry report instead of a crash.
 - A failure to read is never folded into an ordinary answer. Where a seam
   type could say either "not there" or "could not look", it says both:
-  `ProjectLocation` carries `unreadable` beside `gone` for exactly this
-  reason, because only ENOENT is evidence a project was deleted and a
-  permission error or an unmounted volume is not (entry 075). Collapsing
-  the two would have offered a whole volume's transcripts for trashing.
+  `ProjectLocation` carries `unreadable` beside `gone`, because only ENOENT is
+  evidence a project was deleted and a permission error or an unmounted volume
+  is not. Collapsing the two would have offered a whole volume's transcripts
+  for trashing.

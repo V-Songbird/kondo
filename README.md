@@ -34,7 +34,6 @@ machine; nothing is ever sent anywhere.
   and move them with recognized companion folders and released markers to
   Kondo's trash. Desktop-only sessions have no browsing or removal UI.
   See [session scope and retained data](#session-scope-and-retained-data).
-  (Worked time is still on the roadmap, not in the build.)
 - **Skills** — global and per-project, with what `skillUsage` says about
   each. Move a skill between scopes when no settings edit is needed, and
   thin out a skill kept twice once its copies prove identical. Settings-based
@@ -52,7 +51,7 @@ machine; nothing is ever sent anywhere.
   script checks. Commands and matcher patterns are not shown, because they can
   hold private values. Kondo does not move, toggle or remove hook declarations,
   or prove which hooks execute. See the
-  [hook boundary decision](docs/plans/109-hook-layer-boundary.md).
+  [hook boundary decision](docs/adr/0017-hook-layer-boundary.md).
 - **MCP servers** — connections declared in `~/.claude.json` and a project's
   `.mcp.json`. Their on/off state comes only from the disable lists in
   `~/.claude.json`; disable lists in project settings files and Claude's
@@ -98,7 +97,7 @@ is not yet implemented. See [the decision](docs/adr/0010-splice-config-files-nev
 
 **Desktop session support is partial and read-only.** Kondo reports local store
 metadata and matches filenames to Code session IDs. It does not manage Desktop
-sessions or verify their contents. Desktop cache cleanup is a separate, existing
+sessions or verify their contents. Desktop cache cleanup is a separate
 allowlisted operation; it does not remove Desktop session records, VM bundles,
 unknown caches or other application state.
 
@@ -122,8 +121,8 @@ displaced files is reclaimed when trash is emptied; this is not secure erasure.
 The current UI's `also in desktop` label means a filename ID match, and
 `deleted in desktop app` means a released marker was found beside a Code
 transcript. Neither proves that all Desktop or cloud copies are gone. More
-precise in-app scope and residual disclosures remain follow-up work in the
-[decision package](docs/plans/108-desktop-session-boundary.md), under the accepted
+precise in-app scope and residual disclosures are open work (entry 110 in
+[ROADMAP.md](ROADMAP.md)) under the accepted
 [ADR-0016](docs/adr/0016-desktop-session-boundary.md).
 
 ## Principles
@@ -144,13 +143,9 @@ precise in-app scope and residual disclosures remain follow-up work in the
 
 ## Status
 
-Pre-release, v0.5. The current UX workflow has passed Windows validation using
-synthetic stores; see the [implementation and evidence](docs/plans/2026-09-06-ux-workflow.md)
-and the preceding [Claude Code review](docs/plans/2026-09-06-claude-usability-review.md)
-for remaining release work. Installers are built by
-CI from a version tag and published as drafts a person promotes
-([docs/release.md](docs/release.md)). What comes next is in
-[ROADMAP.md](ROADMAP.md).
+Pre-release, v0.5. Installers are built by CI from a version tag and published
+as drafts a person promotes ([docs/release.md](docs/release.md)). The work
+left before a release is under "Now" in [ROADMAP.md](ROADMAP.md).
 
 ## Install
 
@@ -166,10 +161,10 @@ The DMG does not support Intel Macs. Windows/Linux ARM builds are not provided.
 
 Platform coverage: Windows x64 has recorded local fixture validation of the UI and installed NSIS app. macOS arm64 and Linux x64 have no recorded manual validation. Release CI requires packaged smoke checks before upload; a green run verifies the installed Windows app, Linux AppImage in extract-and-run mode, and macOS app bundle. DMG installation, Gatekeeper, and Linux FUSE mounting remain unverified.
 
-See the recorded [Windows UI validation](docs/plans/2026-09-06-ux-workflow.md#validation-2026-09-06)
-and [17 installed-app smoke checks](docs/plans/080-release-artifact-smoke.md#observed-verification).
-Configured CI gates alone do not establish a successful run; the
-[release procedure](docs/release.md) describes the required rehearsal.
+The recorded Windows evidence, from 2026-09-06, is listed in the
+[release procedure](docs/release.md#release-steps), which also describes the
+rehearsal a release needs; configured CI gates alone do not establish a
+successful run.
 
 Builds are **unsigned** for now
 ([ADR-0011](docs/adr/0011-unsigned-releases-for-now.md)). After checking the
@@ -321,8 +316,10 @@ npm install
 npm run dev        # launch the app with hot reload
 npm test           # run the test suite
 npm run typecheck  # strict TypeScript across app and electron
+npm run lint       # oxlint
+npm run guards     # repository checks (privacy, process boundaries, paired docs)
 npm run build      # typecheck + production build
-npm run test:e2e   # the built app, launched against a fixture store and driven
+npm run test:e2e   # after build: the built app, launched against a fixture store and driven
 npm run package    # unsigned installers under release/ (electron-builder)
 ```
 

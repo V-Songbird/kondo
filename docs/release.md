@@ -1,7 +1,6 @@
 # Releasing
 
-This is the policy releases follow, written before the first one so packaging
-decisions did not accrete by accident. The first tag is the owner's to push.
+This is the policy releases follow. The first tag is the owner's to push.
 
 ## Versioning
 
@@ -10,48 +9,36 @@ Every release gets a CHANGELOG section and a git tag `v<version>`.
 
 ## Security maintenance and publication gate
 
-Before the first publication, confirm the approved private reporting contact
-and identify the exact supported version under the owner-approved policy in
-[SECURITY.md](../SECURITY.md).
-These are publication gates even when packaging and CI pass. An unavailable
-reporting form, a source package version, or a draft release does not satisfy
-this gate. No published releases or tags were returned by the authenticated
-API on 2026-09-08.
+Before the first publication, confirm the private reporting contact and name
+the exact supported version under the maintenance policy in
+[SECURITY.md](../SECURITY.md#supported-versions). These are publication gates
+even when packaging and CI pass: an unavailable reporting form, a source
+package version or a draft release does not satisfy them. There are no
+published releases or tags yet.
 
-The approved contact is [songbird@tuta.com](mailto:songbird@tuta.com). The owner
-confirmed control and monitoring on 2026-09-08; this is an owner attestation, not
-a delivery test. No test email was sent or authorized.
+On each publication, update SECURITY.md with the exact supported version and
+the superseded range, and record security fixes with affected and fixed
+versions in the changelog and release notes when disclosure is approved.
 
-**Maintenance policy — approved by the owner on 2026-09-08:** maintain only the
-latest published non-draft, non-prerelease version. Security fixes target that
-release line or its successor; older versions receive no guaranteed backports,
-and development builds and prereleases are unsupported. Users of older builds
-would need to upgrade. There is no response or fix deadline. On each publication,
-update SECURITY.md with the exact supported version and the superseded range;
-record security fixes and affected/fixed versions in the changelog and release
-notes when disclosure is approved. The policy applies when a stable release is
-published; no supported release range is active today.
-
-On 2026-09-08, the owner chose manual review with the documented remote
-enforcement limitation, keeping the repository private without purchasing a
-plan. A later compatible plan or ruleset/protection configuration requires
-separate authorization and review. Making the repository public is a separate
-publication decision. Neither plan changes nor visibility changes happen as an
-implicit release step.
+Remote branch protection is not configured and review stays manual
+([CONTRIBUTING.md](../CONTRIBUTING.md#merge-checks-and-remote-enforcement)).
+Buying a plan, configuring rulesets or protection, and making the repository
+public each need separate owner authorization; none happens as an implicit
+release step.
 
 ### Public Git history
 
 Before any first-publication tag, push or visibility change, resolve the
 [public-history decision](plans/111-public-history-decision.md) and obtain owner
-approval of the exact candidate SHA and selected refs. The preliminary audited
-tree still has two contextual privacy findings, and its ancestors retain private
-working records and messages. Ignore rules do not sanitize that history.
-The decision package recommends a separate public root while preserving the
-private source, and the owner chose that strategy (A) on 2026-09-15; the public
-identity and destination remain open. Repeat the privacy and
-secret review on the final publication SHA as required by that package and the
-final publication review (task 114). Passing the release steps below does not
-authorize publishing the existing source ancestry or changing visibility.
+approval of the exact candidate SHA and selected refs. The owner chose strategy
+A, a separate public repository with a new root commit that preserves the
+private source; the public identity and destination remain open. The current
+tree's ancestors retain private working records and messages, and ignore rules
+do not sanitize that history. Personal context still in the tree is open work
+(entry 123 in [ROADMAP.md](../ROADMAP.md)). Repeat the privacy and secret review
+on the final publication SHA, as that package and the final candidate review
+(entry 114) require. Passing the release steps below does not authorize
+publishing the existing source ancestry or changing visibility.
 
 ### Recheck GitHub capabilities
 
@@ -69,6 +56,14 @@ gh api repos/V-Songbird/kondo/releases --paginate
 gh api repos/V-Songbird/kondo/tags --paginate
 ```
 
+The last recorded check, on 2026-09-08, found a private repository with
+default branch `main`; private-reporting status HTTP 404; default workflow
+permissions `read` with pull-request review approval off; Actions enabled with
+all actions allowed and SHA pinning not required; branch protection and
+rulesets both HTTP 403 with an upgrade-or-public restriction; no releases or
+tags; and zero classic commit statuses (combined state `pending`), which does
+not contradict successful check runs.
+
 A 403 with a plan restriction is different from a token-permission failure;
 a 404 is not proof that a feature is disabled. Resolve access/availability before
 claiming a control is enabled. If the owner later authorizes GitHub private
@@ -81,12 +76,10 @@ been authorized for the current contact. Update SECURITY.md and the issue choose
 together when the contact changes. A reachable form or owner attestation does not
 independently prove delivery.
 
-Workflow permissions already follow least privilege: `ci.yml` and `release.yml`
+Workflow permissions follow least privilege: `ci.yml` and `release.yml`
 default to `contents: read`; only `release.yml`'s `publish` job requests
-`contents: write` to create the draft and upload assets. The repository returned
-`default_workflow_permissions: read` and
-`can_approve_pull_request_reviews: false` on 2026-09-08. The read default is not
-a blanket prohibition on an explicit job grant. Keep the write grant scoped to
+`contents: write` to create the draft and upload assets. The repository's read
+default is not a blanket prohibition on an explicit job grant. Keep the write grant scoped to
 publication; do not broaden the repository default or enable bot PR approvals.
 See [GitHub's permissions reference](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions).
 
@@ -164,9 +157,12 @@ decision.
 
    Platform coverage: Windows x64 has recorded local fixture validation of the UI and installed NSIS app. macOS arm64 and Linux x64 have no recorded manual validation. Release CI requires packaged smoke checks before upload; a green run verifies the installed Windows app, Linux AppImage in extract-and-run mode, and macOS app bundle. DMG installation, Gatekeeper, and Linux FUSE mounting remain unverified.
 
-   Local evidence: [Windows UI](plans/2026-09-06-ux-workflow.md#validation-2026-09-06)
-   and [installed NSIS smoke](plans/080-release-artifact-smoke.md#observed-verification).
-   These records do not establish a successful hosted release run; retain the
+   Local evidence, 2026-09-06, on Windows: the task workflow at `36d3de9`
+   passed 364 unit tests and 13/13 built-app scenarios, including keyboard
+   routes and 900×600 geometry; the NSIS package built at `d293540` installed
+   into a temporary path containing spaces, passed all 17 fixture smoke checks
+   and was removed afterwards. These records do not establish a successful
+   hosted release run; retain the
    rehearsal/run link when validating a release. Follow [README installation
    instructions](../README.md#install), including per-app quarantine handling
    and distribution-specific FUSE libraries. The Linux smoke bypasses FUSE.

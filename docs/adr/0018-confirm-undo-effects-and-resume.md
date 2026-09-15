@@ -67,6 +67,6 @@ Progress adds journal writes and file hashing. Checkpoints use file sync, but
 injected interruption/restart tests are not proof of filesystem ordering after
 power loss on every platform. Path checks are not a transaction with external
 writers; ambiguous recovery remains a refusal, not automatic repair. The process
-queue serializes Kondo writes, not external programs. Settings `write`/`splice`
-and every historical Undo containing them remain refused whole under 098 before
-journal or effects. No replacement backend is introduced here.
+queue serializes Kondo writes, not external programs. Historical Undo containing
+a settings `write` or `splice` is refused before this machinery runs
+([ADR-0010](0010-splice-config-files-never-whole-file-writes.md)).

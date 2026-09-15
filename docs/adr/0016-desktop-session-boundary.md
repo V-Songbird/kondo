@@ -1,19 +1,17 @@
 # Keep Desktop sessions read-only and name removal scope
 
-Status: **accepted by the owner — decision 108**
+Kondo supports Desktop sessions partially and read-only. It manages selected
+Claude Code transcripts; Desktop contributes local store metadata and filename
+ID matches. There is no Desktop session browsing or removal workflow. The
+allowlisted Desktop Chromium-cache sweep is a separate capability.
 
-Choose partial, read-only Desktop session support. Kondo manages selected Claude
-Code transcripts; Desktop contributes local store metadata and filename ID
-matches. It does not provide a Desktop session browsing/removal workflow. Keep
-the existing allowlisted Desktop Chromium-cache sweep as a separate capability.
-
-The current code supports this boundary: `desktopSessions` has a typed bridge
-but no renderer consumer; the Desktop session capability row denies mutations;
-`sessionTrashPlan` rejects Desktop IDs. `desktopSessionStems` matches identifiers
-without reading contents or retaining account/device provenance in the match.
-That is insufficient evidence for automatic duplicate removal or unified
-management. The [108 plan](../plans/108-desktop-session-boundary.md) records the
-current paths, itemized residuals and fixture evidence.
+The code holds this boundary: `desktopSessions` has a typed bridge but no
+renderer consumer, the Desktop session capability row denies mutations, and
+`sessionTrashPlan` rejects Desktop IDs. `desktopSessionStems` matches
+identifiers without reading contents or keeping account/device provenance,
+which is insufficient evidence for automatic duplicate removal or unified
+management. The itemized residuals are in
+[domain.md](../domain.md#session-removal-scope).
 
 ## Considered options
 
@@ -40,20 +38,27 @@ current paths, itemized residuals and fixture evidence.
 - A released marker is evidence of a filename the scanner recognizes, not
   proof that the Desktop app or cloud has removed every record. Missing
   Desktop matches cannot establish absence outside the scanned layout.
-- State retained data before any future removal confirmation and name the
-  exact candidates. Preserve Signal controls, keyboard access, cancellation,
-  visible focus and focus return. In-app copy work is assigned as follow-up to
-  product reconciliation 110; no production UI changes ship in this decision.
+- Before any removal confirmation, name the exact candidates and the data that
+  remains, with Signal controls, keyboard access, cancellation, visible focus
+  and focus return. The in-app wording that follows this boundary is open work
+  (entry 110 in [ROADMAP.md](../../ROADMAP.md)).
 - Keep disk I/O and final review validation in main, behind the typed bridge
   and owning store locator. Follow ADR-0002's approved roots and named
-  exceptions, ADR-0008's opaque IDs and ADR-0015's reviewed state. No new
-  filesystem access or network call is authorized by this decision.
+  exceptions, ADR-0008's opaque IDs and ADR-0015's reviewed state.
 - Unknown VM bundles, unknown caches, file-history/backups and shared Desktop
   session artifacts stay outside new deletion work until independently
   verified. Existing cache cleanup does not become session-aware erasure.
 - Keep journaled displacement and Undo for retained bytes, with partial-failure
   and concurrent-writer limits visible. Emptying trash removes its recovery
   copies; it does not clear the journal, scan cache or external records.
-- Reopening Desktop mutations requires a new owner-approved decision and the
-  schema, candidate revalidation, journal/Undo and fixture criteria in the plan.
-  Decision acceptance alone does not authorize that expansion.
+
+## Reopening Desktop mutations
+
+Needs a new owner-approved decision with: fixture schemas and ownership and
+retention evidence for every Desktop candidate and shared artifact;
+main-process-only planning through the locator and typed seam; scoped device
+and account identity; exact reviewed candidates with final revalidation; and
+journaled displacement, partial-failure reporting, collision-safe Undo and
+byte-exact fixture recovery. Unknown VM bundles, unknown caches, identity and
+token contents and files outside approved roots stay excluded, and a filename
+match alone cannot authorize deletion.

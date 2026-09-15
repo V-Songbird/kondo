@@ -40,6 +40,8 @@ may not run it (entry 126); run `npm run guards` before committing there.
 - `electron/preload/` — the context-isolated bridge; the only renderer door.
 - `src/` — renderer: React app (`app/`), feature folders (`features/`),
   shared UI primitives (`ui/`), utilities (`lib/`).
+- `shared/` — the seam contract (`contract.ts`) and the theme catalog
+  (`themes.ts`); platform-free, imported by main, preload and renderer.
 - `test/` — the suite plus `helpers.ts`, whose builders create the synthetic
   `.claude` trees every test runs against.
 - `docs/` — see [docs/README.md](docs/README.md) for the map.
@@ -56,12 +58,15 @@ may not run it (entry 126); run `npm run guards` before committing there.
 
 ## Changing the seam
 
-`shared/contract.ts` is the IPC contract; changing it is a five-file move,
-always in one PR: the contract (types + `channels`), the workspace method,
-its registration in `electron/main/ipc.ts`, the preload line, and the renderer
-usage. New work adds an operation on the generic entity channels rather than
-a new channel (ADR-0004), and the paired-change guard reports a staged
-contract change that has no staged ADR edit beside it. Add a case to
+`shared/contract.ts` is the IPC contract. A new `KondoApi` method is a
+five-file move, always in one PR: the contract (types + `channels`), the
+workspace method, its registration in `electron/main/ipc.ts`, the preload
+line, and the renderer usage. New work prefers the generic entity channels
+over a new channel (ADR-0004): a new operation is a `CapabilityOperation`
+value, the op check in `entityMutate` (`workspace.ts`), a matrix column in
+`capabilities.ts` and a branch in each kind that implements it; a new kind is
+an entry and a listing row in `kinds.ts` plus a matrix row. The paired-change
+guard reports a staged contract change that has no staged ADR edit beside it. Add a case to
 `test/workspace.test.ts` for any new method, and to the boundary sweep in
 `test/boundary.test.ts` if it reads new paths. New error semantics get a
 `ScanErrorCode` entry with a doc comment saying what the UI should do with
@@ -73,7 +78,9 @@ and need a migration note in the PR.
 
 - Branch from `main`; small PRs; imperative-mood commit subjects.
 - A feature starts with a plan in `docs/plans/` — scope, non-goals, seam
-  changes, test plan. Land the plan, then the code.
+  changes, test plan. Land the plan, then the code. When it ships, move what
+  stays true into the lasting docs and delete the plan
+  ([docs/plans/README.md](docs/plans/README.md)).
 - A bug fix lands with the test that would have caught it.
 
 ## Merge checks and remote enforcement
@@ -90,13 +97,14 @@ needs new hosted check evidence. Release acceptance also requires the packaging
 and publication gates in `docs/release.md`. Local hooks and green checks do not
 establish server-enforced protection.
 
-On 2026-09-08, GitHub denied reads of `main` protection and repository rulesets
-with an explicit plan/visibility restriction. Until the owner enables and
-verifies a supported protection configuration, maintainers must perform this
-review manually; GitHub enforcement is not established. Do not change repository
-visibility or buy a plan as part of routine contribution work. See the
-[release gate](docs/release.md#security-maintenance-and-publication-gate) and
-[capability record](docs/plans/112-security-reporting-maintenance.md#observed-capabilities).
+GitHub does not enforce these checks: it refuses `main` protection and
+repository rulesets for this private repository on its current plan. Until the
+owner enables and verifies a supported protection configuration, maintainers
+perform this review manually. Describe CI as configured unless a run for the
+exact commit is recorded, and date any hosted run you cite. Do not change
+repository visibility or buy a plan as part of routine contribution work. See
+the [release gate](docs/release.md#security-maintenance-and-publication-gate)
+and [how to recheck GitHub capabilities](docs/release.md#recheck-github-capabilities).
 
 ## Review checklist
 
