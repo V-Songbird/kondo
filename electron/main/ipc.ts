@@ -29,6 +29,8 @@ export function registerIpc(
     if (result.errors.length === 0) onAppearanceChanged?.(result.data)
     return result
   })
+  // Takes nothing: main selected the profile at launch (ADR-0003).
+  ipcMain.handle(channels.profileGet, () => api.profileGet())
   ipcMain.handle(channels.entityList, (_event, kind: unknown, parentId: unknown) =>
     api.entityList(
       kind as EntityKind,

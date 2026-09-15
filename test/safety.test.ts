@@ -58,20 +58,27 @@ const shell = await vi.hoisted(async () => {
   })
   return {
     app, Window,
-    headers: vi.fn(), menu: vi.fn(), nativeTheme: { themeSource: 'light' },
+    headers: vi.fn(), menu: vi.fn(), nativeTheme: { themeSource: 'light' }, errorBox: vi.fn(),
     locator: vi.fn<(environment: unknown) => object>(() => ({})), workspace: vi.fn(), registerIpc: vi.fn(),
+    claim: vi.fn<() => string | null>(() => null),
     appearanceGet: vi.fn(), mkdir: vi.fn(), realpath: vi.fn((root: string) => root)
   }
 })
 
 vi.mock('electron', () => ({
-  app: shell.app, BrowserWindow: shell.Window,
+  app: shell.app, BrowserWindow: shell.Window, dialog: { showErrorBox: shell.errorBox },
   Menu: { setApplicationMenu: shell.menu }, nativeTheme: shell.nativeTheme,
   session: { defaultSession: { webRequest: { onHeadersReceived: shell.headers } } }
 }))
 vi.mock('node:os', () => ({ default: { homedir: () => '/fixture/home' } }))
 vi.mock('node:fs', () => ({ mkdirSync: shell.mkdir, realpathSync: shell.realpath }))
-vi.mock('../electron/main/workspace/locator', () => ({ createLocator: shell.locator }))
+// The real data-root rule runs, so this suite pins the directory a profile
+// launch locks on rather than a copy of the rule (ADR-0004).
+vi.mock('../electron/main/workspace/locator', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../electron/main/workspace/locator')>()),
+  createLocator: shell.locator
+}))
+vi.mock('../electron/main/workspace/profile', () => ({ claimDataRoot: shell.claim }))
 vi.mock('../electron/main/workspace/workspace', () => ({ createWorkspace: shell.workspace }))
 vi.mock('../electron/main/ipc', () => ({ registerIpc: shell.registerIpc }))
 
@@ -82,6 +89,11 @@ describe('ADR-0004 entry-module security and lifecycle (mocked Electron)', () =>
     vi.useFakeTimers()
     vi.stubEnv('KONDO_DATA_ROOT', undefined)
     vi.stubEnv('ELECTRON_RENDERER_URL', undefined)
+    // A developer's own profile selection must not reach the entry module.
+    vi.stubEnv('CLAUDE_CONFIG_DIR', undefined)
+    vi.stubEnv('KONDO_STORE_ROOT', undefined)
+    vi.stubEnv('KONDO_DESKTOP_STORE_ROOT', undefined)
+    shell.claim.mockReturnValue(null)
     shell.app.removeAllListeners()
     shell.Window.windows = []
     shell.app.isPackaged = false
@@ -114,6 +126,7 @@ describe('ADR-0004 entry-module security and lifecycle (mocked Electron)', () =>
     expect(shell.app.quit).toHaveBeenCalledTimes(1)
     expect(shell.app.whenReady).not.toHaveBeenCalled()
     expect(shell.locator).not.toHaveBeenCalled()
+    expect(shell.claim).not.toHaveBeenCalled()
     expect(shell.workspace).not.toHaveBeenCalled()
     expect(shell.appearanceGet).not.toHaveBeenCalled()
     expect(shell.registerIpc).not.toHaveBeenCalled()
@@ -144,6 +157,40 @@ describe('ADR-0004 entry-module security and lifecycle (mocked Electron)', () =>
     expect(shell.app.setPath).not.toHaveBeenCalled()
     expect(shell.mkdir).not.toHaveBeenCalled()
     expect(shell.locator.mock.calls[0]![0]).toMatchObject({ userData: '/fixture/profile' })
+  })
+
+  it('locks a selected Claude profile on a data root of its own', async () => {
+    vi.stubEnv('CLAUDE_CONFIG_DIR', path.join(repoRoot, 'fixture-profile'))
+    await start()
+    const [name, root] = shell.app.setPath.mock.calls[0] as [string, string]
+    expect(name).toBe('userData')
+    expect(root).toMatch(/[\\/]profiles[\\/][0-9a-f]{16}$/)
+    expect(shell.mkdir).toHaveBeenCalledExactlyOnceWith(root, { recursive: true })
+    expect(shell.app.setPath).toHaveBeenCalledTimes(1)
+    expect(shell.app.setPath.mock.invocationCallOrder[0])
+      .toBeLessThan(shell.app.requestSingleInstanceLock.mock.invocationCallOrder[0]!)
+  })
+
+  it('keeps an explicit data root when a Claude profile is also selected', async () => {
+    const root = path.join(repoRoot, 'fixture-data')
+    vi.stubEnv('KONDO_DATA_ROOT', root)
+    vi.stubEnv('CLAUDE_CONFIG_DIR', path.join(repoRoot, 'fixture-profile'))
+    await start()
+    expect(shell.app.setPath).toHaveBeenCalledExactlyOnceWith('userData', root)
+  })
+
+  it('refuses a data root that already keeps another profile’s history', async () => {
+    shell.claim.mockReturnValue('This folder keeps the history of another Claude profile.')
+    await start()
+    expect(shell.claim).toHaveBeenCalledTimes(1)
+    expect(shell.errorBox).toHaveBeenCalledExactlyOnceWith(
+      'Kondo cannot open this Claude profile',
+      'This folder keeps the history of another Claude profile.'
+    )
+    expect(shell.app.quit).toHaveBeenCalledTimes(1)
+    expect(shell.workspace).not.toHaveBeenCalled()
+    expect(shell.registerIpc).not.toHaveBeenCalled()
+    expect(shell.Window.windows).toHaveLength(0)
   })
 
   it('hardens every created window and installs denial handlers before loading', async () => {

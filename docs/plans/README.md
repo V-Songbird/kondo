@@ -18,9 +18,6 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
-- [104 — Claude configuration profiles](104-claude-config-dir-profiles.md) —
-  honour `CLAUDE_CONFIG_DIR` below Kondo's fixture overrides, select a profile
-  with a launch argument, show it, and keep one data root per profile.
 - [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
   — the experiments that separate an Electron, smoke-harness or kondo startup
   cause; none has run yet.

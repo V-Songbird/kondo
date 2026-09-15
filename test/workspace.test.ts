@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { KondoApi } from '../shared/contract'
 import { slashed } from '../electron/main/workspace/display'
 import { createLocator } from '../electron/main/workspace/locator'
+import { claimDataRoot } from '../electron/main/workspace/profile'
 import { INVALID_JSON } from '../electron/main/workspace/scan'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
@@ -183,6 +184,95 @@ describe('workspace (KondoApi)', () => {
     expect(overview.data.user.exists).toBe(true)
     expect(overview.data.user.entries.some((entry) => entry.name === 'skills')).toBe(true)
     expect(overview.data.desktop.exists).toBe(true)
+  })
+})
+
+describe('Claude profiles (ADR-0003)', () => {
+  let world: FixtureWorld
+  let profileRoot: string
+  let inside: string
+  let beside: string
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    profileRoot = path.join(world.base, 'profiles', 'work')
+    inside = path.join(world.base, 'work', 'inside')
+    beside = path.join(world.base, 'work', 'beside')
+    await fs.mkdir(path.join(inside, '.claude'), { recursive: true })
+    await fs.mkdir(path.join(beside, '.claude'), { recursive: true })
+    // Claude Code reads a profile's registry inside the profile directory. The
+    // one a directory above belongs to another profile and must stay unread.
+    await writeFileTree(profileRoot, { '.claude.json': writeJson({ projects: { [inside]: {} } }) })
+    await writeFileTree(path.dirname(profileRoot), { '.claude.json': writeJson({ projects: { [beside]: {} } }) })
+  })
+  afterEach(async () => { await world.cleanup() })
+
+  const profiled = (env: Record<string, string | undefined>): KondoApi =>
+    createWorkspace({
+      locator: createLocator({
+        home: world.home,
+        appData: null,
+        userData: world.kondoDataRoot,
+        tmpRoot: world.base,
+        platform: process.platform,
+        env: { KONDO_DESKTOP_STORE_ROOT: world.desktopRoot, ...env }
+      }),
+      platform: process.platform
+    })
+
+  const projectNames = async (api: KondoApi): Promise<string[]> =>
+    (await api.projectsList()).data.filter((row) => !row.global).map((row) => row.name)
+
+  it('reads the registry inside the directory CLAUDE_CONFIG_DIR names', async () => {
+    const api = profiled({ CLAUDE_CONFIG_DIR: profileRoot })
+    expect(await projectNames(api)).toEqual(['inside'])
+    expect(await api.profileGet()).toEqual({
+      data: { source: 'environment', root: slashed(profileRoot), ignored: [] },
+      errors: [],
+      unknown: []
+    })
+  })
+
+  it('keeps the fixture store and its sibling registry when a profile is inherited too', async () => {
+    await writeFileTree(world.home, { '.claude.json': writeJson({ projects: { [beside]: {} } }) })
+    const api = profiled({ KONDO_STORE_ROOT: world.userRoot, CLAUDE_CONFIG_DIR: profileRoot })
+    expect(await projectNames(api)).toEqual(['beside'])
+    expect((await api.profileGet()).data).toEqual({
+      source: 'fixture',
+      root: '~/.claude',
+      ignored: [
+        `Kondo is not using CLAUDE_CONFIG_DIR (${slashed(profileRoot)}): KONDO_STORE_ROOT takes precedence.`
+      ]
+    })
+  })
+
+  it('says so when a profile selection is not an absolute path', async () => {
+    expect((await profiled({ CLAUDE_CONFIG_DIR: 'work/profile' }).profileGet()).data).toEqual({
+      source: 'default',
+      root: '~/.claude',
+      ignored: ['Kondo is not using CLAUDE_CONFIG_DIR: it is not an absolute path.']
+    })
+  })
+
+  it('binds Kondo’s data root to one store set and refuses another', async () => {
+    const record = path.join(world.kondoDataRoot, 'stores.json')
+    expect(claimDataRoot(world.locator, process.platform)).toBeNull()
+    const written = await fs.readFile(record, 'utf8')
+    expect(claimDataRoot(world.locator, process.platform)).toBeNull()
+
+    const otherProfile = createLocator({
+      home: world.home,
+      appData: null,
+      userData: world.kondoDataRoot,
+      tmpRoot: world.base,
+      platform: process.platform,
+      env: { CLAUDE_CONFIG_DIR: profileRoot, KONDO_DESKTOP_STORE_ROOT: world.desktopRoot }
+    })
+    expect(claimDataRoot(otherProfile, process.platform)).toMatch(/another Claude profile/)
+    expect(await fs.readFile(record, 'utf8')).toBe(written)
+
+    await fs.writeFile(record, '{"stores":', 'utf8')
+    expect(claimDataRoot(world.locator, process.platform)).toMatch(/damaged/)
   })
 })
 

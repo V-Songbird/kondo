@@ -64,8 +64,6 @@ Four decisions frame this work and are not up for re-argument here:
   `.mcp.json`: a faithful model of settings, per-project disable lists and
   approvals, with toggle fixtures. An unreadable local MCP project path must not
   read as a removable orphan (135); coordinate its order with 103.
-- **Alternate Claude profiles through `CLAUDE_CONFIG_DIR` (104)**, with injected
-  profile fixtures and kondo's own fixture roots taking precedence.
 - **Every companion file counted in removal size estimates (105).** Until then,
   a transcript's size must not be labelled the full removal size.
 - **Every plugin installation and component layout (106):** inventory across

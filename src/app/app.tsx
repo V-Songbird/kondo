@@ -12,6 +12,7 @@ import type { AppearanceState } from '../features/themes/themes'
 import { applyTheme } from '../features/themes/appearance'
 import { THEMES } from '../../shared/themes'
 import type { ThemeId } from '../../shared/themes'
+import type { ClaudeProfile } from '../../shared/contract'
 
 /**
  * Four management destinations, plus appearance. Kondo used to offer a tab
@@ -38,6 +39,18 @@ const DESTINATIONS = [
 ] as const
 
 type ViewKey = (typeof DESTINATIONS)[number]['key'] | 'themes'
+
+/**
+ * How each launch rule reads in the title strip. A desktop launch inherits no
+ * terminal environment, so the strip has to say which Claude profile this
+ * window is showing and what chose it (docs/domain.md, "Claude profiles").
+ */
+const PROFILE_SOURCE: Record<ClaudeProfile['source'], string> = {
+  default: 'default location',
+  environment: 'set by CLAUDE_CONFIG_DIR',
+  argument: 'set by --claude-config-dir',
+  fixture: 'set by KONDO_STORE_ROOT'
+}
 
 interface LibraryPlace {
   query: string
@@ -66,12 +79,33 @@ export function App({ initialAppearance }: { initialAppearance: AppearanceState 
     picked: null
   })
 
+  // Main fixes the profile before the single-instance lock and it cannot change
+  // while the window lives, so this is read once rather than through use-scan,
+  // whose first settled read is what retires the splash.
+  const [profile, setProfile] = useState<ClaudeProfile | 'unavailable' | null>(null)
+
   useEffect(() => {
     if (focusContent.current) {
       main.current?.focus()
       focusContent.current = false
     }
   }, [active])
+
+  useEffect(() => {
+    const api = window.kondo
+    if (!api) {
+      setProfile('unavailable')
+      return
+    }
+    void api.profileGet().then(
+      (result) => {
+        setProfile(result.data)
+        // Two profiles open two windows; the taskbar has to tell them apart.
+        document.title = `Kondo · ${result.data.root}`
+      },
+      () => setProfile('unavailable')
+    )
+  }, [])
 
   useEffect(() => {
     const narrow = window.matchMedia('(max-width: 1179px)')
@@ -137,8 +171,24 @@ export function App({ initialAppearance }: { initialAppearance: AppearanceState 
     <div className="app-shell">
       <a className="skip-link" href="#main-content">Skip to content</a>
       {/* The window has no OS title bar (electron/main/index.ts); this strip
-          is what the user grabs to move it. */}
-      <div className="titlebar" />
+          is what the user grabs to move it, and where the Claude profile this
+          window reads is named. */}
+      <div className="titlebar">
+        {profile === 'unavailable' && (
+          <p className="titlebar-profile">Kondo could not read which Claude profile it is showing.</p>
+        )}
+        {profile !== null && profile !== 'unavailable' && (
+          <p className="titlebar-profile">
+            Claude profile <span className="titlebar-root">{profile.root}</span>
+            {' · '}{PROFILE_SOURCE[profile.source]}
+          </p>
+        )}
+      </div>
+      {profile !== null && profile !== 'unavailable' && profile.ignored.length > 0 && (
+        <div className="band band-note profile-notice">
+          {profile.ignored.map((sentence) => <p key={sentence}>{sentence}</p>)}
+        </div>
+      )}
       <aside className="side">
         <div className="brand-lockup">
           <img className="mark" src={markUrl} width={30} height={30} alt="" />

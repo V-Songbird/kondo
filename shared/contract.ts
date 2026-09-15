@@ -62,6 +62,34 @@ export interface AppearancePreferences {
 }
 
 // ---------------------------------------------------------------------------
+// The Claude profile this process reads (ADR-0003)
+
+/**
+ * What chose the Claude configuration directory Kondo reads, highest
+ * precedence first: Kondo's `KONDO_STORE_ROOT` fixture override, the
+ * `--claude-config-dir` launch argument, an inherited `CLAUDE_CONFIG_DIR`, or
+ * Claude Code's default `~/.claude`.
+ */
+export type ClaudeProfileSource = 'fixture' | 'argument' | 'environment' | 'default'
+
+/**
+ * Which Claude profile this Kondo process reads. Main chose it at launch from
+ * its own environment and command line, and it cannot change while the process
+ * runs: nothing here names a path the renderer could hand back (ADR-0008).
+ */
+export interface ClaudeProfile {
+  source: ClaudeProfileSource
+  /** Display path of the Claude configuration directory (tildified). */
+  root: string
+  /**
+   * One sentence per profile selection this launch carried and Kondo did not
+   * follow — a `CLAUDE_CONFIG_DIR` a fixture override displaced, or one that
+   * is not an absolute path. Built in main; empty is the ordinary case.
+   */
+  ignored: string[]
+}
+
+// ---------------------------------------------------------------------------
 // Entity kinds and the capability matrix
 
 /**
@@ -1174,6 +1202,13 @@ export interface KondoApi {
   /** Save a recognized theme; failure returns the previous usable preference. */
   appearanceSet(theme: ThemeId): Promise<Scan<AppearancePreferences>>
   /**
+   * Which Claude profile this process reads and how its launch chose it, so
+   * the window can say so. It takes no argument and accepts no directory: the
+   * profile is selected before the single-instance lock and never changes
+   * (ADR-0004).
+   */
+  profileGet(): Promise<Scan<ClaudeProfile>>
+  /**
    * Every entity of one kind, narrowed to `parentId` for the listings that
    * take one — a plugin's own skills, a project's sessions. The generic
    * listing: the kinds below it are the same call under an older name, kept
@@ -1467,6 +1502,7 @@ export const rendererReloadChannel = 'kondo:renderer-reload'
 export const channels = {
   appearanceGet: 'kondo:appearance-get',
   appearanceSet: 'kondo:appearance-set',
+  profileGet: 'kondo:profile-get',
   entityList: 'kondo:entity-list',
   entityMutate: 'kondo:entity-mutate',
   projectsList: 'kondo:projects-list',

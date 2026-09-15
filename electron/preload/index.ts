@@ -15,6 +15,7 @@ import {
 const api: KondoApi = {
   appearanceGet: () => ipcRenderer.invoke(channels.appearanceGet),
   appearanceSet: (theme: ThemeId) => ipcRenderer.invoke(channels.appearanceSet, theme),
+  profileGet: () => ipcRenderer.invoke(channels.profileGet),
   entityList: (kind: EntityKind, parentId?: string) =>
     ipcRenderer.invoke(channels.entityList, kind, parentId),
   entityMutate: (entityId: string, request: MutateRequest) =>

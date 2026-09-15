@@ -431,10 +431,12 @@ export function createMutations(
   const discoveredRoots = new Set<string>()
   if (locator.desktopRoot) roots.set('desktop', locator.desktopRoot)
 
-  // The one file the `user-config` store may name (ADR-0010). Its root is a
-  // directory kondo never scans and writes nothing else into, so it is
-  // deliberately absent from `roots` above: it takes no part in the nested
-  // check below, where `<kondo-data>` under the same home is ordinary.
+  // The one file the `user-config` store may name (ADR-0010). Its root is the
+  // home directory by default and the user store itself when a Claude profile
+  // is selected (docs/domain.md); either way this store writes nothing but that
+  // one file, so it is deliberately absent from `roots` above and takes no part
+  // in the nested check below, where `<kondo-data>` under the same home is
+  // ordinary.
   const userConfigName = path.basename(locator.userConfigFile)
 
   // ADR-0001 decision 6: kondo's trash inside a store would show up in

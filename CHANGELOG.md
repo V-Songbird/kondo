@@ -6,6 +6,30 @@ All notable changes to kondo are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Kondo reads the Claude profile Claude Code uses. An absolute
+  `CLAUDE_CONFIG_DIR` selects the configuration directory, with its
+  `.claude.json` registry inside it, and a launch that inherits no terminal
+  environment can select one with `--claude-config-dir=<path>` on its shortcut
+  or launcher. Kondo's own `KONDO_STORE_ROOT`, `KONDO_DESKTOP_STORE_ROOT` and
+  `KONDO_DATA_ROOT` overrides still take precedence, so fixture runs and tests
+  are unaffected by an inherited variable.
+- The title strip names the Claude profile the window reads and what chose it,
+  and says when a selection was not followed — displaced by a Kondo override,
+  or not an absolute path. The window title names the profile too, so two
+  profiles stay apart in the taskbar.
+
+### Changed
+
+- Each Claude profile keeps its own Kondo history, trash, caches and window
+  state in `profiles/<key>` inside Kondo's data directory, and holds its own
+  single-instance lock, so two profiles can be open at once. The default
+  profile keeps the directory it already uses and nothing is copied between
+  them. A data directory now records which profile it serves and refuses a
+  launch that brings another one, rather than mixing two profiles' Undo
+  history.
+
 ### Fixed
 
 - Physical move and Undo recovery now distinguishes filesystem entry boundaries,
