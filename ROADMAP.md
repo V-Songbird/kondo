@@ -74,7 +74,6 @@ Four decisions frame this work and are not up for re-argument here:
 ### Privacy and safety
 
 - Kondo's data directory never resolving inside a Claude store (115).
-- Release tags bound to the reviewed main candidate (119).
 
 ### Product claims (110)
 
