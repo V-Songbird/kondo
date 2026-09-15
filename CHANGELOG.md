@@ -8,6 +8,11 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- Installers now carry attribution for every component they ship. The
+  third-party notices add React, React DOM, scheduler and Tailwind CSS beside
+  the IBM Plex fonts and Electron, and each release build checks the notices
+  inside its own packaged resources before uploading the installer.
+
 - Physical move and Undo recovery now distinguishes filesystem entry boundaries,
   streamed file bytes and stored link targets. Interrupted legacy or mismatched
   fingerprints stay visible for review without reading or changing endpoints;
@@ -200,6 +205,12 @@ All notable changes to kondo are documented here. The format follows
     and filenames are not altered.
 
 ### Security
+
+- The release workflow builds installers and a draft only for a tag on
+  `main`'s current tip; any other tag fails before packaging, naming the tag
+  commit and the candidate commit. A manual rehearsal never creates a draft,
+  even on a tag ref. The check runs from the tagged commit, so the publisher
+  still confirms the tag's commit before publishing.
 
 - Settings content that can hold credentials no longer reaches the window.
   Settings files list only documented top-level setting names and say when

@@ -74,7 +74,6 @@ Four decisions frame this work and are not up for re-argument here:
 ### Privacy and safety
 
 - Kondo's data directory never resolving inside a Claude store (115).
-- Release tags bound to the reviewed main candidate (119).
 
 ### Product claims (110)
 
@@ -111,8 +110,6 @@ In-app wording reconciled with the accepted decisions. Acceptance criteria:
 - run-kondo stopping only the process it launched (124).
 - The Jig edit-guard false positive and the repository session lane (125).
 - The pre-commit hook's Unix mode (126).
-- Complete third-party notices, including React and React DOM, with a notice
-  check in the release workflow (133).
 - The real-store guard scanning every test file type, not only `test/**/*.ts` (134).
 
 ### Publication

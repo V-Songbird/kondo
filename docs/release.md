@@ -112,14 +112,32 @@ claiming them enforced. The owner must approve that remote configuration first.
 - The app must run fully offline; a release build making any network request
   is a release blocker (SECURITY.md).
 - `build.extraResources` ships `THIRD-PARTY-NOTICES.md` and the unchanged
-  IBM Plex OFL at `licenses/IBM-Plex/OFL.txt` inside app resources. The release
-  workflow does not run the notice verifier; after a local `npm run package`,
-  run `node scripts/verify-packaged-notices.mjs <resources-directory>`:
-  use `release/win-unpacked/resources` on Windows,
-  `release/mac-arm64/Kondo.app/Contents/Resources` on macOS, or
-  `release/linux-unpacked/resources` on Linux. The verifier compares both
-  shipped files byte-for-byte with their repository originals and fails on
-  missing or changed content. Repeat for each platform's build.
+  IBM Plex OFL at `licenses/IBM-Plex/OFL.txt` inside app resources.
+- Every `package` leg runs `node scripts/verify-packaged-notices.mjs` against
+  the resources directory electron-builder just produced, after the build and
+  before the smoke, so a missing or altered notice fails that leg before an
+  installer is uploaded. The verifier checks three things: that the packaged
+  document carries every notice it expects, that every runtime dependency in
+  `package.json` is one of them, and that both shipped files match their
+  repository originals byte-for-byte. It reads the packaged copy, not the
+  repository's, so an empty or truncated shipped file cannot pass.
+- Run the same command after a local `npm run package`, once per platform
+  build: `node scripts/verify-packaged-notices.mjs <resources-directory>`, with
+  `release/win-unpacked/resources` on Windows — the locally verified path —
+  `release/mac-<arch>/Kondo.app/Contents/Resources` on macOS or
+  `release/linux-unpacked/resources` on Linux. The last two are
+  electron-builder's documented layout and are untested locally; the workflow
+  discovers the directory by glob for that reason.
+- The notice list is derived from what reaches `out/`, not from `package.json`
+  alone. `npx electron-vite build --sourcemap --outDir out/inventory` writes a
+  source map beside each bundle, and every `node_modules/` path in those maps'
+  `sources` names a module the bundler included. `out/` is ignored, so the
+  inventory build leaves nothing behind and never reaches lint or a commit.
+  Re-run it when dependencies change, and add anything new to
+  `THIRD-PARTY-NOTICES.md` and to the verifier's own list. The cross-check
+  against `package.json` catches a new runtime dependency by itself, but a
+  transitive package or a generated asset — `scheduler` and Tailwind CSS
+  today — appears only in the inventory.
 
 ## Signing — decided
 
@@ -127,6 +145,51 @@ Unsigned for now: [ADR-0011](adr/0011-unsigned-releases-for-now.md). The
 workflow looks up no identity and reads no certificate, README tells users
 what SmartScreen and Gatekeeper will say, and the ADR names what changes the
 decision.
+
+## Tag provenance
+
+The reviewed candidate is the tip of `main` that release steps 1–3 review and
+the owner approves by exact SHA. Before any installer is built, the `release`
+workflow's `provenance` job runs `scripts/verify-release-provenance.mjs`. The
+script fetches `main` and the pushed tag from `origin` itself, deepening the
+runner's shallow checkout, and trusts no ref already in that checkout. On a tag
+push it passes only when the tag on `origin`, annotated or lightweight, points
+at the commit the run builds and that commit is `origin/main`'s tip. Otherwise
+the run fails before packaging, and the log names the tag commit, the candidate
+commit and the reason: not reachable from `origin/main`, on `origin/main` but
+not its tip, or a tag that no longer points at the run's commit. A rehearsal
+logs the same comparison for its own commit and never fails on it.
+
+A passing check does not establish:
+
+- **That main's tip was reviewed.** It reads no CI result and no approval;
+  steps 2 and 3 and the owner's SHA approval stay manual.
+- **That `main` holds only reviewed commits.** Nothing server-side protects
+  `main` (see the publication gate above).
+- **Anything about a tag whose commit changes the check.** A tag push runs
+  `release.yml` and the script from the tagged commit, so a branch that edits
+  or removes either can still build a draft. Step 6's comparison, made outside
+  the workflow, is the control that remains.
+- **Anything from a version match.** The version gate proves only that the tag
+  names the `package.json` version.
+
+The comparison uses main's tip when the job runs, so a push to `main` before
+then fails the run. Push nothing to `main` until the draft exists. A re-run
+keeps the original commit and tag ref
+([GitHub: re-running workflows](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)).
+In the run's **Re-run jobs** menu, **Re-run all jobs** repeats `provenance`,
+which fails once `main` has moved past the tag. **Re-run failed jobs** re-runs
+only the failed jobs and the jobs that depend on them
+([REST reference](https://docs.github.com/en/rest/actions/workflow-runs#re-run-failed-jobs-from-a-workflow-run)),
+so a `provenance` result that already passed stands. Once `main` has moved, the
+remedy is a new candidate: take the new tip through steps 1–3 and tag it.
+Never move `main` back or bypass the check. Reusing the version number means
+the owner first deletes the draft and the old tag.
+
+`test/release-provenance.test.mjs` exercises the script against temporary
+repositories: a candidate tag on main, a side-branch tag, a superseded or moved
+tag, missing refs, shallow checkouts and rehearsals. It also asserts the job
+graph and the `publish` condition in `release.yml`.
 
 ## Release steps
 
@@ -143,9 +206,15 @@ decision.
    inside the generated `Kondo.app` bundle. Each smoke uses synthetic stores
    and an isolated Electron profile. The macOS check does not mount/install
    the DMG or establish Gatekeeper behavior. The `publish` job is skipped,
-   because a rehearsal has no tag to attach anything to. A red leg here is a blocker the tag
+   because a rehearsal is not a tag push, even when dispatched on a tag ref.
+   The `provenance` job logs whether a tag on the rehearsed commit would pass.
+   A red leg here is a blocker the tag
    would have hit anyway, found without burning a version number.
-4. `git tag v<version> && git push --tags`. The `package` job builds the x64 NSIS
+4. Tag the approved candidate and push only that tag: `git fetch origin main`,
+   confirm `git rev-parse origin/main` prints the approved SHA, then
+   `git tag v<version> <sha> && git push origin v<version>`. The `provenance`
+   job rejects the tag unless it is `origin/main`'s tip
+   ([Tag provenance](#tag-provenance)). The `package` job builds the x64 NSIS
    installer, the arm64 DMG and the x64 AppImage, runs the end-to-end smoke against the
    same platform artifacts described in step 3, and uploads each installer as a
    workflow artifact. `publish` waits on all three and attaches them to one
@@ -168,13 +237,18 @@ decision.
    and distribution-specific FUSE libraries. The Linux smoke bypasses FUSE.
 
    An OS that fails yields no draft rather than an incomplete one, and the run
-   stops before building if the tag does not name the version in `package.json`.
+   stops before building if the tag is not `origin/main`'s tip or does not name
+   the version in `package.json`.
 5. Download one artifact per OS, check it against the `SHA256SUMS` asset
    attached to the same draft, and run it against a fixture store
    (`node .claude/skills/run-kondo/fixture.mjs <new-disposable-directory>`
    recreates that directory and prints the three env values); a blank window
    or any network request is a blocker.
-6. Publish the draft. `npm run package` builds the same artifacts locally,
+6. Confirm the tag still names the approved commit, outside the workflow:
+   `git fetch --force origin refs/tags/v<version>:refs/tags/v<version>`, then
+   `git rev-parse v<version>^{commit}` must print the approved SHA, and the
+   run's `provenance` log must name that SHA as tag and candidate commit.
+   Publish the draft. `npm run package` builds the same artifacts locally,
    unsigned, when a check is wanted before the tag.
 
 For a local packaged smoke, set `KONDO_E2E_BINARY` to the installed Windows

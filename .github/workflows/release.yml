@@ -1,8 +1,9 @@
 name: release
 
-# A tag `v<version>` on main produces one installer per OS — NSIS, DMG,
+# A tag `v<version>` on main's tip produces one installer per OS — NSIS, DMG,
 # AppImage — and attaches them to a DRAFT GitHub Release; publishing is a
-# person's click (docs/release.md). The draft is made once, by a publish job
+# person's click (docs/release.md). The provenance job rejects any other tag
+# before anything is packaged. The draft is made once, by a publish job
 # that waits on all three, so a single OS failing yields no draft rather than an
 # incomplete one. Artifacts are unsigned for now
 # (docs/adr/0011-unsigned-releases-for-now.md): no identity is looked up and no
@@ -20,7 +21,8 @@ on:
     tags: ['v*']
   # Rehearsal. Run the whole pipeline from the Actions tab with no tag pushed:
   # everything builds and the smoke test runs, and the publish job stands down
-  # because there is no tag to attach a draft to (docs/release.md).
+  # because the run is not a tag push, even when dispatched on a tag ref
+  # (docs/release.md).
   workflow_dispatch:
 
 # Only the publish job below writes, and it says so itself.
@@ -28,7 +30,22 @@ permissions:
   contents: read
 
 jobs:
+  # A tag push must be the tip of origin/main, the reviewed candidate, and the
+  # tag on origin must still point at this run's commit. The script fetches
+  # main and the tag itself, through the token checkout persists, so the
+  # checkout's depth and refs decide nothing. A rehearsal only reports the
+  # comparison. What this does not prove: docs/release.md, "Tag provenance".
+  provenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: node scripts/verify-release-provenance.mjs
+
   package:
+    needs: provenance
     strategy:
       fail-fast: false
       matrix:
@@ -71,6 +88,22 @@ jobs:
       - run: node .jig/checks/run.mjs --selftest
       - run: npm run build
       - run: npx electron-builder --publish never
+      # Attribution is part of the artifact, so a notice missing from or stale
+      # in the packaged resources fails the leg here — before the smoke, which
+      # is the expensive part, and long before any installer is uploaded.
+      # electron-builder suffixes the macOS directory with the architecture, so
+      # the directory is discovered rather than fixed per OS, the same way the
+      # macOS smoke below globs it (docs/release.md, "Packaging").
+      - name: Verify the packaged third-party notices
+        shell: bash
+        run: |
+          shopt -s nullglob
+          directories=(release/win-unpacked/resources release/linux-unpacked/resources release/mac*/Kondo.app/Contents/Resources)
+          if [ "${#directories[@]}" -ne 1 ]; then
+            echo "Expected one packaged resources directory, found ${#directories[@]}" >&2
+            exit 1
+          fi
+          node scripts/verify-packaged-notices.mjs "${directories[0]}"
       - name: Install NSIS and smoke the installed Windows app
         if: runner.os == 'Windows'
         shell: pwsh
@@ -126,10 +159,11 @@ jobs:
   # One draft, made once, after all three legs have produced an installer. The
   # release step used to sit inside the matrix above, so a single OS failing
   # left a published draft missing that installer; now it yields no draft at
-  # all. Skipped on a rehearsal run, which has no tag to attach anything to.
+  # all. Skipped on a rehearsal: a workflow_dispatch on a tag ref also has
+  # ref_type 'tag', so the event is checked too.
   publish:
-    needs: package
-    if: github.ref_type == 'tag'
+    needs: [provenance, package]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
