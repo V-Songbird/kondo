@@ -50,15 +50,21 @@ Landed in `a5c9505` ([plan](docs/plans/v1-read-only-core.md)).
 - Skills catalog across user scope, `skills.disabled`, and per-project
   skills; a plugin's own skills listed under the plugin.
 - Plugins inventory from `installed_plugins.json` + `enabledPlugins` settings.
-- Hooks inventory resolved from every settings layer.
-- Settings viewer: user / project / local layers side by side.
+- Hooks inventory from the user settings file and verified projects' project
+  and local settings files.
+- Settings-file summaries for user, project and local scopes. Supported skill
+  and plugin precedence is shown in their management sections; a general
+  effective-settings viewer has not shipped
+  ([ADR-0021](docs/adr/0021-summarize-settings-files.md)).
 
 ## Shipped — v0.2, safe mutations
 
 - The mutation journal and kondo trash, undo for everything
   ([plan](docs/plans/001-mutation-journal-and-trash.md)) (001).
 - The kind registry and capability matrix (002).
-- Enable/disable skills via the native `skills.disabled` convention (003).
+- Enable/disable skills by parking them in `skills.disabled/` (003), later
+  found to be Kondo's own convention rather than Claude's and replaced by
+  `skillOverrides` (045).
 - Enable/disable plugins globally or per project via `enabledPlugins` (004).
 - Move a skill between scopes and between projects (copy → verify → trash
   source) (005).
@@ -81,7 +87,7 @@ In dependency order. The first is the foundation everything else keys on.
   the directory list, with `hasStore` / path-exists carried on the seam (025).
 - **Read-only kinds for MCP servers** — user scope from `~/.claude.json`,
   local scope from its `projects` map, project scope from `<project>/.mcp.json`
-  (which needs an ADR-0002 amendment naming that one file) (023).
+  (the one file ADR-0002's amendment names) (023).
 - **Read-only kinds for agents, commands, rules and output styles** at user
   and project scope, with fixture builders for each (024).
 - **Project attribution on the seam** — `projectId` on skills, hooks, plugin
@@ -182,20 +188,84 @@ entry and shipped the same day:
   rather than as its `>-` header (070) — the shape nearly every skill on a
   real machine uses, and every kind read from markdown frontmatter benefits.
 
+## Shipped — the task-first workflow and Signal themes, 2026-09-06
+
+- Library became the starting screen, with four task destinations — Library,
+  Projects, Clean up and History — and a separate Themes control. Settings
+  leftovers and duplicate skills moved inside Clean up
+  ([ADR-0012](docs/adr/0012-organize-navigation-around-user-tasks.md),
+  [plan](docs/plans/2026-09-06-ux-workflow.md)).
+- The Signal visual system replaced Flat File, with six themes and Chalk as
+  the default ([plan](docs/plans/2026-09-06-signal-themes.md),
+  [DESIGN.md](DESIGN.md)).
+
+## Shipped — release readiness, 2026-09-05 to 2026-09-07
+
+A six-dimension audit on 2026-09-05 — mutation safety, the release pipeline,
+public-repo readiness, first-run experience, cross-platform correctness and
+quality gates — produced entries 071–096. All have shipped:
+
+- Safety: settings toggles planned as digest-checked splices (072), occupied
+  restore paths displaced before Undo (073), splice temporaries synced and
+  confined to resolved stores (074), unreadable project paths no longer
+  reported as gone (075), every move picker and duplicate trash staged behind
+  a confirmation (076), and a rehearsal of every destructive path, with Undo,
+  against an isolated copy of a real store (071).
+- Pipeline: lockfile builds and locked-down workflows (077), one complete
+  draft per tag with a tagless rehearsal (078), checksums and CHANGELOG notes
+  (079), smoke of the shipped artifacts (080), and per-platform evidence and
+  install recipes (081). Hosted CI and a release rehearsal passed on all three
+  platforms on 2026-09-07 ([plan 113](docs/plans/113-hosted-ci-rehearsal.md)).
+- Public surface and first run: private working records kept local (082), the
+  bundled IBM Plex notice (083), the single-instance lock with pinned window
+  security (084), renderer exceptions and requests caught by the smoke (085),
+  no silently skipped mutation tests (086), Library's missing `.line` rule
+  (087), render-failure recovery (088), documented data locations and copy
+  rehearsal (089), named controls and keyboard routes (090), locator-owned XDG
+  and temporary roots (091), permission-denied adapter coverage (092), a quiet
+  first read on an absent store (093), session paths kept in main (094),
+  malformed journal lines dropped whole (095) and the public repository
+  surface (096).
+
+## Shipped — publication-audit hardening, 2026-09-07 to 2026-09-10
+
+A publication audit on 2026-09-07 reproduced defects in classification,
+confirmation, concurrency, Undo and privacy. Shipped and accepted:
+
+- Store reads, transcript streams and recursive copies confined to their
+  resolved store ([plan 097](docs/plans/097-resolved-store-boundaries.md)).
+- Settings writes, missing-layer creation and historical settings Undo refused
+  on every platform until a preservation backend exists
+  ([plan 098](docs/plans/098-concurrent-settings-writes.md); see the
+  restriction above).
+- Undo that records intent, progress and completion, and resumes without
+  repeating confirmed actions ([plan 099](docs/plans/099-undo-recovery.md),
+  [ADR-0018](docs/adr/0018-confirm-undo-effects-and-resume.md)).
+- Configuration leftovers offered only when inventory proves absence, with
+  every skill override kept
+  ([plan 100](docs/plans/100-conservative-config-inventory.md)).
+- Hook scripts never offered for cleanup, because execution coverage is
+  incomplete ([plan 101](docs/plans/101-conservative-hook-cleanup.md)).
+- Removal bound to the exact reviewed candidates and revalidated before any
+  change ([plan 102](docs/plans/102-reviewed-cleanup.md),
+  [ADR-0015](docs/adr/0015-bind-removal-to-reviewed-state.md)).
+- Unambiguous logical and physical tree digests for duplicate verdicts, copy
+  verification and recovery ([plan 118](docs/plans/118-framed-tree-digests.md),
+  [plan 121](docs/plans/121-physical-recovery-digests.md)), with the fixture
+  write observer and snapshot helper corrected alongside (116, 122).
+- Decisions: Desktop sessions stay read-only with a named removal scope
+  ([ADR-0016](docs/adr/0016-desktop-session-boundary.md)); hook declarations
+  stay read-only ([ADR-0017](docs/adr/0017-hook-layer-boundary.md)); settings
+  files are summarized rather than resolved
+  ([ADR-0021](docs/adr/0021-summarize-settings-files.md)); a public-history
+  package with the strategy still to choose
+  ([plan 111](docs/plans/111-public-history-decision.md)); and a private
+  security contact with a latest-stable-only maintenance policy
+  ([plan 112](docs/plans/112-security-reporting-maintenance.md)).
+
 ## Now — the road to a release someone else can trust
 
-The release-readiness work comes from a six-dimension audit on 2026-09-05:
-mutation safety, the release pipeline, public-repo readiness, first-run
-experience, cross-platform correctness and quality gates. The local, ignored
-`ROADMAP.jsonl` records each entry's status; the list below preserves the release
-sequence rather than implying that every item is still unimplemented.
-
-On 2026-09-06, code review confirmed 072, 073, 075 and 076 already implemented.
-The [Claude Code review](docs/plans/2026-09-06-claude-usability-review.md)
-implements 087, 090 and 095 for owner review and records additional compatibility
-and safety gaps. This is not release acceptance or completion of rehearsal 071.
-
-Four decisions frame them and are not up for re-argument here:
+Four decisions frame this work and are not up for re-argument here:
 
 - **v1.0 means a stranger can trust it** — install kondo, point it at their own
   `~/.claude`, and mutate safely. The Later section below stays out of scope.
@@ -204,51 +274,29 @@ Four decisions frame them and are not up for re-argument here:
 - **Releases stay unsigned** under [ADR-0011](docs/adr/0011-unsigned-releases-for-now.md).
   Honest install docs, not certificates.
 
-### v0.6 — the first tagged release
+Open work:
 
-Safety before packaging. The four initial blockers below have landed; 071's
-copy-of-store rehearsal still needs to be performed:
-
-- 072 changed settings toggles from whole-file writes to digest-checked splices.
-  This retained narrow edits but did not prevent a final replacement race;
-  098 now suspends settings execution under ADR-0010.
-- 073 displace whatever occupies a restore path before an undo renames over it.
-- 075 stop an unreadable or unmounted project path from being reported `gone` and
-  offered for wholesale trashing.
-- 076 stage every move picker behind a confirm, and confirm the one-click trash —
-  one keypress on a focused select currently moves files.
-- 071 then rehearses every destructive path, with undo, against a copy of a real
-  store. 074 improved temporary-file synchronization and resolved-target
-  checks; it did not establish concurrent-writer preservation or power-loss
-  durability. Settings execution remains suspended under 098.
-
-Then the pipeline, which has never run: 077 build from the lockfile and lock both
-workflows down, 078 make one tag produce one complete draft that can be rehearsed
-without a tag, 079 attach SHA-256 checksums and CHANGELOG-derived notes, 080 smoke
-the artifacts that actually ship rather than the unpacked directories, 081 say which
-platform is verified and fix the per-OS install recipes.
-
-Then what a public repository and a first launch need: 082 untrack the private and
-machine-local files, 083 ship the IBM Plex OFL notice with the installers, 084 take
-the single-instance lock and pin ADR-0004's window settings in a test, 085 catch
-renderer exceptions and outbound requests in the smoke test, 086 delete the `TMP_OK`
-gate that lets 22 mutation and undo tests skip silently, 087 define Library's missing
-`.line` rule, 088 catch a render-time throw instead of blanking the window, and 089
-tell the README where kondo's own data lives and how to rehearse on a copy.
-
-### v1.0 — the public invitation
-
-- 090 give every control a name, a role and a keyboard route.
-- 091 route `XDG_CONFIG_HOME` and `os.tmpdir()` through the store locator.
-- 092 covers permission-denied adapter behavior with deterministic injected
-  `EACCES` fixtures; [docs/testing.md](docs/testing.md) describes the coverage
-  and its native OS ACL limitation.
-- 093 prove an absent `~/.claude` neither throws nor floods the first read.
-- 094 close the two seam promises no test proves.
-- 095 drop a malformed journal line the way a bad parse already is.
-- 096 prepare the public repo surface a stranger lands on.
-
-The release itself is the owner's to cut ([docs/release.md](docs/release.md)).
+- Accuracy and compatibility: MCP approval and disable scopes, including
+  projects that hold only `.mcp.json` (103); alternate Claude profiles through
+  `CLAUDE_CONFIG_DIR` (104); every companion file counted in size estimates
+  (105); every plugin installation and component layout (106); and unreadable
+  hook scripts reported as unverifiable rather than missing (127).
+- Privacy and safety: settings key names, hook commands and parser text kept
+  out of the renderer (117); Kondo's data directory never resolving inside a
+  Claude store (115); and release tags bound to the reviewed main candidate
+  (119).
+- Product claims: in-app wording reconciled with the accepted decisions, after
+  117 (110).
+- Tooling and evidence: the intermittent smoke focus failure (120), run-kondo
+  stopping only the process it launched (124), the Jig edit-guard false
+  positive and the repository session lane (125), the pre-commit hook's Unix
+  mode (126), and personal context still in the tree (123).
+- The owner chooses the public-history strategy, identity and destination
+  ([plan 111](docs/plans/111-public-history-decision.md)).
+- Finally, 114 revalidates the exact candidate: fresh hosted checks on all
+  three platforms, packaged smoke, cleanup and recovery rehearsal, a privacy
+  re-audit of the final SHA and the release notes. The release itself is the
+  owner's to cut ([docs/release.md](docs/release.md)).
 
 ### Desktop session boundary and truthful removal scope
 
@@ -260,17 +308,16 @@ environment snapshots, file history, backups, Desktop copies and Kondo's retaine
 data can remain. Unified session removal and privacy erasure are not shipped or
 promised. The existing Desktop cache allowlist remains separate.
 
-- **Reconcile the in-app claims (110):** with 108 accepted and after the other recorded dependencies
-  (107/109) are resolved, label Code-only scope, filename matches and released markers
-  accurately. Disclose exact removal candidates and residual data before
-  confirmation; preserve keyboard flow, focus return and fresh main-process
-  review. The plan names the required fixture and UI evidence.
-- **Complete removal-size accounting (105, depends on 102):** include every
-  moved companion before calling a number the full removal size. Coordinate
-  with 110's candidate disclosure; this decision makes no size fix.
-- **Retain the recovery limits:** concurrent writes (098) and failed/partial
-  Undo outcomes (099) remain separate release-safety work. A session scope
-  decision does not establish those guarantees.
+- **Reconcile the in-app claims (110):** label Code-only scope, filename
+  matches and released markers accurately. Disclose exact removal candidates
+  and residual data before confirmation; preserve keyboard flow, focus return
+  and fresh main-process review. The plan names the required fixture and UI
+  evidence.
+- **Complete removal-size accounting (105):** include every moved companion
+  before calling a number the full removal size, coordinated with 110's
+  candidate disclosure.
+- **Recovery limits:** 098 refuses unsafe settings writes and 099 records
+  honest Undo outcomes; the session scope decision itself establishes neither.
 
 ### Hook declaration boundary
 
@@ -279,8 +326,8 @@ The [109 decision package](docs/plans/109-hook-layer-boundary.md) and accepted
 and correct the earlier shipped-move claim, **accepted by the owner**.
 Inventory is limited to the settings layers Kondo reads; script diagnostics do
 not prove which hooks execute or that a layer move preserves behavior. No move
-implementation is commissioned. Product-copy reconciliation (110) and
-conservative script cleanup (101) remain separate tracked work.
+implementation is commissioned. Conservative script cleanup has shipped (101);
+product-copy reconciliation remains open (110).
 
 ## Later
 
@@ -298,9 +345,8 @@ conservative script cleanup (101) remain separate tracked work.
 These are boundaries, not backlog:
 
 - Kondo never reads project files. The only project content it opens is the
-  project's `.claude/` directory — and, once entry 023 amends ADR-0002, the
-  Claude-owned `<project>/.mcp.json` beside it. See
-  [ADR-0002](docs/adr/0002-project-privacy-boundary.md).
+  project's `.claude/` directory and the Claude-owned `<project>/.mcp.json`
+  beside it. See [ADR-0002](docs/adr/0002-project-privacy-boundary.md).
 - No cloud component, no sync, no telemetry.
 - No complete conversation erasure or unified Desktop/Code session deletion;
   local removal can leave other records and copies (ADR-0016).

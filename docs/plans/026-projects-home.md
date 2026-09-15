@@ -1,6 +1,7 @@
 # Plan: the Projects home — project-first navigation
 
-Status: **in progress**
+Status: **done — shipped in `bf5579c`, accepted 2026-09-02**. Library later
+became the first screen ([ADR-0012](../adr/0012-organize-navigation-around-user-tasks.md)).
 
 Kondo opens on a dashboard of directory sizes and offers eight kind-first
 tabs. The owner's first requirement is the opposite shape: open the app, see

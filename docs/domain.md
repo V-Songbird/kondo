@@ -7,8 +7,10 @@ it, and PRs that learn something new must update it.
 None of these formats are publicly documented or stable. Every fact carries a
 marker:
 
-- ✅ **verified** — observed directly on a real machine (last: 2026-09-01,
-  Windows, Claude Code ~2.x).
+- ✅ **verified** — observed directly on a real Windows machine; each
+  observation carries its own date or entry. The store survey was last
+  refreshed on 2026-09-05, and the settings schema was read from the Claude
+  Code 2.1.255 and 2.1.258 binaries. No version range is guaranteed.
 - ◇ **expected** — inferred from platform conventions or public knowledge;
   verify before relying on it in code.
 
@@ -495,8 +497,8 @@ and the accepted [ADR-0016](adr/0016-desktop-session-boundary.md).
   to be unobserved. Kondo historically wrote it and reads it back as the
   `project-disabled` skill scope; the per-skill switch Claude actually honours
   here is `skillOverrides` in this project's settings layers (ADR-0006).
-- Settings precedence: local > project > user ◇. The settings viewer renders
-  these as layers, and the plugins view resolves a plugin's state through
+- Settings precedence: local > project > user ◇. Settings-file summaries list
+  these layers (ADR-0021), and a plugin's state is resolved through
   them: the highest layer that states a value is the one that wins. Layers
   belonging to different projects share a rank — Claude resolves settings per
   session, so across projects there is no ordering to have. That makes the
@@ -696,9 +698,13 @@ They do not prove complete support for newer Claude Code conventions.
   several installed versions, not one. The inventory still presents only the
   first installation. [Claude Code plugin reference](https://code.claude.com/docs/en/plugins-reference#plugin-uninstall).
 - Directory-discovered `@skills-dir` plugins and overrides for built-in skills
-  are supported by current Claude documentation ✅. Kondo's configuration-orphan
-  inference does not yet account for these, so absence from its installation
-  inventory is **not** proof that a preference is obsolete.
+  are supported by current Claude documentation ✅. Absence from Kondo's
+  installation inventory is **not** proof that a preference is obsolete, so
+  configuration-orphan inference preserves these preferences: only a
+  recognized marketplace source with a complete manifest establishes absence,
+  and every skill override is kept
+  ([100](#configuration-absence-and-incomplete-inventory-100)). The plugin
+  inventory itself still does not list `@skills-dir` plugins (106).
   [Directory plugins](https://code.claude.com/docs/en/plugins-reference#skills-directory-plugins),
   [removing a skill](https://code.claude.com/docs/en/skills#remove-a-skill).
 - MCP approval, settings restrictions and per-project disablement are distinct

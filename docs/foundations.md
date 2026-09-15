@@ -72,20 +72,26 @@ entity through the kind registry. Structure:
   the lexical root. `tmpRoot` and `tmpRootRealpath` are classification inputs
   only: they do not become stores or broaden any read/write allowlist.
 - **`kinds.ts`** — the kind registry. Every entity kind kondo manages
-  (`skill`, `plugin`, `hook`, `settings`, `session`, `project`, `store` —
-  the first segment of every id, ADR-0008) is described by one or more
-  entries supplying `discover`, `read`, `capabilities`, `enable` and
-  `disable`: `skill`, `plugin`, `pluginSkill` (a plugin's own skills, keyed
-  on the parent id), `hook`, `settings`, `project`, `session` and
+  (`skill`, `plugin`, `hook`, `settings`, `session`, `project`, `mcp`,
+  `agent`, `command`, `rule`, `output-style`, `store` — the first segment of
+  every id, ADR-0008) is described by one or more entries supplying
+  `discover`, `read` and one `plan(entity, request)` seat that answers every
+  operation with a mutation plan or a refusal (entry 035, ADR-0004
+  amendment): `skill`, `plugin`, `pluginSkill` (a plugin's own skills, keyed
+  on the parent id), `hook`, `settings`, `project`, `session`,
   `desktopSession` (two entries for one kind, because code and desktop
-  sessions live in different stores). `store` has a matrix row and no entry:
-  nothing lists a store as an entity; the row exists so the tidy sweep's
-  journal entry can name what it acted on. No workspace method names an
-  adapter: it validates the id shape it accepts, hands the rest to a kind,
-  and wraps the result in the scan envelope. The two *store reports* on the
-  dashboard stay direct calls — a store is not an entity.
+  sessions live in different stores), `mcp`, and one placed-kind entry each
+  for agents, commands, rules and output styles. The exported `listings`
+  table dispatches by id prefix (`listingForId`, `listingFor`), so a new kind
+  needs a registry row, a listing row and a matrix row — never a new channel.
+  `store` has a matrix row and no entry: nothing lists a store as an entity;
+  the row exists so the tidy sweep's journal entry can name what it acted on.
+  No workspace method names an adapter: it validates the id shape it accepts,
+  hands the rest to a kind, and wraps the result in the scan envelope. The two
+  *store reports* stay direct calls — a store is not an entity.
 - **`capabilities.ts`** — the capability matrix. Write permission is a
-  lookup on **kind × scope × operation** (`enable`, `disable`, `move`),
+  lookup on **kind × scope × operation** (`enable`, `disable`, `move`,
+  `trash`),
   never a single flag: a user skill can be disabled, a plugin-shipped one
   cannot, and the same kind is writable in one scope and read-only in
   another. Rows combine Claude's native conventions (ADR-0006) with Kondo's
@@ -110,7 +116,10 @@ entity through the kind registry. Structure:
   an id to learn what it may do.
 - **`analysis.ts`** — staleness (`STALE_AFTER_DAYS`, `isStale`), a pure
   function over scanned data. Orphan-sidecar detection lives in
-  `sessions.ts`; duplicate logic does not exist yet (ROADMAP).
+  `sessions.ts`. Duplicate detection lives in `kinds.ts`: `skillDuplicates`
+  digests only skills whose names repeat, and a copy it cannot read makes its
+  group not identical (032, 118); `sessionNearDuplicates` compares one
+  project's opening prompts through the scan cache (034, ADR-0007).
 - **`mutations.ts`** — the write path (ADR-0001): `mutate(plan)` currently
   refuses any plan containing `write` or `splice` on every platform, before
   step preparation, journaling or filesystem effects (098, ADR-0010). This
@@ -134,15 +143,35 @@ entity through the kind registry. Structure:
 - **Helpers** — `scan.ts` (explicit owning-root checks, resolved paths, bounded
   tree walks and safe fs wrappers that convert exceptions into scan errors),
   `jsonl.ts` (streaming transcript reads — never `readFile` a
-  transcript whole, ADR-0007), `frontmatter.ts` (dependency-free `SKILL.md`
+  transcript whole, ADR-0007), `scan-cache.ts` (the disposable tier-2 cache
+  under `<kondo-data>`, keyed by path, size and mtime, ADR-0007),
+  `reviewed-removals.ts` (bounded, expiring, single-use removal-review tokens,
+  ADR-0015), `frontmatter.ts` (dependency-free `SKILL.md`
   name/description extraction), `display.ts` (tildify and other
   display-string building — done in main so the renderer never sees or
   splits a raw path; renderer path-handling is where cross-platform bugs
   breed).
 
-Session inventory is scanned once and cached in the workspace (`refresh`
-re-scans); overview, project lists, and analysis all read the same inventory
-rather than re-walking 9k directories per view (ADR-0007).
+Session inventory is scanned once and cached in the workspace. Every read
+first stats Claude's registry and the `projects/` directory
+(`inventoryFingerprint`: two stats, no walk) and rebuilds when either changed
+(056), when `refresh` asks, or after a mutation dropped the cache. Trash plans,
+removal reviews and their applies, and settings-leftover reads pin one forced
+rebuild to the call (`freshContext`). Overview, project lists and analysis all
+read the same inventory rather than re-walking thousands of directories per
+view (ADR-0007).
+
+Settings discovery reads the user settings file and project/local files under
+verified projects' `.claude` directories. `SettingsLayerInfo` is a metadata
+projection with layer identity, project attribution, display location,
+existence, size and top-level key names; it has no general settings-value or
+resolution model. Skill and plugin resolution uses dedicated main-process
+logic. These projections do not resolve arbitrary settings, managed policy,
+command-line overrides, session state or settings defaults. Existing key-name,
+hook-command and diagnostic projections require separate privacy hardening
+(117); no comprehensive secret-redaction guarantee is claimed. Any expansion
+requires a reviewed contract, an explicit field allowlist and fixture evidence
+([ADR-0021](adr/0021-summarize-settings-files.md)).
 
 ## Data flow
 
@@ -216,9 +245,9 @@ Historical write-path structure (v0.2; settings execution is now suspended under
   open design question: the vision's next kinds (MCP servers, agents,
   commands, rules) each need a toggle and a move, and each as a standalone
   planner means its own workspace method, channel, IPC line and preload
-  line. Entry 035 replaces the two seats with one
+  line. Entry 035 then replaced the two seats with one
   `plan(entity, request)` seat and a generic mutate channel before those
-  kinds land.
+  kinds landed; the registry described above is that result.
 - **Project roots are resolved lazily.** `mutations.ts` fixes `user` and
   `desktop`; `project:<flat>` resolves through `extraRoot` against the
   verified-project list of the current inventory, which ADR-0009 now

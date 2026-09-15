@@ -12,8 +12,9 @@ supported Claude Code data, reports part of Desktop's local storage, and offers
 reviewed cleanup within those limits.
 
 Kondo is about Claude's own files, and only those. It **never reads your
-project files** — the one exception is a project's `.claude/` directory
-(its `settings.json` and other Claude-only files). Everything runs on your
+project files**: inside a project it opens only the `.claude/` directory (its
+`settings.json` and other Claude-only files) and the Claude-owned `.mcp.json`
+beside it, and checks that the project folder exists. Everything runs on your
 machine; nothing is ever sent anywhere.
 
 ## What it does
@@ -39,18 +40,27 @@ machine; nothing is ever sent anywhere.
   thin out a skill kept twice once its copies prove identical. Settings-based
   enable/disable and moves that also edit settings are temporarily unavailable.
 - **Plugins** — what is installed, from which marketplace, at which version,
-  enabled where. Toggles, clearing overrides and scope changes are temporarily
-  unavailable because they edit settings.
-- **Agents, commands, rules, output styles** — listed per scope, movable
-  between scopes the way a skill is.
+  and which settings files switch it on or off. When a plugin has several
+  installation records, only the first is shown for now. Toggles, clearing
+  overrides and scope changes are temporarily unavailable because they edit
+  settings.
+- **Agents, commands, rules, output styles** — listed per scope. Agents,
+  commands and rules move between scopes the way a skill does; output styles
+  have no project destination.
 - **Hooks** — read-only declarations from user settings and verified projects'
   project/local settings, with source attribution and limited script checks.
   Kondo does not move, toggle or remove hook declarations, or prove which hooks
   execute. See the [hook boundary decision](docs/plans/109-hook-layer-boundary.md).
-- **MCP servers** — locally configured connections and their configured state.
-  On/off changes are temporarily unavailable. Kondo does not test live
-  connectivity or approval.
-- **Settings** — the layered view: user, project, local. See what wins and why.
+- **MCP servers** — connections declared in `~/.claude.json` and a project's
+  `.mcp.json`. Their on/off state comes only from the disable lists in
+  `~/.claude.json`; disable lists in project settings files and Claude's
+  approval state are not read yet. On/off changes are temporarily unavailable.
+  Kondo does not test live connectivity.
+- **Settings files** — summaries of user, project and local files: location,
+  size and top-level setting names. Skills and Plugins show their supported
+  scope-specific settings states. Kondo does not calculate a complete effective
+  Claude configuration or read managed policy, command-line overrides or live
+  session settings ([ADR-0021](docs/adr/0021-summarize-settings-files.md)).
 - **Clean up** — review files and caches, settings leftovers, or duplicate
   skills. File categories include saved Claude data for throwaway folders, projects that
   are gone, old and empty Code conversations, Code transcripts with a Desktop
@@ -59,11 +69,12 @@ machine; nothing is ever sent anywhere.
   establish that they are unused across all execution sources. Select, review,
   then move to trash in one undoable step. Disk space is freed only when the
   trash is permanently emptied.
-- **Settings leftovers**, inside Clean up — entries flagged in Claude's configuration: registry
-  entries and MCP declarations for folders that no longer exist, plugin
-  switches for plugins no longer installed, skill settings for skills no
-  scanned location supplies. Review the evidence; removal is temporarily
-  unavailable because it edits settings.
+- **Settings leftovers**, inside Clean up — entries in Claude's configuration
+  that point at something gone: registry entries and MCP declarations for
+  folders that no longer exist, and switches for plugins from a recognized
+  marketplace whose complete installation manifest proves them absent. Skill
+  settings and every other plugin switch are always kept. Review the evidence;
+  removal is temporarily unavailable because it edits settings.
 - **History** — changes kondo made, their Undo controls, and the trash's size.
   Historical settings Undo is temporarily unavailable; its journal and
   recovery bytes remain intact. Kondo never hard-deletes until you empty the trash.
@@ -114,12 +125,14 @@ precise in-app scope and residual disclosures remain follow-up work in the
 ## Principles
 
 1. **Local-first, zero network.** No telemetry, no sync, no phoning home.
-2. **Read-only by default.** Every Claude-store mutation is explicit, journaled, and
-   reversible ([ADR-0001](docs/adr/0001-mutations-are-reversible.md)).
-3. **Native conventions over invented state.** Disabling a skill writes
-   Claude's own `skillOverrides` key; toggling a plugin edits `enabledPlugins`
-   in the right settings file. Kondo keeps no shadow database of your intent
-   ([ADR-0006](docs/adr/0006-native-conventions-over-invented-state.md)).
+2. **Read-only by default.** Every Claude-store mutation is explicit and
+   journaled, and stays reversible while its trash data remains
+   ([ADR-0001](docs/adr/0001-mutations-are-reversible.md)).
+3. **Native conventions over invented state.** Disabling a skill is planned as
+   Claude's own `skillOverrides` key, and toggling a plugin as an
+   `enabledPlugins` edit in the right settings file; both are refused while
+   settings changes are suspended. Kondo keeps no shadow database of your
+   intent ([ADR-0006](docs/adr/0006-native-conventions-over-invented-state.md)).
 4. **Project privacy boundary.** Claude-only files, nothing else
    ([ADR-0002](docs/adr/0002-project-privacy-boundary.md)).
 5. **Platform-aware stores.** Windows, macOS and Linux locations

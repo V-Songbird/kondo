@@ -1,6 +1,6 @@
 # Plan: bind removal to reviewed candidates
 
-Status: **implemented — awaiting acceptance**
+Status: **done — shipped in `b028598`, accepted 2026-09-07**
 
 Task 102 follows audit A5/A9/A11. At baseline debcc319, the workspace rescanned
 cleanup categories on apply, used cached session inventory for removal, and

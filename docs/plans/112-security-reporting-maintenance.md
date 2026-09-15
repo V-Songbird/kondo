@@ -1,6 +1,6 @@
 # Plan: private security reporting and maintenance
 
-Status: **accepted on 2026-09-08 — local integration by the coordinating session**
+Status: **done — accepted on 2026-09-08; integrated into main**
 
 Make the security policy match the repository's actual reporting and release
 capabilities. On 2026-09-08 the owner approved the private email contact, the
@@ -88,7 +88,8 @@ under GitHub's documented limitation, retaining private visibility without a
 plan purchase. Future remote protection changes require separate approval.
 
 The coordinating session performs local integration and closes the central
-Foreman record. This worktree records acceptance, not a completed main merge.
+Foreman record. The five task 112 commits reached local main on 2026-09-08
+(`0fa5c09`).
 
 No remote configuration was changed and no report or test message was sent.
 

@@ -1,8 +1,9 @@
 # Plan: durable and confined splice replacement
 
-Status: **in progress**
+Status: **done — shipped in `a022921`, accepted 2026-09-06**
 
-Implementation verified on Windows; awaiting user acceptance.
+Settings execution was later suspended by 098: every splice is refused before
+effects ([ADR-0010](../adr/0010-splice-config-files-never-whole-file-writes.md)).
 
 Task 074 fixes temporary-file leaks, missing sync, and replacement of a
 settings symlink with a plain file. Mutation targets also need physical path

@@ -28,6 +28,8 @@ To undo, restore that setting, or use `git config --local --unset core.hooksPath
 if no local value existed. See [Jig activation](.jig/activation.md).
 The hook skips checks if Node is unavailable in its environment; initialize
 fnm before committing and run the checks explicitly. CI remains required.
+The tracked hook file is not yet marked executable, so Git on macOS and Linux
+may not run it (entry 126); run `npm run guards` before committing there.
 
 ## Repository shape
 

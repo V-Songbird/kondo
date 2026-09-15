@@ -77,6 +77,31 @@ All notable changes to kondo are documented here. The format follows
   trash. The splash now has the same explicit isolation and navigation guards
   as the main window.
 
+- Mutation targets that resolve outside their allowed store are refused,
+  including escapes through parent links and the single-file user registry.
+
+- Library now shows failures and unrecognized files from every inventory read
+  alongside partial data, including history. Label/value rows are aligned, and
+  explanations of partially applied changes are visible without hovering.
+- Invalid journal records and invalid steps no longer break healthy history or
+  undo. Each rejected line remains on disk and gets an itemized error.
+- Plugin cleanup preserves all cache versions named by installation records,
+  including different versions installed in user, project and local scopes.
+
+- **Descriptions read as `>-`.** A description written as a YAML block scalar
+  — `description: >-` and the paragraph indented beneath it, which is how
+  nearly every skill on a real machine writes one — was read as the header
+  alone, so the Library printed `>-` where the sentence belonged.
+  `readFrontmatter` now takes the lines a key owns: folded blocks collapse to
+  one line, literal ones keep their breaks, and a plain value continued across
+  indented lines is picked up the same way. Every kind read from markdown
+  frontmatter benefits, not just skills.
+
+- Documentation now matches current behavior and decisions: settings files are
+  summarized rather than resolved (ADR-0021), MCP and plugin inventory limits
+  are stated, the `.mcp.json` privacy exception is named, and the roadmap
+  records the shipped safety work.
+
 ### Added
 
 - Install documentation now lists Kondo's data locations, uninstall retention
@@ -113,8 +138,8 @@ All notable changes to kondo are documented here. The format follows
   settings file that decided it, and the digest that says whether two copies
   are actually the same skill.
   - It answers four questions no screen answered before: where does this skill
-    live, which hooks will fire on this machine, which settings file switched
-    that off, and am I done. On the owner's store the first three used to cost
+    live, which hook declarations the scanned settings files hold, which
+    settings file switched that off, and am I done. On the owner's store the first three used to cost
     11,517 project pages.
   - `Needs a look` collects the findings and says why each one is a finding —
     a hook naming a script that is not on disk, a declaration whose folder is
@@ -172,28 +197,6 @@ All notable changes to kondo are documented here. The format follows
     explicit labels and confirmation flows.
   - Flattened project keys retain their split treatment; legitimate paths
     and filenames are not altered.
-
-### Fixed
-
-- Mutation targets that resolve outside their allowed store are refused,
-  including escapes through parent links and the single-file user registry.
-
-- Library now shows failures and unrecognized files from every inventory read
-  alongside partial data, including history. Label/value rows are aligned, and
-  explanations of partially applied changes are visible without hovering.
-- Invalid journal records and invalid steps no longer break healthy history or
-  undo. Each rejected line remains on disk and gets an itemized error.
-- Plugin cleanup preserves all cache versions named by installation records,
-  including different versions installed in user, project and local scopes.
-
-- **Descriptions read as `>-`.** A description written as a YAML block scalar
-  — `description: >-` and the paragraph indented beneath it, which is how
-  nearly every skill on a real machine writes one — was read as the header
-  alone, so the Library printed `>-` where the sentence belonged.
-  `readFrontmatter` now takes the lines a key owns: folded blocks collapse to
-  one line, literal ones keep their breaks, and a plain value continued across
-  indented lines is picked up the same way. Every kind read from markdown
-  frontmatter benefits, not just skills.
 
 ## [0.5.0] - 2026-09-05
 

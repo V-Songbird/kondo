@@ -153,8 +153,10 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
    reached separately from the shell; the projects list
    is the fixture's union, All projects lists the fixture's skills and plugins,
    the three Clean up sections answer, and one skill move goes through the bridge and comes back with its
-   undo — the journal on disk checked both times. It runs on all three OSes in
-   CI (`smoke` job, xvfb on Linux) after `npm run build`, and it shares its
+   undo — the journal on disk checked both times. CI is configured to run it on
+   all three OSes (`smoke` job, xvfb on Linux) after `npm run build`; the last
+   recorded hosted run passed on 2026-09-07 for `ea99297`
+   ([plan 113](plans/113-hosted-ci-rehearsal.md)). It shares its
    protocol client (`.claude/skills/run-kondo/cdp.mjs`) with the `run-kondo`
    skill's `drive.mjs`, the manual UI check, so the two cannot drift apart.
    It is not part of `npm test`: it needs a built app and a display.
@@ -316,6 +318,21 @@ corrupted copy must retain its source and remove only its incomplete destination
 if cleanup also fails, undo refuses before changing the healthy source or journal.
 These are fixture and injected-error checks, not a native multi-volume proof.
 
+## Coverage limits
+
+- Local evidence comes from Windows. macOS and Linux evidence is hosted CI and
+  the release rehearsal, last recorded passing on 2026-09-07 for `ea99297`
+  ([plan 113](plans/113-hosted-ci-rehearsal.md)); later commits have no
+  hosted evidence until a run passes for them.
+- File-link cases skip when the host cannot create file symlinks. A Windows
+  host without that privilege reports 14 skipped tests; directory junction
+  variants keep the Windows coverage.
+- No fixture approaches the size of a real store. Behavior at scale rests on
+  the read-only real-store audit of 2026-09-05 ([ROADMAP.md](../ROADMAP.md)).
+- Claude compatibility is limited to the dated observations in
+  [domain.md](domain.md); no Claude Code version range is tested.
+- Nothing tests screen-reader output, native OS ACL enforcement or power loss.
+
 ## Rules
 
 - **Tests never touch real stores.** No test may resolve `~/.claude`, the
@@ -344,20 +361,26 @@ Six invariants are also enforced outside the suite, by checks under
 
 | Guard | Refuses | Lanes |
 |---|---|---|
-| `renderer-reaches-past-the-bridge` | `node:` / `electron` imports and `require()` under `src/` | session (observe), pre-commit, CI |
+| `renderer-reaches-past-the-bridge` | `node:` / `electron` imports and `require()` under `src/` | session, pre-commit, CI |
 | `outbound-network-call` | `fetch`, `WebSocket`, `XMLHttpRequest`, `node:http(s)` anywhere shipped | session, pre-commit, CI |
 | `raw-path-across-the-seam` | a path-shaped parameter in `electron/preload/` or `ipc.ts` (ADR-0008) | session, pre-commit, CI |
-| `test-touches-a-real-store` | `homedir()`, home-ish env vars, or a hard-coded store path in `test/` | session (observe), pre-commit, CI |
+| `test-touches-a-real-store` | `homedir()`, home-ish env vars, or a hard-coded store path in `test/` | session, pre-commit, CI |
 | `workspace-adapter-outruns-domain-doc` | a commit touching `electron/main/workspace/` without `docs/domain.md` staged | pre-commit only |
 | `seam-contract-outruns-its-adr` | a commit touching `shared/contract.ts` without an ADR staged | pre-commit only |
 
-The session lane (a Claude Code `PostToolUse` hook) ignores a guard's path
-scope, so two guards are held in *observe* there until jig honours it
-(ROADMAP entries 017, 021); the path-scoped guards also misfire on
-workspace-internal helpers in that lane — read the pre-commit result, not the
-session one. The two paired-change guards read the git index, so they run
-at pre-commit (`core.hooksPath=.jig/hooks`, per clone) and report themselves
-skipped in CI. Each check carries a violation/near-miss fixture pair inline
-and proves itself with `node .jig/checks/run.mjs --selftest`. The driver is
-standard-library node, so it runs with nothing installed. `/jig:review` shows
-what they have caught.
+In a Claude Code session the four edit guards are armed in jig's
+`PreToolUse` lane (`.jig/config.json`) and refuse an edit before it lands.
+That lane runs only where the jig plugin is installed and enabled, through
+the plugin's own hook registration. The repository's `.claude/settings.json`
+still registers `.jig/hooks/session-guards.cjs` on `PostToolUse`; jig runs
+only the guards whose runner matches the event, so that shim evaluates none
+of them (entry 125 decides whether to move or remove it). The session
+evaluator honours each guard's `paths` but not `perLine`, so a pattern can
+match across the lines of one edit (also entry 125); `.jig/checks/run.mjs`,
+used at pre-commit and in CI, honours both. The two paired-change guards read
+the git index, so they run at pre-commit (`core.hooksPath=.jig/hooks`, per
+clone; the tracked hook is not yet executable for Unix Git, entry 126) and
+report themselves skipped in CI. Each check carries a violation/near-miss
+fixture pair inline and proves itself with `node .jig/checks/run.mjs
+--selftest`. The driver is standard-library node, so it runs with nothing
+installed. `/jig:review` shows what they have caught.

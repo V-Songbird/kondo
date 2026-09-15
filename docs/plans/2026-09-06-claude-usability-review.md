@@ -1,6 +1,9 @@
 # Plan: trustworthy inventory and easier Claude Code management
 
-Status: **in progress — implementation verified, awaiting owner review**
+Status: **done — shipped in `0db352f`, accepted 2026-09-06**. Later work
+superseded parts of it: Library became the first screen (ADR-0012), the P1
+findings below became tasks 074, 097, 098, 099 and 100, all shipped, and the
+P2 findings remain open as 103, 104 and 106.
 
 Review Kondo against its current roadmap and Claude Code conventions, keeping
 the Flat File visual system. Make missing information visible and give people

@@ -1,6 +1,8 @@
 # Plan: a complete, approachable management workflow
 
-Status: **in progress** — implementation complete and fixture-verified; awaiting owner review.
+Status: **shipped in `36d3de9`** — fixture-verified on Windows; no owner acceptance is recorded.
+Its navigation decision is [ADR-0012](../adr/0012-organize-navigation-around-user-tasks.md); the Flat File
+look it kept was later replaced by [Signal themes](2026-09-06-signal-themes.md).
 
 Keep the existing Flat File visual identity while making discovery, project
 management, cleanup and recovery understandable without knowing Claude Code's

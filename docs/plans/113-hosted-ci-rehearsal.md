@@ -1,6 +1,6 @@
 # Plan: hosted CI and release rehearsal
 
-Status: **in progress**
+Status: **done — hosted CI and release rehearsal passed on `ea99297` (2026-09-07)**
 
 Validate the pushed candidate with GitHub Actions on Windows, macOS and Linux,
 including a manual release rehearsal that builds installers without publishing.
@@ -51,3 +51,12 @@ the adapter flatten every non-alphanumeric character. Random macOS temp roots
 can contain underscores. Correct the fixture rule and include punctuation and
 a space in every smoke root, making the existing project-union and cleanup
 assertions a deterministic regression on all platforms.
+
+## Result
+
+CI run 34170847335 passed `verify` and `smoke` on Windows, macOS and Linux for
+`ea9929710f16fbeedf769c7c2888ae72ded3ed23`. Release rehearsal 34170848986
+passed all three package jobs: the installed NSIS app, the macOS app bundle and
+the AppImage were smoked before upload, three installers were uploaded and
+publish was skipped. This evidence covers that commit only; later commits need
+their own hosted runs.

@@ -20,6 +20,7 @@ and its home is not obvious from the table below, fix the table in the same PR.
 | [.github/ISSUE_TEMPLATE/](../.github/ISSUE_TEMPLATE/) | Safe bug and feature intake, security routing | Reporter information needs change |
 | [AGENTS.md](../AGENTS.md) | Operating manual for AI agents and humans working here | Working rules change |
 | [CLAUDE.md](../CLAUDE.md) | Claude Code entry point; defers to AGENTS.md | Rarely |
+| [.claude/skills/run-kondo/SKILL.md](../.claude/skills/run-kondo/SKILL.md) | Launching and driving the built app against a synthetic fixture | Navigation, controls or the fixture change |
 | [DESIGN.md](../DESIGN.md) | The visual system: palette, type, shapes, cards, controls and rules | The look changes; a new control, state or colour is designed |
 | [docs/domain.md](domain.md) | Facts about Claude's on-disk world (stores, files, formats) | You observe a new store fact or Claude changes one |
 | [docs/foundations.md](foundations.md) | Architecture: processes, seams, modules, data flow | Structure changes |

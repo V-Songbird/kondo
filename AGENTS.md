@@ -6,7 +6,7 @@
 - Before requesting approval, finish the preparation that is already authorized and present a concrete, reviewable result.
 - Respect required approval gates. Ask before destructive, irreversible, or otherwise unauthorized actions.
 - Avoid boilerplate warnings about hypothetical risks. Explain concrete blockers or material risks when relevant.
-- 
+
 ### Instruction Conflicts
 
 - Explicit user instructions take precedence over conflicting skill guidelines, subject to higher-priority instructions and actual permission boundaries.
@@ -44,16 +44,27 @@ each rule links to the document that carries the detail.
 - **The renderer never touches disk.** All I/O lives in `electron/main`
   behind the typed bridge. Adding `fs` anywhere under `src/` is a bug.
 - **Respect the privacy boundary.** No code path opens project files outside
-  `.claude` directories (ADR-0002). No network calls anywhere (SECURITY.md).
+  `.claude` directories, except the named `<project>/.mcp.json` (ADR-0002).
+  No network calls anywhere (SECURITY.md).
+- **Settings writes stay refused.** Every plan with a `write` or `splice`
+  step, and every historical Undo containing one, refuses before effects on
+  every platform (098, ADR-0010). Do not add a bypass; re-enabling needs
+  native concurrency and recovery evidence.
 - **Docs move with code.** Learned a store fact → update domain.md (with a
   ✅/◇ marker). Made a lasting decision → add an ADR. Planned a feature →
-  plan file first. A PR that leaves a doc wrong is incomplete.
+  plan file first. A PR that leaves a doc wrong is incomplete. The commit
+  hook enforces two pairings: a `shared/contract.ts` change needs a
+  `docs/adr/` edit, and an `electron/main/workspace/` change needs a
+  `docs/domain.md` edit ([docs/testing.md](docs/testing.md#the-guards)).
 - **Adapters degrade, never die.** Unknown files, malformed JSON, unreadable
   entries produce itemized errors alongside partial data (ADR-0005).
 
 ## Workflow
 
-- `npm run dev` to run, `npm test` / `npm run typecheck` / `npm run lint`
-  before calling anything done. All three must pass.
+- `npm run dev` to run; `npm run guards`, `npm test`, `npm run typecheck` and
+  `npm run lint` before calling anything done. All four must pass.
+- Check UI changes in the built app against a synthetic fixture with
+  `.claude/skills/run-kondo/`, and read [DESIGN.md](DESIGN.md) before changing
+  the look.
 - TypeScript is strict everywhere. No `any` at the seam.
 - Conventions, review bar, and PR checklist: [CONTRIBUTING.md](CONTRIBUTING.md).

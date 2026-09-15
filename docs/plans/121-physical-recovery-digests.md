@@ -1,6 +1,6 @@
 # Plan: framed physical recovery digests
 
-Status: **done**
+Status: **done — accepted 2026-09-10**
 
 Physical relocation previously hashed JSON entry metadata immediately followed
 by arbitrary file bytes. Different trees can therefore share one encoded byte

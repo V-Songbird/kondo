@@ -13,52 +13,39 @@ between the two is the part a later reader needs.
 
 ## Index
 
-- [121 — Framed physical recovery digests](121-physical-recovery-digests.md) — **done**
-
+- [128 — Documentation and Foreman reconciliation](128-documentation-reconciliation.md) — **awaiting acceptance**
+- [121 — Framed physical recovery digests](121-physical-recovery-digests.md) — **done — accepted 2026-09-10**
 - [111 — Public Git history decision](111-public-history-decision.md) — **package accepted 2026-09-09; publication choices separate**
-
 - [118 — Framed logical tree digests](118-framed-tree-digests.md) — **done — accepted 2026-09-09**
-
 - [101 — Conservative hook script cleanup](101-conservative-hook-cleanup.md) — **done — accepted 2026-09-09**
-
-- [112 — Private security reporting and maintenance](112-security-reporting-maintenance.md) — **accepted 2026-09-08; local integration by coordinating session**
-
+- [112 — Private security reporting and maintenance](112-security-reporting-maintenance.md) — **done — accepted 2026-09-08; integrated into main**
 - [100 — Conservative configuration inventory](100-conservative-config-inventory.md) — **done — accepted 2026-09-08**
-
 - [099 — Undo recovery](099-undo-recovery.md) — **done — accepted 2026-09-08**
-
 - [098 — Concurrent settings writes](098-concurrent-settings-writes.md) — **done**
-
 - [109 — Hook layer boundary and accurate claims](109-hook-layer-boundary.md) — **accepted decision**
-
 - [108 — Desktop session boundary and removal scope](108-desktop-session-boundary.md) — **accepted decision**
-
-- [102 — Reviewed cleanup](102-reviewed-cleanup.md) — **awaiting acceptance**
-
+- [102 — Reviewed cleanup](102-reviewed-cleanup.md) — **done — accepted 2026-09-07**
 - [097 — Resolved store boundaries](097-resolved-store-boundaries.md) — **done**
-
-- [113 — Hosted CI and release rehearsal](113-hosted-ci-rehearsal.md) — **in progress**
-
+- [113 — Hosted CI and release rehearsal](113-hosted-ci-rehearsal.md) — **done — hosted runs passed on `ea99297`**
 - [096 — Public repository surface](096-public-repository-surface.md) — **done**
-
 - [094 — Session projection and protected-file boundary](094-session-path-privacy.md) — **done**
 - [091 — Store config and temporary roots](091-store-root-resolution.md) — **done**
 - [088 — Render failure recovery](088-render-error-boundary.md) — **done**
 - [085 — Renderer evidence in the CDP smoke](085-cdp-smoke-events.md) — **done**
 - [084 — Single-instance startup and window security](084-single-instance-security.md) — **done**
 - [083 — Bundle third-party notices](083-bundled-third-party-notices.md) — **done**
+- [082 — Private and machine-local publication hygiene](082-private-local-publication.md) — **done**
 - [081 — Platform and installation guidance](081-platform-release-guidance.md) — **done**
 - [080 — Smoke the release artifacts](080-release-artifact-smoke.md) — **done**
-- [074 — Durable and confined splice replacement](074-safe-splice.md) — **in progress**
-- [v0.1 — the read-only core](v1-read-only-core.md) — **done**
-- [001 — the mutation journal and kondo trash](001-mutation-journal-and-trash.md) — **done**
-- [006 — the tidy sweep with a dry-run preview](006-tidy-sweep.md) — **done**
-- [007 — undo and the trash, on screen](007-undo-and-trash-ui.md) — **done**
-- [026 — the Projects home](026-projects-home.md) — **in progress**
-- [Claude Code usability and safety review](2026-09-06-claude-usability-review.md) — **in progress**
-- [Approachable UX workflow](2026-09-06-ux-workflow.md) — **in progress**
+- [074 — Durable and confined splice replacement](074-safe-splice.md) — **done — accepted 2026-09-06; settings execution later suspended by 098**
+- [Approachable UX workflow](2026-09-06-ux-workflow.md) — **shipped; acceptance not recorded**
 - [Signal themes](2026-09-06-signal-themes.md) — **done**
-- [082 — Private and machine-local publication hygiene](082-private-local-publication.md) — **done**
+- [Claude Code usability and safety review](2026-09-06-claude-usability-review.md) — **done — accepted 2026-09-06**
+- [026 — the Projects home](026-projects-home.md) — **done — accepted 2026-09-02**
+- [007 — undo and the trash, on screen](007-undo-and-trash-ui.md) — **done**
+- [006 — the tidy sweep with a dry-run preview](006-tidy-sweep.md) — **done**
+- [001 — the mutation journal and kondo trash](001-mutation-journal-and-trash.md) — **done**
+- [v0.1 — the read-only core](v1-read-only-core.md) — **done**
 
 ## Template
 

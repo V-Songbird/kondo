@@ -69,12 +69,13 @@ current list; the saved ID is available in Conversation details.
   why this and *unlocated project* are separate states and not one flag. The
   tidy sweep offers its `projects/<key>` directory whole, under
   `dead-projects`.
-- **Scratch project** — a project directory that was only ever throwaway:
-  its flattened name sits under the OS temp directory, or carries a
-  `.claude-worktrees` or `.claude-jobs` marker, or the directory holds no
-  transcript at all (a memory-only directory included). Offered whole under
-  the tidy sweep's `scratch-projects`. Judged from the name and the
-  inventory alone — no project tree is walked (ADR-0007).
+- **Scratch project** — a project directory that looks throwaway: its known
+  path sits under the OS temp directory, its name carries a
+  `.claude-worktrees` or `.claude-jobs` marker, or the directory holds nothing
+  and has no path Kondo can find. A name alone never makes it removable: a
+  tree holding `memory/`, recent activity or unreadable activity evidence is
+  withheld and counted separately (entries 058 and 102). Offered whole under
+  the tidy sweep's `scratch-projects` after review.
 - **Category exclusivity** — no store path is offered under two tidy
   categories. The whole-tree categories claim their `projects/<key>`
   directory first and the per-file categories skip everything inside it;
@@ -104,8 +105,9 @@ current list; the saved ID is available in Conversation details.
 - **MCP server** — a Model Context Protocol server declared for Claude: at
   user scope in `~/.claude.json`, at project scope in `<project>/.mcp.json`,
   or locally for one project in `~/.claude.json`'s `projects` map. Kondo lists
-  their declarations under Connections and exposes supported configuration
-  switches; it does not check runtime connectivity.
+  their declarations under Connections; its on/off switches are refused while
+  settings edits are suspended (098), and it does not check runtime
+  connectivity or approval.
 - **Agent / command / rule / output style** — the other things a scope can
   hold beside skills: `agents/*.md`, `commands/*.md`, `rules/*.md`,
   `output-styles/*.md` under `~/.claude` or `<project>/.claude`. Kondo lists
