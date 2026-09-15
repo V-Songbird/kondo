@@ -6,48 +6,24 @@ crosses the seam, and which tests prove it. CONTRIBUTING.md makes the plan
 the first commit of a feature, not a document written afterwards to describe
 one.
 
-Plans are living until they ship. `Status:` at the top is `in progress` or
-`done — shipped in <sha>`. A shipped plan keeps a short "what actually
-shipped" section when reality diverged from the design, because the gap
-between the two is the part a later reader needs.
+A plan lives until its work ships. Then whatever is still true moves to its
+lasting home — a decision into an [ADR](../adr/), a store fact into
+[domain.md](../domain.md), architecture into
+[foundations.md](../foundations.md), test strategy into
+[testing.md](../testing.md), a release gate into [release.md](../release.md),
+open follow-up work into [ROADMAP.md](../../ROADMAP.md) — and the plan is
+deleted; Git keeps it. A plan dropped before shipping is deleted too. While it
+lives, `Status:` at the top says `in progress`. Plans being written on other
+branches are listed in [status.md](../status.md).
 
 ## Index
 
-- [130 — Stale-cache review smoke race](130-stale-review-smoke-race.md) — **done — accepted 2026-09-15**
-- [128 — Documentation and Foreman reconciliation](128-documentation-reconciliation.md) — **done — accepted 2026-09-15**
-- [121 — Framed physical recovery digests](121-physical-recovery-digests.md) — **done — accepted 2026-09-10**
-- [117 — Settings-derived data stays in main](117-renderer-privacy.md) — **done — accepted 2026-09-15**
-- [111 — Public Git history decision](111-public-history-decision.md) — **package accepted 2026-09-09; strategy A chosen 2026-09-15**
-- [118 — Framed logical tree digests](118-framed-tree-digests.md) — **done — accepted 2026-09-09**
-- [101 — Conservative hook script cleanup](101-conservative-hook-cleanup.md) — **done — accepted 2026-09-09**
-- [112 — Private security reporting and maintenance](112-security-reporting-maintenance.md) — **done — accepted 2026-09-08; integrated into main**
-- [100 — Conservative configuration inventory](100-conservative-config-inventory.md) — **done — accepted 2026-09-08**
-- [099 — Undo recovery](099-undo-recovery.md) — **done — accepted 2026-09-08**
-- [098 — Concurrent settings writes](098-concurrent-settings-writes.md) — **done**
-- [109 — Hook layer boundary and accurate claims](109-hook-layer-boundary.md) — **accepted decision**
-- [108 — Desktop session boundary and removal scope](108-desktop-session-boundary.md) — **accepted decision**
-- [102 — Reviewed cleanup](102-reviewed-cleanup.md) — **done — accepted 2026-09-07**
-- [097 — Resolved store boundaries](097-resolved-store-boundaries.md) — **done**
-- [113 — Hosted CI and release rehearsal](113-hosted-ci-rehearsal.md) — **done — hosted runs passed on `ea99297`**
-- [096 — Public repository surface](096-public-repository-surface.md) — **done**
-- [094 — Session projection and protected-file boundary](094-session-path-privacy.md) — **done**
-- [091 — Store config and temporary roots](091-store-root-resolution.md) — **done**
-- [088 — Render failure recovery](088-render-error-boundary.md) — **done**
-- [085 — Renderer evidence in the CDP smoke](085-cdp-smoke-events.md) — **done**
-- [084 — Single-instance startup and window security](084-single-instance-security.md) — **done**
-- [083 — Bundle third-party notices](083-bundled-third-party-notices.md) — **done**
-- [082 — Private and machine-local publication hygiene](082-private-local-publication.md) — **done**
-- [081 — Platform and installation guidance](081-platform-release-guidance.md) — **done**
-- [080 — Smoke the release artifacts](080-release-artifact-smoke.md) — **done**
-- [074 — Durable and confined splice replacement](074-safe-splice.md) — **done — accepted 2026-09-06; settings execution later suspended by 098**
-- [Approachable UX workflow](2026-09-06-ux-workflow.md) — **shipped; acceptance not recorded**
-- [Signal themes](2026-09-06-signal-themes.md) — **done**
-- [Claude Code usability and safety review](2026-09-06-claude-usability-review.md) — **done — accepted 2026-09-06**
-- [026 — the Projects home](026-projects-home.md) — **done — accepted 2026-09-02**
-- [007 — undo and the trash, on screen](007-undo-and-trash-ui.md) — **done**
-- [006 — the tidy sweep with a dry-run preview](006-tidy-sweep.md) — **done**
-- [001 — the mutation journal and kondo trash](001-mutation-journal-and-trash.md) — **done**
-- [v0.1 — the read-only core](v1-read-only-core.md) — **done**
+- [111 — Public Git history decision](111-public-history-decision.md) — the
+  owner chose strategy A, a separate public repository with a new root commit;
+  the public identity and destination are open. Its
+  [baseline manifest](111-public-history-baseline.manifest) and
+  [evidence](111-public-history-evidence.json) sit beside it and are read by its
+  reproduction script.
 
 ## Template
 
@@ -87,4 +63,5 @@ valid answer and worth stating.>
 
 The Decisions table is the load-bearing part. A decision recorded with its
 reason here is a review question that never has to be re-argued; one that is
-hard to reverse or keeps coming back graduates to an [ADR](../adr/).
+hard to reverse or keeps coming back graduates to an [ADR](../adr/) before the
+plan is deleted.

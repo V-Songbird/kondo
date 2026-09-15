@@ -68,7 +68,7 @@ rows. Blob counts include direct-tree-only versions.
 All six also occur in the cached remote's ancestry. Representative commits and
 blob identifiers appear in the evidence record without copying working-record
 contents or private filenames beyond the policy's named locations. This confirms
-the limit documented by [plan 082](082-private-local-publication.md): ignoring and
+the limit documented by [ADR-0013](../adr/0013-keep-working-records-local.md): ignoring and
 untracking files protects later trees, not the ancestors transmitted with them.
 
 Removing whole `.claude/` or `.jig/` directories would also remove required shared

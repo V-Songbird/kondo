@@ -161,10 +161,10 @@ The DMG does not support Intel Macs. Windows/Linux ARM builds are not provided.
 
 Platform coverage: Windows x64 has recorded local fixture validation of the UI and installed NSIS app. macOS arm64 and Linux x64 have no recorded manual validation. Release CI requires packaged smoke checks before upload; a green run verifies the installed Windows app, Linux AppImage in extract-and-run mode, and macOS app bundle. DMG installation, Gatekeeper, and Linux FUSE mounting remain unverified.
 
-See the recorded [Windows UI validation](docs/plans/2026-09-06-ux-workflow.md#validation-2026-09-06)
-and [17 installed-app smoke checks](docs/plans/080-release-artifact-smoke.md#observed-verification).
-Configured CI gates alone do not establish a successful run; the
-[release procedure](docs/release.md) describes the required rehearsal.
+The recorded Windows evidence, from 2026-09-06, is listed in the
+[release procedure](docs/release.md#release-steps), which also describes the
+rehearsal a release needs; configured CI gates alone do not establish a
+successful run.
 
 Builds are **unsigned** for now
 ([ADR-0011](docs/adr/0011-unsigned-releases-for-now.md)). After checking the

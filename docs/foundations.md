@@ -44,7 +44,7 @@ Rules the structure enforces:
   compromised renderer — cannot name an arbitrary file.
   Session-project responses omit the internal `ProjectRecord.guessedPath`;
   main retains it for verified project-store resolution. The public
-  `SessionProject` carries location and store availability instead (094).
+  `SessionProject` carries location and store availability instead.
 - Main and splash window hardening: `contextIsolation: true`, `sandbox: true`,
   `nodeIntegration: false`, a restrictive CSP injected as a response header
   (`connect-src 'none'` when packaged — the no-network promise is enforced,
@@ -104,14 +104,13 @@ entity through the kind registry. Structure:
   another. Rows combine Claude's native conventions (ADR-0006) with Kondo's
   implementation limits. A row saying `allowed` is a precondition for a plan
   builder, not proof one exists or can currently execute. The mutation layer
-  independently refuses every settings write/splice plan under 098.
+  independently refuses every settings write/splice plan (ADR-0010).
   An unrecognized scope refuses every operation rather than throwing (ADR-0005).
   Hook rows deny enable, disable, move and trash in user/project/local layers;
   `kinds.hook.plan` returns that refusal without building mutation steps.
   The hook display projection flattens groups and carries no command text, so
   it cannot be used to reconstruct a settings edit. The read-only hook boundary
   and the conditions for reconsideration are recorded in
-  [decision 109](plans/109-hook-layer-boundary.md) and
   [ADR-0017](adr/0017-hook-layer-boundary.md). Script-file cleanup is separate.
 - **Adapters** — `user-store.ts`, `sessions.ts`, `projects.ts`,
   `desktop-store.ts`, `tidy.ts`. An adapter reports into the `Collector` its
@@ -129,17 +128,17 @@ entity through the kind registry. Structure:
   functions over scanned data. Orphan-sidecar detection lives in
   `sessions.ts`. Duplicate detection lives in `kinds.ts`: `skillDuplicates`
   digests only skills whose names repeat, and a copy it cannot read makes its
-  group not identical (032, 118); `sessionNearDuplicates` compares one
-  project's opening prompts through the scan cache (034, ADR-0007).
+  group not identical (ADR-0019); `sessionNearDuplicates` compares one
+  project's opening prompts through the scan cache (ADR-0007).
 - **`mutations.ts`** — the write path (ADR-0001): `mutate(plan)` currently
   refuses any plan containing `write` or `splice` on every platform, before
-  step preparation, journaling or filesystem effects (098, ADR-0010). This
+  step preparation, journaling or filesystem effects (ADR-0010). This
   includes missing-file creation and mixed plans. Permitted plans are
   journaled before their `move` / `copy` / `trash` steps run. `undo` likewise
   refuses historical entries containing `write` or `splice` before effects,
   preserving existing history, inverse edits and recovery bytes; other entries
   use versioned action intents, pending digests, confirmed cursors and explicit
-  completion (099, ADR-0018). Retry skips confirmed actions and reconciles only
+  completion (ADR-0018). Retry skips confirmed actions and reconciles only
   the pending action. The existing channels return explicit outcomes alongside
   errors; failed legacy Undo without progress evidence requires review.
   `emptyTrash` is the one unlink.
@@ -168,8 +167,8 @@ entity through the kind registry. Structure:
 
 Session inventory is scanned once and cached in the workspace. Every read
 first stats Claude's registry and the `projects/` directory
-(`inventoryFingerprint`: two stats, no walk) and rebuilds when either changed
-(056), when `refresh` asks, or after a mutation dropped the cache. Trash plans,
+(`inventoryFingerprint`: two stats, no walk) and rebuilds when either changed,
+when `refresh` asks, or after a mutation dropped the cache. Trash plans,
 removal reviews and their applies, and settings-leftover reads pin one forced
 rebuild to the call (`freshContext`). Overview, project lists and analysis all
 read the same inventory rather than re-walking thousands of directories per
@@ -185,8 +184,8 @@ do not resolve arbitrary settings, managed policy, command-line overrides,
 session state or settings defaults. Settings-derived data crosses the seam
 deny-by-default: documented names, validated states and Kondo's own error
 sentences, chosen in main before a DTO is built. Hook commands, matcher
-patterns, script paths, undocumented names and parser text stay in main (117,
-[ADR-0022](adr/0022-project-settings-data-deny-by-default.md)). The guarantee
+patterns, script paths, undocumented names and parser text stay in main
+([ADR-0022](adr/0022-project-settings-data-deny-by-default.md)). The guarantee
 covers these projections, not every string the app displays. Any expansion
 requires a reviewed contract, an explicit field allowlist and fixture evidence
 ([ADR-0021](adr/0021-summarize-settings-files.md)).
@@ -229,8 +228,9 @@ directory for the app (e.g. `%APPDATA%/Kondo` on Windows). That is where the
 mutation journal (`journal.jsonl`), the kondo trash (`trash/`), appearance
 preferences (`appearance.json`), and the scan
 cache (`scan-cache/<namespace>.json`, keyed by `(path, size, mtime)` per
-ADR-0007) live. Two rules: `<kondo-data>` is never inside a Claude store,
-and no Claude-truth is stored there (ADR-0006) — losing it loses undo
+ADR-0007) live. Two rules: `<kondo-data>` must never be inside a Claude store
+(the locator does not yet refuse a `KONDO_DATA_ROOT` that points inside one;
+entry 115), and no Claude-truth is stored there (ADR-0006) — losing it loses undo
 history, caches and Kondo's appearance choice, never the user's actual Claude
 configuration.
 
@@ -242,6 +242,8 @@ process reads the choice before creating the main window and updates native
 window colors after successful saves. Renderer startup applies the same shared
 palette before mounting React. Missing preferences use Chalk; invalid or
 unreadable preferences provide a usable fallback with an error shown in Themes.
+Reads join writes in a per-file queue, so a later request cannot overtake a
+pending selection.
 
 ## Renderer navigation
 
@@ -259,8 +261,11 @@ each owns its explicit selection and confirmation. History lists changes
 before the separate permanent trash operation. The responsive layout changes
 which pane is visible, with focus restoration when returning to the browser.
 
-Management views are projections of the existing typed bridge. Themes only
-uses the separate Kondo appearance preference API; visiting it retains the
-Library and Projects context. The [UX workflow plan](plans/2026-09-06-ux-workflow.md)
-and [Signal themes plan](plans/2026-09-06-signal-themes.md) record the interaction
-decisions and fixture validation.
+Management views are projections of the existing typed bridge. History rows
+show the summary main built and the entity id. Library opens project
+management through opaque project ids; it cannot link to per-project MCP
+management, because `McpServerInfo.project` is a flattened name rather than an
+id. Themes only uses the separate Kondo appearance preference API; visiting it
+retains the Library and Projects context. The navigation decision is
+[ADR-0012](adr/0012-organize-navigation-around-user-tasks.md) and the look is
+[DESIGN.md](../DESIGN.md).

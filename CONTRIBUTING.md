@@ -78,7 +78,9 @@ and need a migration note in the PR.
 
 - Branch from `main`; small PRs; imperative-mood commit subjects.
 - A feature starts with a plan in `docs/plans/` — scope, non-goals, seam
-  changes, test plan. Land the plan, then the code.
+  changes, test plan. Land the plan, then the code. When it ships, move what
+  stays true into the lasting docs and delete the plan
+  ([docs/plans/README.md](docs/plans/README.md)).
 - A bug fix lands with the test that would have caught it.
 
 ## Merge checks and remote enforcement
