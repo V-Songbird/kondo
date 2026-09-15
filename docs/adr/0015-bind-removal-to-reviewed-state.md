@@ -1,9 +1,9 @@
 # Bind removal to the state the user reviewed
 
 A category name or entity id does not say which bytes the user reviewed.
-Audit A5/A9/A11 demonstrated newly discovered caches entering an approved sweep,
-a resumed transcript retaining a cached stale classification, and an edited
-skill being removed after an earlier identical-copy verdict.
+Without a binding, newly discovered caches entered an approved sweep, a
+resumed transcript kept a cached stale classification, and an edited skill
+was removed on the strength of an earlier identical-copy verdict.
 
 ## Decision
 
@@ -28,10 +28,11 @@ is disposable and never writes Claude truth into a persistent approval store.
 
 ## Journal and Undo
 
-One workspace serializes mutation, Undo and empty-trash execution. Otherwise
-two distinct valid tokens could both validate a duplicate group before either
-removal ran, removing every copy. The queued operation revalidates when it
-actually reaches the write path. This queue is local to the workspace.
+The serial queue inside `createMutations` serializes mutation, Undo and
+empty-trash execution. Otherwise two distinct valid tokens could both validate
+a duplicate group before either removal ran, removing every copy. The queued
+operation revalidates when it actually reaches the write path. This queue is
+local to the process.
 
 A stale review writes neither a mutation entry nor store bytes. Accepted plans
 retain ADR-0001: journal first, displace to Kondo trash, preserve Undo. An I/O
@@ -42,9 +43,9 @@ record and recovery rules; it is not labeled a preflight refusal.
 
 Removal review pays for validation of the candidate trees, including content,
 that a normal listing avoids under ADR-0007. This is explicit removal work,
-not a new startup scan. Reviews expire after 15 minutes; main retains at most 128 reviews and 8 MiB
-of serialized review data. Tokens are single use; reopening a review
-is the recovery for a token that main no longer holds.
+not a new startup scan. Reviews expire after 15 minutes; main retains at most
+128 reviews and 8 MiB of serialized review data. Tokens are single use;
+reopening a review is the recovery for a token that main no longer holds.
 
 The store has no transaction shared with Claude or another filesystem writer.
 Path validation, hashing, journal append and relocation are separate operations.

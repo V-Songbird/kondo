@@ -1,8 +1,8 @@
 # Reload through a parameterless window lifecycle signal
 
-Task 088's fixture desktop smoke showed that the error fallback renders and
-receives keyboard focus, but page-initiated `window.location.reload()` cannot
-recover while the main window unconditionally denies `will-navigate`.
+The render-failure fallback must be able to reload the app, but a
+page-initiated `window.location.reload()` cannot recover while the main window
+unconditionally denies `will-navigate`.
 
 ## Considered options
 

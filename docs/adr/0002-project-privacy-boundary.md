@@ -7,142 +7,85 @@ anything else. The boundary: **inside a project, kondo opens only the
 and other Claude-only entries). The rest of the project tree is never listed,
 opened, or statted.
 
-One deliberate refinement: verifying that a flattened
-`~/.claude/projects/<name>` still corresponds to a real working directory
-requires an existence check on the reconstructed path. That is a `stat` of
-the project root and its `.claude` child only — never a directory listing,
-never file reads.
+Outside a `.claude` directory kondo touches exactly three things, and
+`test/boundary.test.ts` asserts them as a literal:
 
-## Amendment (entry 023): `<project>/.mcp.json`
+- the project root and its `.claude` child, **stat only**, to verify that a
+  flattened `~/.claude/projects/<name>` still corresponds to a real working
+  directory;
+- `~/.claude.json`, Claude's registry
+  ([ADR-0009](0009-projects-come-from-claudes-registry.md));
+- `<project>/.mcp.json`, read by exact name. Project-scope MCP servers are
+  declared there and nowhere else; leaving it out would show a user two of
+  their three MCP scopes and silently drop the one their team committed. The
+  values under its `env` and `headers` hold API keys and bearer tokens and
+  never leave the main process.
 
-**`<project>/.mcp.json` is the one Claude-owned file kondo may open outside a
-`.claude` directory.** Nothing else at a project root is readable — not
-`CLAUDE.md`, not `CLAUDE.local.md`, not `package.json`, not `.gitignore`.
-
-Why this one file and no other: project-scope MCP servers are declared there
-and nowhere else. Claude Code fixed that name and that location, so the file
-is Claude's own data that merely happens to sit one directory above the
-boundary; the alternative — leaving project-scope servers invisible — would
-mean kondo shows a user two of their three MCP scopes and silently drops the
-one their team committed. The read is by exact name, so no listing of the
-project root is needed to find it, and the values under `env` and `headers`
-are never carried out of it: they hold API keys and bearer tokens.
-
-The exception buys exactly one file. Any second file outside `.claude`
-requires its own amendment here, and `test/boundary.test.ts` pins the list so
-a widening fails a test rather than passing review.
+Nothing else at a project root is readable — not `CLAUDE.md`,
+`CLAUDE.local.md`, `package.json` or `.gitignore`. A second file outside
+`.claude` needs its own change to this decision.
 
 ## Considered options
 
 - **Read project files to enrich insights** (e.g. detect language, size the
   repo). Rejected: any project-content read makes "Claude-only" a lie and
   turns kondo into a scanner users must audit.
-- **Hard boundary with the stat-only exception (chosen).**
 - **Read `.mcp.json` through the `.claude` boundary only.** Rejected: it is
   not there. Claude reads project-scope MCP servers from the project root, so
   refusing the path would mean inventing a location Claude does not use
   (ADR-0006).
+- **Hard boundary with the stat-only and named-file exceptions (chosen).**
 
 ## Consequences
 
 - Enforced in code: the store locator exposes no API that yields a
   non-`.claude` project path, and a safety-invariant test fails if any code
   path escapes (docs/testing.md).
-- The allowed set outside a `.claude` directory is exactly three things and
-  `test/boundary.test.ts` asserts it as a literal: the project root itself
-  (stat only), `~/.claude.json` (ADR-0009), and `<project>/.mcp.json`.
 - Some insights stay impossible on purpose; ROADMAP lists this under
   non-goals so it is not re-litigated feature by feature.
 
-## Amendment, 2026-09-03 — a hook's script is checked, or reported unchecked
-
-Entry 036 added `HookInfo.script`: the script a hook command runs, and
-whether it is on disk. That is a stat against a path kondo did not choose —
-the command did — so the boundary decides it *before* any filesystem call,
-never after.
-
-`resolveScript` in `user-store.ts` returns a path only when it lands inside
-`locator.userRoot` or inside a verified project's `.claude`. Everything else
-answers null and the row reads `unverifiable`:
-
-- a token holding `$` or `%` — `$CLAUDE_PROJECT_DIR`, `$CLAUDE_PLUGIN_ROOT`,
-  `%USERPROFILE%`. Kondo expands no shell variable, because expanding one is
-  guessing at a path it was not given;
-- a relative path in the **user** layer, whose hooks run in whatever directory
-  Claude was started in. A **project** layer's relative path does resolve —
-  against that project, which is where Claude runs its hooks;
-- anything resolving outside both roots, however ordinary it looks.
-
-The allowed set outside a `.claude` directory is unchanged: this amendment
-buys no fourth path. It records that a *reported* path and a *statted* path
-are different things, and that `unverifiable` is the honest answer rather
-than a reach. `test/hooks.test.ts` spies on `fs.stat` and asserts neither
-unverifiable row was ever probed.
-
-## Amendment (097): resolved boundaries and recursive operations
+## Resolved boundaries
 
 A lexical child path does not establish permission to open its bytes. Each
 scanner passes its owning user, desktop or verified project `.claude` root to
-the shared boundary helper. The helper checks lexical containment, resolves the
-root and target, and checks containment again before listing, statting or
-opening the target. An in-store alias is supported; an alias into another
-allowed store is still an escape from this operation's root. The configured
-root itself may be an alias and remains the locator's explicit authority.
+the shared boundary helper, which checks containment lexically and again after
+resolving the root and target, before listing, statting or opening. An
+in-store alias is supported; an alias into another allowed store is still an
+escape from this operation's root. The configured root itself may be an alias
+and remains the locator's authority. The two exact-file exceptions grant only
+their filename beneath its resolved parent, so neither can redirect a read to
+a sibling. Chromium Singleton markers are examined with `lstat` without
+following their link targets.
 
-The two exact-file exceptions grant only the original filename beneath its
-resolved parent. Neither exception can redirect a read to a sibling file.
-Project existence checks remain metadata-only; Chromium Singleton markers are
-examined with `lstat` without following their conventional link targets.
+Missing optional entries are ordinary absence; dangling links and cycles are
+failures that return itemized errors beside healthy siblings. Recursive hashes
+and copies need a complete tree and check every member, and transcript
+streams, lock handles and cache hits revalidate their path before use. Trash
+preserves link metadata so Undo can restore the original entries, but
+inventory and verification never follow an archived link, and Undo validates
+the future tree before journaling. Live-store copies materialize safe linked
+contents rather than creating cross-store aliases. These are pathname checks,
+not a kernel sandbox: they do not eliminate every TOCTOU race against another
+process replacing directories.
 
-Missing optional entries remain ordinary absence. Dangling links and cycles
-are failures, including a broken ancestor of a missing destination. Scanner
-walks skip the failed entry and return itemized errors with healthy siblings.
-Recursive hashes and copies need a complete tree, so they fail on any unsafe
-member. Every copy source and destination is checked per entry; a single
-top-level check cannot authorize hidden recursive I/O. Transcript streams,
-lock handles and cache hits also revalidate their path before use.
+## Hook script paths
 
-Trash preserves link metadata so undo can restore the original directory
-entries. That metadata is not a read exception: physical inventory and
-cross-volume verification hash stored regular files and link text without
-following archived links. Undo validates the future tree and every restore
-endpoint before writing its journal entry or displacing an existing occupant.
-Live-store copies materialize safe linked contents rather than introducing
-cross-store aliases at the destination.
+A hook command names a script kondo did not choose, so the boundary decides
+before any filesystem call. `resolveScript` in `user-store.ts` returns a path
+only inside `locator.userRoot` or a verified project's `.claude`; everything
+else is `unverifiable` and is never statted:
 
-The tests use only synthetic roots and sentinels. They intercept promise reads,
-streams and file-handle entry points and resolve observed paths, in addition
-to the lexical allowlist. This is evidence for the mechanisms tested on the
-host, not a kernel-enforced sandbox. Node pathname resolution and subsequent
-I/O are separate operations: these checks do not eliminate every TOCTOU race
-against another process replacing directories concurrently.
+- a token holding `$` or `%` — kondo expands no variable, because expanding
+  one is guessing at a path it was not given;
+- a relative path in the **user** layer, whose hooks run wherever Claude was
+  started (a **project** layer's relative path resolves against that
+  project);
+- anything resolving outside both roots.
 
-## Amendment (101): unchecked hook sources cannot prove disuse
-
-The recognized script tokens from user and verified project/local settings are
-not a complete execution inventory. Variables, quoted or compound commands,
-multiple scripts, sources outside those layers and dependencies invoked by a
-script can all hide references. Kondo must not subtract recognized references
-from `hooks/` to decide which files nothing runs.
-
-Cleanup therefore retains every hook script. The existing category reports zero
-candidates and a blocked reason; selecting it directly or in a mixed request is
-refused before effects. Missing, malformed or unreadable settings do not loosen
-this rule. Other permitted categories retain their reviewed cleanup and Undo.
-
-This buys no new read exception and does not expand the diagnostic recognizer:
-Kondo neither executes commands nor reads scripts to discover dependencies.
-Empty settings cannot remove the source-coverage limit. The fixture regression
-uses the literal `$HOME/.claude/hooks/live.js` command as data, with no shell or
-environment expansion. Hook declarations and the settings-write suspension are
-unchanged.
-
-## Amendment (117): the script path stays in main
-
-The 2026-09-03 amendment reported a script as its resolved path or as the
-command's token. Both are fragments of the command, so a hook row now carries
-only `present`, `missing` or `unverifiable`, and a failed stat names the
-settings file with a fixed sentence
-([ADR-0022](0022-project-settings-data-deny-by-default.md)). The resolution
-rules, the refusal to probe outside the boundary and the allowed read and stat
-set are unchanged.
+A hook row carries only `present`, `missing` or `unverifiable`
+([ADR-0022](0022-project-settings-data-deny-by-default.md));
+`test/hooks.test.ts` asserts unverifiable rows are never probed. Recognized
+script references are not a complete execution inventory — variables,
+compound commands, other sources and scripts calling scripts can hide one —
+so cleanup retains every hook script: `unarmed-hook-scripts` offers nothing and
+refuses selection.

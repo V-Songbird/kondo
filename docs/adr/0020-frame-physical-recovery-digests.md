@@ -59,5 +59,4 @@ Every current physical digest changes, and interrupted legacy move or Undo
 evidence requires manual review. Completed legacy work remains readable and
 undoable. EXDEV copy verification uses the framed digest on both endpoints.
 The checks do not make path resolution atomic with external writers, serialize
-other processes, or establish filesystem ordering after power loss. Settings
-`write`/`splice` execution remains refused under 098.
+other processes, or establish filesystem ordering after power loss.

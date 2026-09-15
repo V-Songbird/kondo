@@ -1,16 +1,10 @@
 # Unsigned releases, for now
 
-Status: accepted, 2026-09-05 (entry 066). Revisit when the first condition
-under "What changes this" holds.
-
 ## Context
 
-docs/release.md left the signing choice open until releases began: buy
-certificates (an Apple Developer ID plus notarization, a Windows OV or EV
-certificate), ship unsigned with honest install docs, or sign one platform and
-not the other. Releases begin with this entry, and the first two options need
-what no build pipeline can supply — the owner's money, an Apple developer
-account, and secrets in the repository's settings.
+Signing needs what no build pipeline can supply — the owner's money, an Apple
+developer account, and secrets in the repository's settings: an Apple
+Developer ID plus notarization, and a Windows OV or EV certificate.
 
 Unsigned builds cost the user a warning: Windows SmartScreen interrupts the
 installer, and macOS Gatekeeper can block an unidentified developer's app.
@@ -28,23 +22,22 @@ The current per-app opening instructions and verification limits live in
   and how to proceed.
 - A release is a **draft** until a person publishes it. The workflow builds
   and attaches; publishing is a click, after the checklist in docs/release.md.
-- The smoke test gates upload of every platform artifact. As updated by
-  [task 080](../plans/080-release-artifact-smoke.md), it drives the installed
-  Windows executable, Linux AppImage in extract-and-run mode, and macOS app
-  bundle. It does not verify DMG installation, Gatekeeper or Linux FUSE
-  mounting. Configured gates are distinct from recorded successful runs;
-  [release.md](../release.md) describes the evidence required before publishing.
+- The smoke test gates upload of every platform artifact: it drives the
+  installed Windows executable, the Linux AppImage in extract-and-run mode, and
+  the macOS app bundle. It does not verify DMG installation, Gatekeeper or
+  Linux FUSE mounting. Configured gates are distinct from recorded successful
+  runs; [release.md](../release.md) describes the evidence required before
+  publishing.
 
 ## Considered options
 
-- **Buy certificates now.** Rejected for this entry: not a decision code can
-  make, and an OV certificate's price is the owner's to weigh against a
-  pre-1.0 audience of developers who already run unsigned tooling.
+- **Buy certificates now.** Rejected: not a decision code can make, and a
+  certificate's price is the owner's to weigh against a pre-1.0 audience of
+  developers who already run unsigned tooling.
 - **Sign macOS only.** Rejected: half the users still meet a warning, and the
   notarization step needs the same account either way.
-- **No packaged release; clone and `npm run dev`.** Rejected: it is what the
-  README said for five minor versions, and the audit that produced entries
-  058–066 found the app ready to be run by someone who did not build it.
+- **No packaged release; clone and `npm run dev`.** Rejected: the app is ready
+  to be run by someone who did not build it.
 
 ## What changes this
 
@@ -53,8 +46,8 @@ repository's secrets; a report that an unsigned build was blocked outright
 (not warned) on a supported OS; or a first release whose downloads show the
 warning is costing users. Then: sign and notarize in the workflow (`CSC_LINK`,
 `CSC_KEY_PASSWORD`, `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID`
-are electron-builder's own names), drop the README warnings, and mark this
-ADR superseded.
+are electron-builder's own names), drop the README warnings, and replace this
+decision.
 
 ## Consequences
 

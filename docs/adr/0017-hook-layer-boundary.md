@@ -1,57 +1,68 @@
 # Keep hook declarations read-only until semantics are proven
 
-Status: **accepted by the owner — decision 109**
+Kondo keeps hook declarations read-only: inventory and limited script
+diagnostics, but no layer move, individual enable/disable or declaration
+removal. The capability matrix refuses all four operations in user, project
+and local layers and in unknown scopes, and `kinds.hook.plan` returns that
+refusal without building steps.
 
-Keep hook declarations read-only in Kondo. Inventory and limited script
-diagnostics have shipped; layer moves, individual enable/disable and declaration
-removal have not. Correct the public shipped claims to match the refusing
-capability matrix and planner. This supersedes only ADR-0006's 2026-09-03 hook
-amendment, whose two-splice proposal does not establish semantic preservation
-or all-or-nothing recovery.
+`HookInfo` is a display projection. It flattens groups and carries only a
+documented event, handler type, matcher presence and script status — no command
+text, matcher patterns or script paths
+([ADR-0022](0022-project-settings-data-deny-by-default.md)) — so it cannot
+reconstruct a declaration or authorize a write. The script recognizer neither
+parses shell semantics nor executes or reads a script. A stable path cannot
+establish unchanged working directory, environment, event inputs, layer
+interaction or applicability, so copying the same bytes into another layer
+cannot certify an equivalent hook:
 
-`HookInfo` is a display projection: it flattens groups and truncates commands.
-The script recognizer neither parses shell semantics nor executes or reads a
-script. A stable path cannot establish unchanged working directory, environment,
-event inputs, layer interaction or applicability. Copying the same bytes into
-another layer therefore cannot certify an equivalent hook. The
-[decision package](../plans/109-hook-layer-boundary.md) records the source
-evidence, cases and conditions for reconsideration.
+| Case | Why a byte-preserving move is insufficient |
+|---|---|
+| Scope variables (`$CLAUDE_PROJECT_DIR`, `$CLAUDE_PLUGIN_ROOT`, `$HOME`, `%USERPROFILE%`) | Kondo does not resolve them, so their referent cannot be certified across contexts. |
+| Relative, quoted or compound commands | The recognizer is not a shell parser; a project-relative reference can point at another file after a cross-project move. |
+| Absolute paths and inline commands | A stable path does not fix working directory, inputs, environment or applicable projects. |
+| Groups, matchers, multiple hooks | The listing loses group boundaries and fields; regrouping or reordering can change behaviour. |
+| Project ↔ local, user ↔ project | Sharing a directory does not prove identical applicability; a scope change alters which contexts run the hook. |
+| Two-file apply and Undo | One journal entry does not prove atomic application or recovery through external edits and partial failure. |
 
 ## Considered options
 
-- **Retain read-only declarations and correct claims (chosen).** Matches the
-  shipped behavior and preserves unknown configuration without asserting
-  equivalence the current inventory cannot prove.
+- **Retain read-only declarations (chosen).** Matches the implemented
+  behaviour and preserves unknown configuration without asserting equivalence
+  the inventory cannot prove.
 - **Commission a bounded move now.** Potentially useful, including between
   project and local settings, but there is no fixture-proven semantic subset
-  or recovery contract to release. A separate owner-approved plan must first
-  establish these; this decision does not commission it.
+  or recovery contract to release.
 - **Treat any group transfer as two reversible edits.** Rejected: preserving
   bytes and having a journal do not preserve referents, applicable contexts,
-  group behavior or recovery under partial failure.
+  group behaviour or recovery under partial failure.
 - **Invent a hook disable state or rewrite paths to make moves work.** Rejected:
-  no verified native per-hook switch is implemented, and ambiguous rewrites
-  violate the native-convention and privacy boundaries.
+  no verified native per-hook switch exists, and ambiguous rewrites violate the
+  native-convention and privacy boundaries.
 
 ## Consequences
 
-All hook declaration operations remain refused in user, project and local
-layers; unknown forms remain read-only. Any future proposal must disclose its
-exact scope and refuse changed or ambiguous referents instead of rewriting
-semantics. All store I/O stays in main behind the typed bridge, inside approved
-roots. The renderer cannot supply paths or reconstructed hook groups.
+All store I/O stays in main behind the typed bridge, inside approved roots;
+the renderer cannot supply paths or reconstructed hook groups. Hook-script
+cleanup is a separate capability and retains every script (ADR-0002).
 
-The existing user-store script cleanup remains a separate capability with its
-own safety work (101); this is not approval of its current inference. Likewise,
-concurrent writes and partial Undo remain separate work (098/099). The phrase
-“not built yet” in the current move refusal reports absence of an implementation,
-not a delivery commitment. Product-copy follow-up 110 should use the inventory
-and support limits documented here. No code changes or release acceptance are
-part of this decision.
+## Reconsidering hook moves
 
-## Amendment (117)
+A future owner-approved proposal needs a bounded plan and fixture proof before
+any capability changes:
 
-`HookInfo` no longer carries command text, matcher patterns or script paths:
-only a documented event, handler type, matcher presence and script status
-([ADR-0022](0022-project-settings-data-deny-by-default.md)). It still flattens
-groups, so it still cannot reconstruct a declaration or authorize a write.
+- Define the unit (whole group or selected member), exact source and
+  destination, applicability change and affected siblings; preserve unknown
+  bytes and refuse unknown semantics, collisions and ambiguous transformations.
+- Prove unchanged referents and behaviour within the disclosed destination
+  scope, abstaining where the privacy boundary prevents that proof, without
+  reading project code or running hooks.
+- Keep I/O and fresh group resolution in main and pass opaque ids and reviewed
+  intent; positional scan ids and display text cannot authorize a write.
+- Require fresh preflight, byte-preserving edits, explicit absent-layer
+  creation review, and recovery evidence for both edits, a failed second step,
+  concurrent writers, occupied restores and partial or refused Undo — which
+  also depends on settings writes being re-enabled (ADR-0010).
+- Cover each variable and path case, same- and cross-project scope, multi-hook
+  groups, matchers, unknown types and fields, malformed layers, collisions,
+  stale reviews and recovery failures with synthetic fixtures.

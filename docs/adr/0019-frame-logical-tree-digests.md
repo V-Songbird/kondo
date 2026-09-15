@@ -33,8 +33,7 @@ does not recompute the old digest, append progress or move bytes in this case.
 Confirmed historical cursors and completed operations retain their existing
 meaning and remain undoable; the journal is never rewritten. Physical move
 fingerprints are separately framed and versioned by
-[ADR-0020](0020-frame-physical-recovery-digests.md). Settings `write`/`splice`
-refusal (098) is unchanged. An older application rejects unknown pending strings
+[ADR-0020](0020-frame-physical-recovery-digests.md). An older application rejects unknown pending strings
 as invalid progress and blocks recovery, rather than accepting an unsupported
 format.
 
