@@ -27,8 +27,8 @@ spelling here.
 
 | Store | Location | Owner |
 |---|---|---|
-| User store | `~/.claude` ✅ | Claude Code CLI |
-| User registry | `~/.claude.json` ✅ — one file beside the user store, see below | Claude Code CLI |
+| User store | `~/.claude` ✅, or the directory a Claude profile names ✅ — see below | Claude Code CLI |
+| User registry | `~/.claude.json` ✅ beside the default user store, `<profile>/.claude.json` ✅ inside a selected profile — see below | Claude Code CLI |
 | Project store | `<project>/.claude` ✅ | Claude Code CLI, per project |
 | Desktop store | Windows: `%APPDATA%\Claude` ✅ · macOS: `~/Library/Application Support/Claude` ◇ · Linux: `$XDG_CONFIG_HOME/Claude`, falling back to `~/.config/Claude` ◇ | Claude desktop app (Electron `userData`) |
 
@@ -40,12 +40,62 @@ resolution, not a live Claude installation. `KONDO_DESKTOP_STORE_ROOT` takes
 precedence. Kondo's own app data still comes from Electron's `userData` or
 `KONDO_DATA_ROOT`; this lookup does not move either application's data.
 
+### Claude profiles
+
+✅ Read on 2026-09-15 off the Claude Code 2.1.271 binary and the
+[environment variables](https://code.claude.com/docs/en/env-vars) and
+[settings](https://code.claude.com/docs/en/settings) pages:
+
+- `CLAUDE_CONFIG_DIR` replaces `~/.claude` as Claude Code's configuration home,
+  NFC-normalized. Everything the user store holds is a child of that directory
+  and moves with it — settings, `projects/`, `plugins/`, `skills/`,
+  `output-styles/`, `ide/`, `teams/` and `.credentials.json` among them.
+- The registry moves **into** it: Claude Code reads `.claude.json` in
+  `CLAUDE_CONFIG_DIR` when the variable is set, and `~/.claude.json` when it is
+  not. A process started with the variable pointing at `~/.claude` therefore
+  reads the in-store `~/.claude/.claude.json` listed below, not `~/.claude.json`.
+- A legacy `.config.json` in the configuration home replaces the registry
+  wherever that file exists ✅.
+- Nothing else moves: project stores, `<project>/.mcp.json`, managed settings
+  and the Claude desktop app's store keep their locations. Claude Code also
+  keeps looking for IDE lock files in `~/.claude/ide`.
+- The variable can be set in the shell, in user settings or in managed
+  settings ✅; project and local settings cannot set it.
+
+Which directory Kondo reads is fixed at launch, before the single-instance
+lock, in this order:
+
+| Rank | Selection | User store | Registry |
+|---|---|---|---|
+| 1 | `KONDO_STORE_ROOT` (fixture runs and tests) | that directory | `.claude.json` beside it |
+| 2 | `--claude-config-dir=<absolute path>` on Kondo's own command line | that directory | `.claude.json` inside it |
+| 3 | An inherited absolute `CLAUDE_CONFIG_DIR` | that directory | `.claude.json` inside it |
+| 4 | Neither | `~/.claude` | `~/.claude.json` |
+
+An inherited variable never displaces a fixture root, so a developer's shell
+cannot point a fixture run or a test at a real profile. An empty value is no
+selection, and a relative one is not followed because it would resolve against
+a working directory a desktop launch does not share with the shell. Kondo names
+the profile it reads and every selection it did not follow, and accepts no
+directory from the renderer (ADR-0008). It writes to no profile and copies
+nothing between profiles.
+
+Kondo's own data root follows the profile: `KONDO_DATA_ROOT` stands as given,
+Claude's default store set keeps Electron's `userData`, and any other store set
+gets `<userData>/profiles/<key>`, keyed by the user, registry and desktop roots.
+A data root records the set it serves in `stores.json` and refuses a launch that
+brings another one, because a journal step names a store rather than a root
+(ADR-0001, ADR-0004). Windows is the verified platform: the rules above are the
+binary's, which is the same on every OS, while Kondo's own profile launches have
+been exercised on Windows only ◇.
+
 The privacy boundary (ADR-0002): inside a project, kondo opens **only** the
 `.claude` directory. Everything else in the project is off-limits, with one
 named exception: `<project>/.mcp.json` (project-scope MCP servers), which the
-ADR-0002 amendment grants and `test/boundary.test.ts` pins. Outside a
-`.claude` directory kondo opens exactly two files — that one and
-`~/.claude.json` — and stats exactly one path, the project root.
+ADR-0002 amendment grants and `test/boundary.test.ts` pins. Outside the user
+store and those directories kondo opens exactly two files — that one and
+Claude's registry, beside the user store or inside the selected profile — and
+stats exactly one path, the project root.
 
 ✅ **Kondo boundary behavior, verified with synthetic fixtures:** scanner
 helpers take the owning user, desktop or verified project `.claude` root. Both
@@ -119,7 +169,7 @@ usage):
 | `daemon`, `daemon.log` | Daemon socket/state and log ✅. |
 | `stats-cache.json`, `statusline-command.sh`, `CLAUDE.md` | Misc: usage stats cache, statusline script, the user's global instructions ✅. `todos/` ◇ (documented, absent here). |
 | `feedback/`, `daemon-auth-cooldown`, `daemon-auth-status.json`, `gh-pr-status-cache.json`, `.last-update-result.json`, `.last-cleanup`, `statusline-command.sh.bak`, marker files (`.caveman-active`, …) | Small support and state files ✅. Listed by name and size only. |
-| `.credentials.json`, `.claude.json`, `.mcp.json` | Inside the user store: a credentials file (**read-never**, like the desktop token files), and two small JSON files (`.mcp.json` held an empty `mcpServers`) ✅. Not to be confused with `~/.claude.json` below. |
+| `.credentials.json`, `.claude.json`, `.mcp.json` | Inside the user store: a credentials file (**read-never**, like the desktop token files), and two small JSON files (`.mcp.json` held an empty `mcpServers`) ✅. Not to be confused with `~/.claude.json` below — although a launch whose `CLAUDE_CONFIG_DIR` names this very directory reads this file as its registry ✅ (Claude profiles above). |
 
 ### Configuration absence and incomplete inventory
 
@@ -716,7 +766,10 @@ Checked against Claude Code documentation on 2026-09-06; each is open work in
 - Plugin components can use layouts beyond `<install>/skills/` ✅, which is
   still the only layout Kondo's plugin-skills reader inventories.
   [Plugin skills](https://code.claude.com/docs/en/plugins-reference#skills).
-- `CLAUDE_CONFIG_DIR` selects a different Claude configuration directory ✅.
-  Kondo checks `KONDO_STORE_ROOT` instead and otherwise defaults to the
-  ordinary user store.
+- A `CLAUDE_CONFIG_DIR` set in user or managed settings, rather than in the
+  environment a launch inherits, still selects a profile for Claude Code ✅,
+  and a legacy `.config.json` still replaces the registry ✅ (checked
+  2026-09-15). Kondo follows only its own environment and `--claude-config-dir`
+  and reads only `.claude.json`, so in either case it shows the default store
+  while Claude Code uses another. See Claude profiles above.
   [Environment variables](https://code.claude.com/docs/en/env-vars).

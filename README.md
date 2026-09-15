@@ -216,6 +216,11 @@ with the app name **Kondo** (capital K):
 instead, including the Electron profile and single-instance lock. It does
 not move data from an earlier location. See the launch examples below.
 
+A launch that reads another Claude profile — see
+[Choosing a Claude profile](#choosing-a-claude-profile) — keeps its history in
+`profiles/<key>` inside that directory instead, so one Undo history never
+serves two profiles. Nothing is copied between them.
+
 Claude's desktop data is separate: on Linux, Kondo looks in
 `$XDG_CONFIG_HOME/Claude` when that variable is absolute, otherwise
 `~/.config/Claude` (including unset, empty or relative values).
@@ -223,7 +228,9 @@ Claude's desktop data is separate: on Linux, Kondo looks in
 
 Kondo's data directory holds `journal.jsonl` (mutation history and undo records),
 `trash/` (removed files and undo backups, potentially full transcripts or
-settings), `appearance.json`, `scan-cache/`, and Electron profile files.
+settings), `appearance.json`, `scan-cache/`, `stores.json` (which Claude
+profile this directory keeps history for), `profiles/` (the same set again, one
+directory per other profile you have opened), and Electron profile files.
 Trash has no automatic expiry. Moving files to Kondo's trash does not free
 their disk space; **History → Empty the trash → Empty it permanently** removes
 those bytes.
@@ -246,6 +253,38 @@ undo earlier changes to Claude. Check separately for any older custom data
 directories you used. Do not delete `.claude`, `.claude.json`, the Claude
 desktop store, or the parent application-data directory as part of removing
 Kondo's footprint.
+
+### Choosing a Claude profile
+
+Claude Code keeps its settings, conversations and plugins in `~/.claude` unless
+`CLAUDE_CONFIG_DIR` names another directory. Kondo reads whichever profile its
+own launch selects:
+
+| The launch carries | Kondo reads |
+|---|---|
+| `--claude-config-dir=<absolute path>` on Kondo's command line | that directory, with its `.claude.json` inside it |
+| `CLAUDE_CONFIG_DIR` in the environment Kondo inherits | that directory, with its `.claude.json` inside it |
+| Neither | `~/.claude`, with `~/.claude.json` beside it |
+
+The title strip names the profile the window is showing and what chose it, and
+says when a selection was not followed. A relative path is never followed, and
+a `CLAUDE_CONFIG_DIR` written in a Claude settings file rather than in the
+environment is not read.
+
+A launch from the Start menu, the Dock or a desktop launcher does not see a
+variable you set in a terminal, so the argument is how such a launch opens
+another profile:
+
+- **Windows** — in the shortcut's *Target*, after the quoted path to
+  `Kondo.exe`: `--claude-config-dir="D:\Claude\work"`
+- **macOS** — `open -na Kondo --args --claude-config-dir="$HOME/.claude-work"`
+- **Linux** — on the `Exec` line of a `.desktop` file, or on the command line:
+  `Kondo-<version>.AppImage --claude-config-dir=/home/you/.claude-work`
+
+Windows is the verified platform; the macOS and Linux lines have not been run.
+Each profile holds its own single-instance lock, so two profiles can be open at
+once, and each keeps its own history and trash. Kondo changes no profile's
+files by reading it, and never moves anything from one profile to another.
 
 ### First run against disposable copies
 

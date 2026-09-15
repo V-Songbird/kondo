@@ -22,16 +22,27 @@ shared/themes.ts    the theme catalog (Chalk default), platform-free
 Rules the structure enforces:
 
 - The **composition root** is `startPrimaryInstance` in
-  `electron/main/index.ts`, after `app.whenReady()`: it resolves `homedir`, `APPDATA`, `userData`, platform, and env once, builds
+  `electron/main/index.ts`, after `app.whenReady()`: it resolves `homedir`, `APPDATA`, `userData`, platform, env and the process's own command line once, builds
   the locator from them with `createLocator`, and passes it to
-  `createWorkspace`. Nothing under `workspace/` imports `electron`, which is
+  `createWorkspace`. The command line is read for `--claude-config-dir`, the
+  Claude profile selection a desktop launch carries when it inherits no
+  terminal environment (docs/domain.md, "Claude profiles"); the renderer reads
+  the resulting selection through `profileGet` and can never choose another. Nothing under `workspace/` imports `electron`, which is
   what lets the whole domain run under vitest with fixture roots and no
   Electron in sight.
 - Startup acquires Electron's single-instance lock before readiness or
   workspace creation. A refused launch quits without initializing the workspace.
-  `KONDO_DATA_ROOT`, when set, also selects Electron's canonical `userData`
-  directory before locking, so different profile flags cannot share a journal
-  through that override. Another launch restores and focuses the original main
+  Before locking, the entry module asks the locator for Kondo's data root —
+  `KONDO_DATA_ROOT` as given, Electron's `userData` for Claude's default store
+  set, `<userData>/profiles/<key>` for any other — then creates, canonicalizes
+  and selects it as Electron's `userData`. So the lock, the Chromium profile,
+  the journal and the trash all belong to one Claude profile: two profiles run
+  side by side, two launches of one profile share an owner, and different
+  profile flags cannot share a journal through that override. After the lock
+  and before the workspace, `claimDataRoot` reads the data root's `stores.json`,
+  recording this launch's store set on first use and refusing a data root that
+  already serves another with an error box, because a journal step names a
+  store rather than a root. Another launch restores and focuses the original main
   window; requests during startup wait for its splash handover. Reopening a
   window reuses the existing workspace and IPC handlers.
 - The **contract is written once**. `shared/contract.ts` holds every seam
@@ -63,10 +74,15 @@ Asynchronous action failures retain their feature-level handling.
 entity through the kind registry. Structure:
 
 - **`locator.ts`** (ADR-0003) — the only path authority. Built from injected
-  `{ home, appData, userData, platform, env }`; honors `KONDO_STORE_ROOT`,
+  `{ home, appData, userData, platform, env, argv }`; honors `KONDO_STORE_ROOT`,
   `KONDO_DESKTOP_STORE_ROOT` and `KONDO_DATA_ROOT` overrides (tests and
-  fixture runs use these). Names `~/.claude.json` beside the user store
-  (`userConfigFile`, ADR-0009).
+  fixture runs use these), and below them selects a Claude profile from
+  `--claude-config-dir` or an inherited `CLAUDE_CONFIG_DIR`. Names the registry
+  (`userConfigFile`, ADR-0009): `~/.claude.json` beside the default user store
+  and beside a fixture root, `.claude.json` inside a selected profile, as
+  Claude Code reads it. `profile` carries which rule won and every selection
+  that lost; `kondoDataRootFor` and `storeSetIdentity` derive Kondo's own data
+  root for that store set.
   Linux desktop config honors absolute `XDG_CONFIG_HOME` with a `~/.config`
   fallback. The locator also discovers `os.tmpdir()` once and resolves its
   realpath spelling, both injectable for fixtures. A realpath failure retains
@@ -226,9 +242,12 @@ cannot race through preflight together. External writers do not join this queue.
 Kondo keeps its private state in `<kondo-data>` — Electron's `userData`
 directory for the app (e.g. `%APPDATA%/Kondo` on Windows). That is where the
 mutation journal (`journal.jsonl`), the kondo trash (`trash/`), appearance
-preferences (`appearance.json`), and the scan
+preferences (`appearance.json`), the record of which store set this data root
+serves (`stores.json`), and the scan
 cache (`scan-cache/<namespace>.json`, keyed by `(path, size, mtime)` per
-ADR-0007) live. Two rules: `<kondo-data>` must never be inside a Claude store
+ADR-0007) live. A launch reading a Claude profile other than the default store
+set keeps all of that in `profiles/<key>` beneath the same directory, so one
+journal never serves two profiles and nothing is copied between them. Two rules: `<kondo-data>` must never be inside a Claude store
 (the locator does not yet refuse a `KONDO_DATA_ROOT` that points inside one;
 entry 115), and no Claude-truth is stored there (ADR-0006) — losing it loses undo
 history, caches and Kondo's appearance choice, never the user's actual Claude

@@ -1,10 +1,11 @@
-import { app, BrowserWindow, Menu, nativeTheme, session } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, session } from 'electron'
 import { mkdirSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { rendererReadyChannel, rendererReloadChannel, type ThemeId } from '../../shared/contract'
 import { THEMES } from '../../shared/themes'
-import { createLocator } from './workspace/locator'
+import { createLocator, kondoDataRootFor, type LocatorEnvironment } from './workspace/locator'
+import { claimDataRoot } from './workspace/profile'
 import { createWorkspace } from './workspace/workspace'
 import { registerIpc } from './ipc'
 
@@ -16,10 +17,28 @@ import { registerIpc } from './ipc'
 
 app.setName('Kondo')
 
-// Electron keys its lock by userData. The journal override must select that
-// same identity, even when two launches use different --user-data-dir flags.
-const dataRoot = process.env['KONDO_DATA_ROOT']
-if (dataRoot !== undefined) {
+/** Everything OS-specific the locator resolves roots from, read once here. */
+function machine(userData: string): LocatorEnvironment {
+  return {
+    home: os.homedir(),
+    appData: process.env['APPDATA'] ?? null,
+    // Kondo's own footprint (ADR-0001): the journal and the trash live here,
+    // and Electron guarantees it is outside any Claude store.
+    userData,
+    platform: process.platform,
+    // The launch's own Claude profile selection: `--claude-config-dir`, for a
+    // desktop launch that inherits no terminal environment (docs/domain.md).
+    env: process.env,
+    argv: process.argv
+  }
+}
+
+// Electron keys its lock by userData, and a journal step names a store rather
+// than a root, so the data root is settled here, before the lock: KONDO_DATA_ROOT
+// as given, otherwise one directory per Claude profile (ADR-0004). It never
+// changes again while this process runs.
+const dataRoot = kondoDataRootFor(machine(app.getPath('userData')))
+if (dataRoot !== null) {
   const root = path.resolve(dataRoot)
   mkdirSync(root, { recursive: true })
   app.setPath('userData', realpathSync(root))
@@ -193,15 +212,17 @@ async function startPrimaryInstance(): Promise<void> {
   // copy/paste accelerators.
   if (process.platform !== 'darwin') Menu.setApplicationMenu(null)
 
-  const locator = createLocator({
-    home: os.homedir(),
-    appData: process.env['APPDATA'] ?? null,
-    // Kondo's own footprint (ADR-0001): the journal and the trash live here,
-    // and Electron guarantees it is outside any Claude store.
-    userData: app.getPath('userData'),
-    platform: process.platform,
-    env: process.env
-  })
+  const locator = createLocator(machine(app.getPath('userData')))
+  // One data root keeps one profile's history (ADR-0004). A folder that
+  // already serves another profile refuses the launch here — before the
+  // workspace, any window and any store read — rather than letting an Undo
+  // restore into a store it never came from.
+  const refusal = claimDataRoot(locator, process.platform)
+  if (refusal !== null) {
+    dialog.showErrorBox('Kondo cannot open this Claude profile', refusal)
+    app.quit()
+    return
+  }
   const workspace = createWorkspace({ locator, platform: process.platform })
   // Read only app preferences before constructing a visible main window.
   // The renderer reads the same Scan and presents any fallback warning.

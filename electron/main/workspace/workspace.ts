@@ -66,6 +66,7 @@ import { createMutations, type MutationPlan } from './mutations'
 import { createRemovalReviews, snapshotRemovalTree, staleRemoval } from './reviewed-removals'
 import { tidyCategories } from '../../../shared/contract'
 import { createAppearance } from './appearance'
+import { describeProfile } from './profile'
 import type { ExistsFn } from './projects'
 import {
   readCategories,
@@ -518,6 +519,7 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
   return {
     ...appearance,
+    profileGet: () => Promise.resolve(describeProfile(locator)),
     entityList,
     entityMutate,
     storesOverview,
