@@ -136,3 +136,13 @@ Empty settings cannot remove the source-coverage limit. The fixture regression
 uses the literal `$HOME/.claude/hooks/live.js` command as data, with no shell or
 environment expansion. Hook declarations and the settings-write suspension are
 unchanged.
+
+## Amendment (117): the script path stays in main
+
+The 2026-09-03 amendment reported a script as its resolved path or as the
+command's token. Both are fragments of the command, so a hook row now carries
+only `present`, `missing` or `unverifiable`, and a failed stat names the
+settings file with a fixed sentence
+([ADR-0022](0022-project-settings-data-deny-by-default.md)). The resolution
+rules, the refusal to probe outside the boundary and the allowed read and stat
+set are unchanged.

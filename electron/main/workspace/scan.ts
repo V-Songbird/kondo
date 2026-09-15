@@ -27,9 +27,18 @@ export function finish<T>(data: T, c: Collector): Scan<T> {
   return { data, errors: c.errors, unknown: c.unknown }
 }
 
+/** V8 quotes the parsed source in a JSON syntax error, so that text never crosses (ADR-0022). */
+export const INVALID_JSON = 'Not valid JSON; its contents were skipped and are not shown.'
+
 export function describe(cause: unknown): string {
+  if (cause instanceof SyntaxError) return INVALID_JSON
   if (cause instanceof Error) return cause.message
   return String(cause)
+}
+
+/** Keeps each failure's code and display path, replacing its exception text (ADR-0022). */
+export function redacted(c: Collector, message: string): Collector {
+  return { errors: c.errors, unknown: c.unknown, fail: (code, displayPath) => c.fail(code, displayPath, message) }
 }
 
 export function isEnoent(cause: unknown): boolean {

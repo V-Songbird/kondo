@@ -4,11 +4,14 @@ import type {
   InheritedSkillState,
   ConfigOrphan,
   ConfigOrphanKind,
+  HookEvent,
   HookGroup,
   HookInfo,
-  HookScript,
+  HookScriptStatus,
+  HookType,
   McpScope,
   McpServerInfo,
+  McpTransport,
   PlacedEntryInfo,
   PlacedKind,
   PlacedScope,
@@ -17,6 +20,7 @@ import type {
   PluginEffectiveState,
   PluginInfo,
   PluginScopeState,
+  SettingsKey,
   SettingsLayerInfo,
   SkillInfo,
   SkillOverride,
@@ -24,6 +28,7 @@ import type {
   StoreEntry,
   StoreReport
 } from '../../../shared/contract'
+import { hookEvents, hookTypes, settingsKeys } from '../../../shared/contract'
 import type { StoreLocator } from './locator'
 import { applyEdits, USER_CONFIG_STORE, type SpliceEdit } from './mutations'
 import {
@@ -31,6 +36,7 @@ import {
   directorySize,
   isEnoent,
   pathWithin,
+  redacted,
   resolveAllowedPath,
   safeReaddir,
   safeReadJson,
@@ -46,7 +52,7 @@ import {
 import { flattenProjectPath } from './projects'
 import { projectId } from './sessions'
 import { readFrontmatter } from './frontmatter'
-import { tildify, truncate } from './display'
+import { tildify } from './display'
 
 /** A project whose original path verified (sessions inventory guess). */
 export interface VerifiedProject {
@@ -112,12 +118,19 @@ export interface SettingsLayer {
 const SETTINGS_FILE = 'settings.json'
 const SETTINGS_LOCAL_FILE = 'settings.local.json'
 
+/** Settings files hold credentials, so a failed read carries no exception text (ADR-0022). */
+const SETTINGS_UNREADABLE = 'Kondo could not read this settings file.'
+
+const SETTINGS_KEYS: ReadonlySet<string> = new Set(settingsKeys)
+const isSettingsKey = (name: string): name is SettingsKey => SETTINGS_KEYS.has(name)
+
 export async function readSettingsLayers(
   locator: StoreLocator,
   projects: VerifiedProject[],
   c: Collector
 ): Promise<SettingsLayer[]> {
   const layers: SettingsLayer[] = []
+  const unreadable = redacted(c, SETTINGS_UNREADABLE)
 
   const read = async (
     id: string,
@@ -130,7 +143,7 @@ export async function readSettingsLayers(
   ): Promise<void> => {
     const file = path.join(root, relative)
     const display = tildify(file, locator.home)
-    const stat = await safeStat(file, display, c, root)
+    const stat = await safeStat(file, display, unreadable, root)
     const base = {
       id,
       kind: 'settings' as const,
@@ -143,7 +156,7 @@ export async function readSettingsLayers(
     }
     if (!stat) {
       layers.push({
-        info: { ...base, exists: false, bytes: 0, keys: [] },
+        info: { ...base, exists: false, bytes: 0, keys: [], unlistedKeys: false },
         parsed: null,
         source: null,
         store,
@@ -158,7 +171,7 @@ export async function readSettingsLayers(
     try {
       source = await fs.readFile(await resolveAllowedPath(file, root), 'utf8')
     } catch (cause) {
-      c.fail(cause instanceof BoundaryError ? cause.code : 'read-failed', display, cause)
+      unreadable.fail(cause instanceof BoundaryError ? cause.code : 'read-failed', display, cause)
     }
     let parsed: Record<string, unknown> | null = null
     if (source !== null) {
@@ -171,12 +184,15 @@ export async function readSettingsLayers(
         c.fail('parse-failed', display, cause)
       }
     }
+    // Only documented names cross: an arbitrary key can itself be a secret.
+    const names = Object.keys(parsed ?? {})
     layers.push({
       info: {
         ...base,
         exists: true,
         bytes: stat.size,
-        keys: parsed ? Object.keys(parsed) : []
+        keys: names.filter(isSettingsKey),
+        unlistedKeys: !names.every(isSettingsKey)
       },
       parsed,
       source,
@@ -228,13 +244,21 @@ const LAYER_RANK: Record<'user' | 'project' | 'local', number> = {
 // ---------------------------------------------------------------------------
 // Hooks
 
-/** One `{ event, matcher, command }` of a layer's `hooks` object (domain.md). */
+/**
+ * One entry of a layer's `hooks` object (domain.md), reduced to what may cross
+ * the seam. `command` is the one raw field: the script recognizer reads it and
+ * no DTO carries it (ADR-0022).
+ */
 interface RawHook {
-  event: string
-  matcher: string | null
+  event: HookEvent | null
+  type: HookType | null
+  hasMatcher: boolean
   /** Null when the entry carries no string command at all. */
   command: string | null
 }
+
+const isHookEvent = (name: string): name is HookEvent => (hookEvents as readonly string[]).includes(name)
+const isHookType = (value: unknown): value is HookType => (hookTypes as readonly unknown[]).includes(value)
 
 /**
  * A layer's `hooks` object, flattened in the order it is written. The hook
@@ -249,12 +273,19 @@ function rawHooks(layer: SettingsLayer): RawHook[] {
     for (const group of groups) {
       if (typeof group !== 'object' || group === null) continue
       const record = group as Record<string, unknown>
-      const matcher = typeof record['matcher'] === 'string' ? record['matcher'] : null
+      // Claude's hooks reference: `*` and an empty string match everything.
+      const matcher = record['matcher']
+      const hasMatcher = typeof matcher === 'string' && matcher !== '' && matcher !== '*'
       const inner = Array.isArray(record['hooks']) ? record['hooks'] : []
       for (const hook of inner) {
         if (typeof hook !== 'object' || hook === null) continue
-        const command = (hook as Record<string, unknown>)['command']
-        found.push({ event, matcher, command: typeof command === 'string' ? command : null })
+        const { command, type } = hook as Record<string, unknown>
+        found.push({
+          event: isHookEvent(event) ? event : null,
+          type: isHookType(type) ? type : null,
+          hasMatcher,
+          command: typeof command === 'string' ? command : null
+        })
       }
     }
   }
@@ -337,28 +368,28 @@ function resolveScript(
   return inProject ? abs : null
 }
 
+/** A failed script stat names its settings file, never a path taken from the command (ADR-0022). */
+const HOOK_SCRIPT_UNCHECKED = 'Kondo could not check a script this settings file names.'
+
 async function hookScript(
   command: string,
   layer: SettingsLayer,
   locator: StoreLocator,
   projects: VerifiedProject[],
   c: Collector
-): Promise<HookScript | null> {
+): Promise<HookScriptStatus | null> {
   const token = scriptToken(command)
   if (token === null) return null
   const abs = resolveScript(token, layer, locator, projects)
-  // Outside the boundary the token as written is all kondo may say about it:
-  // a path it refused to resolve is not a path it may restate (ADR-0002).
-  if (abs === null) return { path: truncate(token, 200), status: 'unverifiable' }
-  const display = tildify(abs, locator.home)
+  if (abs === null) return 'unverifiable'
   // A stat and never a read (ADR-0007) — whether the file is there is the
   // whole question. One that cannot be statted is reported and reads as
   // missing rather than failing the listing (ADR-0005).
   const boundary = [locator.userRoot, ...projects.map((project) => path.join(project.absPath, '.claude'))]
     .find((root) => pathWithin(abs, root))
-  if (boundary === undefined) return { path: truncate(token, 200), status: 'unverifiable' }
-  const stat = await safeStat(abs, display, c, boundary)
-  return { path: display, status: stat === null ? 'missing' : 'present' }
+  if (boundary === undefined) return 'unverifiable'
+  const stat = await safeStat(abs, layer.info.path, redacted(c, HOOK_SCRIPT_UNCHECKED), boundary)
+  return stat === null ? 'missing' : 'present'
 }
 
 export async function hooksFromLayers(
@@ -376,8 +407,8 @@ export async function hooksFromLayers(
         kind: 'hook',
         capabilities: capabilitiesFor('hook', layer.info.layer),
         event: raw.event,
-        matcher: raw.matcher,
-        command: raw.command === null ? '(not a command)' : truncate(raw.command, 200),
+        type: raw.type,
+        hasMatcher: raw.hasMatcher,
         script:
           raw.command === null
             ? null
@@ -1048,10 +1079,15 @@ export function stringSet(value: unknown): ReadonlySet<string> {
   return new Set(value.filter((member): member is string => typeof member === 'string'))
 }
 
-/** `stdio` / `http` / `sse` as declared, inferred from a command, or unknown. */
-function transportOf(declaration: Record<string, unknown>): string {
+/** The documented declaration types; `streamable-http` is Claude's alias for `http`. */
+const MCP_TRANSPORTS: ReadonlyMap<string, McpTransport> = new Map<string, McpTransport>([
+  ['stdio', 'stdio'], ['http', 'http'], ['streamable-http', 'http'], ['sse', 'sse'], ['ws', 'ws']
+])
+
+/** A documented transport, `stdio` inferred from a command, or unknown; other text stays in main (ADR-0022). */
+function transportOf(declaration: Record<string, unknown>): McpTransport {
   const declared = declaration['type']
-  if (typeof declared === 'string' && declared !== '') return declared
+  if (typeof declared === 'string' && declared !== '') return MCP_TRANSPORTS.get(declared) ?? 'unknown'
   return typeof declaration['command'] === 'string' ? 'stdio' : 'unknown'
 }
 

@@ -544,16 +544,16 @@ function HookPage({ object, input, management }: ObjectPageProps) {
       />
       {management}
       <Section title="What it runs">
-        <Row label="Event">{hook.event}</Row>
-        <Row label="Matcher">
-          {hook.matcher ?? <span className="null">— every tool</span>}
+        <Row label="Event">
+          {hook.event ?? <span className="stamp-unknown">not recognized</span>}
         </Row>
-        <Row label="Command">
-          <span className="break-all">{hook.command}</span>
+        <Row label="Type">{hook.type ?? <span className="null">—</span>}</Row>
+        <Row label="Matcher">
+          {hook.hasMatcher ? 'Set (pattern not shown)' : <span className="null">— none</span>}
         </Row>
         <Row label="Script">
           {hook.script === null ? (
-            <span className="null">— it runs a command, not a file</span>
+            <span className="null">— no script file named</span>
           ) : (
             <ScriptCell script={hook.script} />
           )}
@@ -561,6 +561,10 @@ function HookPage({ object, input, management }: ObjectPageProps) {
         <Row label="Armed by">
           <span className="text-ink-2">{hook.source}</span>
         </Row>
+        <p className="mt-3 text-xs">
+          Commands, matcher patterns and names Kondo does not recognize can hold private
+          values, so they are not shown. Open the settings file to read them.
+        </p>
         <p className="mt-3 text-xs">
           Claude has no way to switch off one hook. Edit the settings file that runs it.
         </p>
@@ -571,17 +575,12 @@ function HookPage({ object, input, management }: ObjectPageProps) {
 }
 
 function ScriptCell({ script }: { script: NonNullable<HookInfo['script']> }) {
-  return (
-    <span className="flex flex-wrap items-baseline gap-2">
-      {script.status === 'present' ? (
-        <span className="stamp-ok">on disk</span>
-      ) : script.status === 'missing' ? (
-        <span className="stamp-bad">not found</span>
-      ) : (
-        <span className="stamp-unknown">cannot check</span>
-      )}
-      <span className="break-all text-ink-2">{script.path}</span>
-    </span>
+  return script === 'present' ? (
+    <span className="stamp-ok">on disk</span>
+  ) : script === 'missing' ? (
+    <span className="stamp-bad">not found</span>
+  ) : (
+    <span className="stamp-unknown">cannot check</span>
   )
 }
 
@@ -630,10 +629,12 @@ function SettingsPage({ object, input, management }: ObjectPageProps) {
           <span className="stamp">{layer.layer}</span>
         </Row>
         <Row label="Keys">
-          {layer.keys.length === 0 ? (
-            <span className="null">— nothing</span>
-          ) : (
-            <span className="break-all text-ink-2">{layer.keys.join(' · ')}</span>
+          {layer.keys.length > 0 && <span className="break-all text-ink-2">{layer.keys.join(' · ')}</span>}
+          {layer.keys.length === 0 && !layer.unlistedKeys && <span className="null">— nothing</span>}
+          {layer.unlistedKeys && (
+            <span className="block text-xs">
+              Other top-level settings are not shown. Kondo lists only documented setting names.
+            </span>
           )}
         </Row>
         <p className="mt-3 text-xs">

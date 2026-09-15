@@ -167,15 +167,15 @@ describe('user store adapter', () => {
     expect(skills.find((skill) => skill.name === 'beta-skill')!.projectId).toBeNull()
   })
 
-  it('extracts hooks with event, matcher, and source layer', async () => {
+  it('extracts hooks with event, handler type, matcher presence and source layer', async () => {
     const c = collector()
     const layers = await readSettingsLayers(world.locator, verified, c)
     const hooks = await hooksFromLayers(layers, world.locator, verified, c)
     expect(hooks).toHaveLength(2)
     const submit = hooks.find((hook) => hook.event === 'UserPromptSubmit')!
-    expect(submit.matcher).toBe('*')
-    expect(submit.command).toBe('node check.js')
-    expect(submit.layer).toBe('user')
+    // `*` matches everything, so it narrows nothing (Claude's hooks reference).
+    expect(submit).toMatchObject({ type: 'command', hasMatcher: false, layer: 'user' })
+    expect(JSON.stringify(hooks)).not.toContain('check.js')
   })
 
   it('joins installed plugins with the settings layers that enable them', async () => {

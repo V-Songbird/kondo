@@ -116,7 +116,7 @@ usage):
 | `plugins/cache/<mp>/<plugin>/<ver>/skills/` | Skills a plugin ships ✅. These belong to the plugin, not the user: kondo's skills catalogue deliberately excludes them, because benching or relocating one leaves the plugin referring to a directory that is no longer there. They belong to the plugins view, alongside the plugin that owns them, where `pluginSkills(pluginId)` reads them on demand when a plugin's row is opened. The `plugin` skill scope and its capability-matrix row keep that listing read-only. |
 | `plugins/` | Plugin machinery ✅: `installed_plugins.json` (`version: 2`, `plugins[<name>@<marketplace>]` = array of `{ scope, installPath, version, installedAt, lastUpdated, gitCommitSha }`), `known_marketplaces.json`, `plugin-catalog-cache.json` (holds keys differing only by case — parse case-sensitively), `cache/<marketplace>/<plugin>/<version>/` (the installed code), `marketplaces/`, `data/<plugin>-<marketplace>/`, `.install-manifests/<id>.json`, `.last_inuse_sweep`. Residue accumulates ✅: 28 of 39 cached version directories were not the installed version, `.in_use` markers sat on every version (so the marker does not mean "current"), 4 install manifests and 47 of 55 `data/` directories belonged to plugins no longer installed. Kondo sweeps both (entry 033): `superseded-plugin-versions` offers every `cache/<mp>/<plugin>/<version>/` tree that is **not** the `installPath` its manifest entry names — the installed version is never a candidate, and the walk starts from the manifest outwards so that holds by construction rather than by a check — and `orphan-plugin-residue` offers the `data/` directories and `.install-manifests/` files whose `<name>@<marketplace>` id the manifest does not declare. `data/` slugs are derived forwards from each declared id (`@` → `-`), because reading a directory name backwards into an id is ambiguous the moment either half holds a dash. An `installed_plugins.json` that is missing, unreadable or malformed offers **nothing** rather than treating every plugin as uninstalled (ADR-0005); an empty `plugins: {}` is a different answer and does mean everything under `data/` is residue. A cache tree for a plugin absent from the manifest entirely falls under neither category — none was observed, since every cached marketplace/plugin pair was still installed. |
 | `commands/` | User-scope slash commands (`.md` files) ✅. Read as placed entries — see below. |
-| `hooks/` | Hook scripts ✅. Two scripts observed while `settings.json` `hooks` was `{}`. That does not prove disuse: Kondo inventories only selected settings layers, not every execution source. Each displayed command retains its limited first-script diagnostic (`present`, `missing`, or `unverifiable`); variables are not expanded and paths outside the approved roots are not probed (ADR-0002). ✅ Synthetic fixtures (101): cleanup retains **all** hook scripts, including ones absent from the recognized references. `unarmed-hook-scripts` remains a compatible category identifier with zero candidates and an explicit blocked reason. |
+| `hooks/` | Hook scripts ✅. Two scripts observed while `settings.json` `hooks` was `{}`. That does not prove disuse: Kondo inventories only selected settings layers, not every execution source. Each hook row keeps only the status of the first script its command names (`present`, `missing`, or `unverifiable`); the command and the path stay in main (117). Variables are not expanded and paths outside the approved roots are not probed (ADR-0002). ✅ Synthetic fixtures (101): cleanup retains **all** hook scripts, including ones absent from the recognized references. `unarmed-hook-scripts` remains a compatible category identifier with zero candidates and an explicit blocked reason. |
 | `agents/`, `output-styles/`, `rules/` | User-scope subagents, output styles and rules ◇ (documented by Claude Code; absent on this machine). Read as placed entries — see below. |
 | `history.jsonl` | Global prompt history. Line schema: `display`, `pastedContents`, `timestamp`, `project`, `sessionId` ✅. |
 | `sessions/` | Live-session registry: `<pid>.json` + `<pid>.<hash>.key` pairs ✅. Presence ≠ running; stale entries linger. |
@@ -262,6 +262,34 @@ never written (ADR-0002).
 `~/.claude/.mcp.json` also exists inside the user store (empty `mcpServers`
 on the observed machine ✅) and is **not** one of the three scopes above;
 kondo does not read it.
+
+### What settings-derived data crosses (117)
+
+◇ **Documented Claude behavior, checked 2026-09-15:** the
+[settings reference](https://code.claude.com/docs/en/settings-reference)
+documents 168 top-level keys. Seven of them (`autoConnectIde`,
+`autoInstallIdeExtension`, `copyOnSelect`, `diffTool`, `externalEditorContext`,
+`permissionExplainerEnabled`, `teammateDefaultModel`) belong in `~/.claude.json`
+rather than a settings file. The [hooks reference](https://code.claude.com/docs/en/hooks)
+documents 33 events and five handler types (`command`, `http`, `mcp_tool`,
+`prompt`, `agent`); a matcher of `*`, an empty string or none matches
+everything. The [MCP guide](https://code.claude.com/docs/en/mcp) documents the
+`stdio`, `http`, `sse` and `ws` declaration types, with `streamable-http` as an
+alias of `http`.
+
+✅ **Kondo projection, verified with synthetic fixtures (117):** a settings-file
+summary carries only the 161 documented settings-file names it states, and
+`unlistedKeys` when it states others. A hook row carries a documented event or
+null, a documented handler type or null, `hasMatcher`, the status of the first
+script its command names, and the file, layer and project that arm it; command
+text, matcher patterns and script paths stay in main. An MCP transport outside
+the documented set reads as `unknown`. Settings read failures and hook-script
+stat failures carry a fixed sentence and the settings file's display path. A
+JSON syntax error from a settings file, the registry, `.mcp.json`, the plugin
+manifest or a journal line carries one fixed sentence, because V8's message
+quotes the parsed source. The lists live in `shared/contract.ts` (ADR-0022); a
+name Claude documents later reads as unlisted or unrecognized until they are
+updated.
 
 ### Placed entries — skills, agents, commands, rules, output styles
 

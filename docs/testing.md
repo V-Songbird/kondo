@@ -145,6 +145,20 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      Forged completion and same-cursor failure rows cannot erase typed mismatch
      evidence, mark the operation complete or resume an Undo that moves an
      occupant. Completed bare legacy copy and move cursors remain undoable.
+   - Settings-derived privacy (117, ADR-0022): `test/workspace.test.ts` plants
+     synthetic `S117_` sentinels in top-level and nested unknown setting names,
+     settings `env` and MCP `env`/`headers` names and values, an MCP `type`,
+     hook matchers, commands, an unknown event and handler type, malformed
+     settings and `.mcp.json` files and a torn journal line, and denies one hook
+     script stat. Every settings, hook, project, MCP, skill, plugin, leftover,
+     cleanup, history and overview envelope, plus hook, settings, plugin and MCP
+     refusals, serializes without a sentinel, while documented names, events,
+     handler types, script statuses, transports and healthy layers remain and
+     store and journal bytes stay unchanged. `test/hooks.test.ts` pins a denied
+     stat to the settings file and a fixed sentence. The Electron smoke repeats
+     the check over visible text, opened details and problem lists, `title` and
+     `aria-label` attributes and bridge responses in Chalk and Carbon at 1360×860
+     and 900×600. These tests cover the planted positions, not every future field.
 5. **End-to-end**: `npm run test:e2e` (`test/e2e/smoke.mjs`, node's own test
    runner) builds the run-kondo fixture in a fresh temp directory, launches
    the built app against it through the three `KONDO_*_ROOT` overrides with

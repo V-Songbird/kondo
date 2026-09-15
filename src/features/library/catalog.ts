@@ -123,9 +123,9 @@ export function allHooks(groups: HookGroup[]): HookInfo[] {
   return groups.flatMap((group) => group.hooks)
 }
 
-/** What a hook is called: the event, and the matcher when it has one. */
+/** What a hook is called: its documented event; the matcher pattern stays in main. */
 export function hookName(hook: HookInfo): string {
-  return hook.matcher === null ? hook.event : `${hook.event} · ${hook.matcher}`
+  return hook.event ?? 'Unrecognized event'
 }
 
 /** Navigation uses only project ids already returned by the workspace. */
@@ -240,9 +240,9 @@ function hookObjects(input: CatalogInput): LibraryObject[] {
     const flags: Flag[] = []
     if (hook.script === null) {
       flags.push({ text: 'no script named', tone: 'fact' })
-    } else if (hook.script.status === 'missing') {
+    } else if (hook.script === 'missing') {
       flags.push({ text: 'not found', tone: 'bad' })
-    } else if (hook.script.status === 'unverifiable') {
+    } else if (hook.script === 'unverifiable') {
       flags.push({ text: 'cannot check', tone: 'unknown' })
     } else {
       flags.push({ text: 'on disk', tone: 'ok' })
@@ -389,14 +389,14 @@ export function findings(input: CatalogInput): Finding[] {
   const found: Finding[] = []
 
   for (const hook of allHooks(input.hookGroups)) {
-    if (hook.script?.status !== 'missing') continue
+    if (hook.script !== 'missing') continue
     found.push({
       key: objectKey('hook', `${hookName(hook)} ${hook.id}`),
       name: hookName(hook),
       kind: 'hook',
       where: hook.source,
       chip: { text: 'not found', tone: 'bad' },
-      why: `The script it runs is not on disk: ${hook.script.path}`
+      why: 'The script its command names is not on disk. Open the settings file to see which one.'
     })
   }
 

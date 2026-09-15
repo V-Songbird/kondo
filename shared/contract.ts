@@ -600,6 +600,13 @@ export interface PluginEffectiveState {
 export type McpScope = 'user' | 'local' | 'project'
 
 /**
+ * The transports Claude Code documents for a declaration's `type`, checked
+ * 2026-09-15; `streamable-http` reads as `http`. `unknown` stands for any other
+ * type, whose text stays in the main process (ADR-0022).
+ */
+export type McpTransport = 'stdio' | 'http' | 'sse' | 'ws' | 'unknown'
+
+/**
  * One MCP server as kondo lists it. Deliberately thin: a declaration also
  * carries `env` and `headers`, which hold API keys and bearer tokens in the
  * wild, so nothing here can be built from either — not their values and not
@@ -612,10 +619,10 @@ export interface McpServerInfo extends EntityIdentity {
   name: string
   scope: McpScope
   /**
-   * The declared `type` — `stdio`, `http`, `sse` — or `stdio` inferred from a
-   * `command`, or `unknown` when the declaration says neither.
+   * The declared transport, `stdio` inferred from a `command`, or `unknown`
+   * when the declaration says neither or names another type.
    */
-  transport: string
+  transport: McpTransport
   /** Display path of the file that declares it (tildified). */
   source: string
   /**
@@ -646,30 +653,46 @@ export interface McpServerInfo extends EntityIdentity {
 export type HookScriptStatus = 'present' | 'missing' | 'unverifiable'
 
 /**
- * The script one hook command names. Stat-deep only (ADR-0007): whether the
- * file is there is the whole question, so nothing here was read.
+ * The hook events Claude Code documents, in its reference order, checked
+ * 2026-09-15. Any other event name stays in the main process (ADR-0022).
  */
-export interface HookScript {
-  /**
-   * Display path of the script (tildified) when kondo resolved it inside the
-   * boundary; otherwise the token exactly as the command wrote it, because
-   * a path kondo may not resolve is not a path it may restate.
-   */
-  path: string
-  status: HookScriptStatus
-}
+export const hookEvents = [
+  'SessionStart', 'Setup', 'InstructionsLoaded', 'UserPromptSubmit', 'UserPromptExpansion',
+  'MessageDisplay', 'PreToolUse', 'PermissionRequest', 'PostToolUse', 'PostToolUseFailure',
+  'PostToolBatch', 'PermissionDenied', 'Notification', 'SubagentStart', 'SubagentStop',
+  'TaskCreated', 'TaskCompleted', 'Stop', 'StopFailure', 'TeammateIdle', 'ConfigChange',
+  'CwdChanged', 'DirectoryAdded', 'FileChanged', 'WorktreeCreate', 'WorktreeRemove', 'PreCompact',
+  'PostCompact', 'PreModelSwitch', 'PostModelSwitch', 'SessionEnd', 'Elicitation',
+  'ElicitationResult'
+] as const
 
+export type HookEvent = (typeof hookEvents)[number]
+
+/** The hook handler types Claude Code documents, checked 2026-09-15 (ADR-0022). */
+export const hookTypes = ['command', 'http', 'mcp_tool', 'prompt', 'agent'] as const
+
+export type HookType = (typeof hookTypes)[number]
+
+/**
+ * One hook declaration as the renderer sees it. Only documented names and
+ * validated states cross (ADR-0022): the command, its matcher pattern and any
+ * path the command names stay in the main process, because a command line is
+ * where tokens and credentials get written.
+ */
 export interface HookInfo extends EntityIdentity {
   /** `hook:<settings-layer-id>:<n>` — e.g. `hook:settings:user:user:0`. */
   id: string
-  event: string
-  matcher: string | null
-  command: string
+  /** A documented event, or null for a name Kondo does not recognize. */
+  event: HookEvent | null
+  /** A documented handler type, or null when the entry states none Kondo recognizes. */
+  type: HookType | null
+  /** Its group states a matcher other than `*` or an empty string. */
+  hasMatcher: boolean
   /**
-   * The script that command runs and whether it is there, or null when the
-   * command names no script at all — an inline `echo`, a bare binary.
+   * Whether the first script the command names is there, or null when there is
+   * no command or it names no script — an inline `echo`, a bare binary.
    */
-  script: HookScript | null
+  script: HookScriptStatus | null
   /** Display path of the settings file that arms it. */
   source: string
   layer: 'user' | 'project' | 'local'
@@ -701,6 +724,57 @@ export interface HookGroup {
   hooks: HookInfo[]
 }
 
+/**
+ * The top-level names Claude Code's settings reference documents for settings
+ * files, checked 2026-09-15, without the seven it places in `~/.claude.json`.
+ * A settings-file summary shows no other name (ADR-0022).
+ */
+export const settingsKeys = [
+  'advisorModel', 'agent', 'agentPushNotifEnabled', 'allowAllClaudeAiMcps',
+  'allowManagedHooksOnly', 'allowManagedMcpServersOnly', 'allowManagedPermissionRulesOnly',
+  'allowedChannelPlugins', 'allowedHttpHookUrls', 'allowedMcpServers', 'alwaysThinkingEnabled',
+  'apiKeyHelper', 'askUserQuestionTimeout', 'attribution', 'autoCompactEnabled',
+  'autoCompactWindow', 'autoContinueAtUsageLimit', 'autoMemoryDirectory', 'autoMemoryEnabled',
+  'autoMode', 'autoScrollEnabled', 'autoUpdatesChannel', 'availableModels', 'awaySummaryEnabled',
+  'awsAuthRefresh', 'awsCredentialExport', 'axScreenReader', 'bashOutputMaxChars',
+  'blockedMarketplaces', 'browserExternalPageTools', 'channelsEnabled', 'claudeMd',
+  'claudeMdExcludes', 'cleanupPeriodDays', 'companyAnnouncements', 'crossSessionInbound',
+  'defaultShell', 'deniedMcpServers', 'desktopSessionCleanupPeriodDays', 'dialogExpiry',
+  'disableAgentView', 'disableAllHooks', 'disableArtifact', 'disableAutoMode',
+  'disableBrowserExternalNavigation', 'disableBundledSkills', 'disableClaudeAiConnectors',
+  'disableCommandPluginSources', 'disableDeepLinkRegistration', 'disableDesktopLocalSessions',
+  'disableMobileSimulatorTools', 'disableRemoteControl', 'disableSideloadFlags',
+  'disableSkillShellExecution', 'disableWorkflows', 'disabledMcpjsonServers', 'editorMode',
+  'effortLevel', 'emojiCompletionEnabled', 'enableAllProjectMcpServers', 'enableArtifact',
+  'enableWorkflows', 'enabledMcpjsonServers', 'enabledPlugins', 'enforceAvailableModels', 'env',
+  'extraKnownMarketplaces', 'fallbackModel', 'fastMode', 'fastModePerSessionOptIn',
+  'feedbackDrafts', 'feedbackSurveyRate', 'fileCheckpointingEnabled', 'fileSuggestion',
+  'footerLinksRegexes', 'forceLoginGatewayUrl', 'forceLoginMethod', 'forceLoginOrgUUID',
+  'forceRemoteSettingsRefresh', 'gcpAuthRefresh', 'hooks', 'httpHookAllowedEnvVars',
+  'includeCoAuthoredBy', 'includeGitInstructions', 'inputNeededNotifEnabled',
+  'isolatePeerMachines', 'keybindingFlavor', 'language', 'managedMcpServers',
+  'managedSourcesBehavior', 'maxEffortLevel', 'minimumVersion', 'model', 'modelOverrides',
+  'modelPicker', 'modelPricing', 'modelSettings', 'otelHeadersHelper', 'outputStyle',
+  'parentSettingsBehavior', 'permissions', 'plansDirectory', 'pluginConfigs',
+  'pluginSuggestionMarketplaces', 'pluginTrustMessage', 'policyHelper', 'prUrlTemplate',
+  'preferredNotifChannel', 'prefersReducedMotion', 'processWrapper', 'promptCacheTtl',
+  'promptSuggestionEnabled', 'remoteControlAtStartup', 'requiredMaximumVersion',
+  'requiredMinimumVersion', 'respectGitignore', 'respondToBashCommands', 'sandbox',
+  'showClearContextOnPlanAccept', 'showThinkingSummaries', 'showTurnDuration',
+  'skillListingBudgetFraction', 'skillListingMaxDescChars', 'skillOverrides',
+  'skipAutoPermissionPrompt', 'skipDangerousModePermissionPrompt', 'skipWebFetchPreflight',
+  'spellcheck', 'spinnerTipsEnabled', 'spinnerTipsOverride', 'spinnerVerbs', 'sshConfigs',
+  'sshHostAllowlist', 'statusLine', 'strictKnownMarketplaces', 'strictPluginOnlyCustomization',
+  'subagentPromptCacheTtl', 'subagentStatusLine', 'switchModelsOnFlag', 'syncClaudeAiSkills',
+  'syntaxHighlightingDisabled', 'taskOutputMaxChars', 'teammateMode', 'terminalProgressBarEnabled',
+  'terminalTitleFromRename', 'theme', 'timeFormat', 'timeZone', 'tui', 'ultracode',
+  'useAutoModeDuringPlan', 'verbose', 'viewMode', 'vimInsertModeRemaps', 'voice', 'voiceEnabled',
+  'wheelScrollAccelerationEnabled', 'workflowKeywordTriggerEnabled', 'workflowSizeGuideline',
+  'worktree', 'wslInheritsWindowsSettings'
+] as const
+
+export type SettingsKey = (typeof settingsKeys)[number]
+
 export interface SettingsLayerInfo extends EntityIdentity {
   /** `settings:<layer>:<key>` */
   id: string
@@ -709,7 +783,10 @@ export interface SettingsLayerInfo extends EntityIdentity {
   path: string
   exists: boolean
   bytes: number
-  keys: string[]
+  /** The documented top-level names this file states, in file order; no value crosses. */
+  keys: SettingsKey[]
+  /** It also states top-level names outside `settingsKeys`, which stay in main. */
+  unlistedKeys: boolean
   /**
    * The `project:code:<dirName>` id of the project this layer belongs to, or
    * null for the user layer (ADR-0008).

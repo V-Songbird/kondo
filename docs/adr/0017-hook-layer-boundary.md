@@ -48,3 +48,10 @@ concurrent writes and partial Undo remain separate work (098/099). The phrase
 not a delivery commitment. Product-copy follow-up 110 should use the inventory
 and support limits documented here. No code changes or release acceptance are
 part of this decision.
+
+## Amendment (117)
+
+`HookInfo` no longer carries command text, matcher patterns or script paths:
+only a documented event, handler type, matcher presence and script status
+([ADR-0022](0022-project-settings-data-deny-by-default.md)). It still flattens
+groups, so it still cannot reconstruct a declaration or authorize a write.

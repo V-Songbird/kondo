@@ -64,7 +64,7 @@ describe('the Library catalog', () => {
       projects: [first, second],
       hookGroups: [{ projectId: second.id, label: 'app', hooks: [{
         id: 'hook:fixture:one', kind: 'hook', capabilities: caps,
-        event: 'Stop', matcher: null, command: 'echo fixture', script: null,
+        event: 'Stop', type: 'command', hasMatcher: false, script: null,
         source: 'fixture settings', layer: 'project', projectId: second.id, projectLabel: 'app'
       }] }]
     }
@@ -159,9 +159,9 @@ describe('the Library catalog', () => {
             kind: 'hook',
             capabilities: caps,
             event: 'PreToolUse',
-            matcher: 'Edit|Write',
-            command: 'pwsh guard.ps1',
-            script: { path: '~/.claude/hooks/guard.ps1', status: 'missing' },
+            type: 'command',
+            hasMatcher: true,
+            script: 'missing',
             source: '~/.claude/settings.json',
             layer: 'user',
             projectId: null,
@@ -171,10 +171,10 @@ describe('the Library catalog', () => {
             id: 'hook:user:1',
             kind: 'hook',
             capabilities: caps,
-            event: 'Stop',
-            matcher: null,
-            command: '$CLAUDE_PROJECT_DIR/stop.ps1',
-            script: { path: '$CLAUDE_PROJECT_DIR/stop.ps1', status: 'unverifiable' },
+            event: null,
+            type: null,
+            hasMatcher: false,
+            script: 'unverifiable',
             source: '~/.claude/settings.json',
             layer: 'user',
             projectId: null,
@@ -184,8 +184,11 @@ describe('the Library catalog', () => {
       }
     ]
     const found = findings({ ...empty, hookGroups: groups })
-    expect(found.map((finding) => finding.name)).toEqual(['PreToolUse · Edit|Write'])
-    expect(found[0]?.why).toContain('~/.claude/hooks/guard.ps1')
+    expect(found.map((finding) => finding.name)).toEqual(['PreToolUse'])
+    expect(found[0]).toMatchObject({ where: '~/.claude/settings.json', chip: { text: 'not found' } })
+    // An unrecognized event keeps its row and status under a generic name.
+    expect(buildCatalog({ ...empty, hookGroups: groups }).map((object) => [object.name, object.flags[0]?.text]))
+      .toEqual([['PreToolUse', 'not found'], ['Unrecognized event', 'cannot check']])
   })
 
   it('counts copies separately from objects', () => {
@@ -202,8 +205,8 @@ describe('the Library catalog', () => {
               kind: 'hook',
               capabilities: caps,
               event: 'Stop',
-              matcher: null,
-              command: 'true',
+              type: 'command',
+              hasMatcher: false,
               script: null,
               source: '~/.claude/settings.json',
               layer: 'user',

@@ -101,8 +101,8 @@ entity through the kind registry. Structure:
   An unrecognized scope refuses every operation rather than throwing (ADR-0005).
   Hook rows deny enable, disable, move and trash in user/project/local layers;
   `kinds.hook.plan` returns that refusal without building mutation steps.
-  The hook display projection flattens groups and truncates commands, so it
-  cannot be used to reconstruct a settings edit. The read-only hook boundary
+  The hook display projection flattens groups and carries no command text, so
+  it cannot be used to reconstruct a settings edit. The read-only hook boundary
   and the conditions for reconsideration are recorded in
   [decision 109](plans/109-hook-layer-boundary.md) and
   [ADR-0017](adr/0017-hook-layer-boundary.md). Script-file cleanup is separate.
@@ -141,7 +141,9 @@ entity through the kind registry. Structure:
   tree before that tree becomes a live store again. Logical copies and digests
   remain in `scan.ts`, where every content read stays in its owning root.
 - **Helpers** — `scan.ts` (explicit owning-root checks, resolved paths, bounded
-  tree walks and safe fs wrappers that convert exceptions into scan errors),
+  tree walks and safe fs wrappers that convert exceptions into scan errors; a
+  JSON syntax error becomes one fixed sentence because V8 quotes the parsed
+  source, and `redacted` swaps exception text for a caller's sentence, ADR-0022),
   `jsonl.ts` (streaming transcript reads — never `readFile` a
   transcript whole, ADR-0007), `scan-cache.ts` (the disposable tier-2 cache
   under `<kondo-data>`, keyed by path, size and mtime, ADR-0007),
@@ -164,12 +166,16 @@ view (ADR-0007).
 Settings discovery reads the user settings file and project/local files under
 verified projects' `.claude` directories. `SettingsLayerInfo` is a metadata
 projection with layer identity, project attribution, display location,
-existence, size and top-level key names; it has no general settings-value or
-resolution model. Skill and plugin resolution uses dedicated main-process
-logic. These projections do not resolve arbitrary settings, managed policy,
-command-line overrides, session state or settings defaults. Existing key-name,
-hook-command and diagnostic projections require separate privacy hardening
-(117); no comprehensive secret-redaction guarantee is claimed. Any expansion
+existence, size, the documented top-level setting names the file states and
+whether it states others; it has no general settings-value or resolution model.
+Skill and plugin resolution uses dedicated main-process logic. These projections
+do not resolve arbitrary settings, managed policy, command-line overrides,
+session state or settings defaults. Settings-derived data crosses the seam
+deny-by-default: documented names, validated states and Kondo's own error
+sentences, chosen in main before a DTO is built. Hook commands, matcher
+patterns, script paths, undocumented names and parser text stay in main (117,
+[ADR-0022](adr/0022-project-settings-data-deny-by-default.md)). The guarantee
+covers these projections, not every string the app displays. Any expansion
 requires a reviewed contract, an explicit field allowlist and fixture evidence
 ([ADR-0021](adr/0021-summarize-settings-files.md)).
 
