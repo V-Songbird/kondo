@@ -21,10 +21,9 @@ The names below are Claude's and kondo's, not the user's. Where an adapter
 writes a string a person will read — a capability refusal, the summary a
 mutation plan carries into History — it should use the right-hand column of
 [glossary.md](glossary.md)'s UI-words table instead. A store fact keeps its
-spelling here. Some strings still show internal terms, such as the scope id in
-a skill's trash summary; entry 110 reconciles the in-app wording.
+spelling here.
 
-## The three store kinds
+## Store locations
 
 | Store | Location | Owner |
 |---|---|---|
@@ -48,7 +47,7 @@ ADR-0002 amendment grants and `test/boundary.test.ts` pins. Outside a
 `.claude` directory kondo opens exactly two files — that one and
 `~/.claude.json` — and stats exactly one path, the project root.
 
-✅ **Kondo boundary behavior, verified with synthetic fixtures (097):** scanner
+✅ **Kondo boundary behavior, verified with synthetic fixtures:** scanner
 helpers take the owning user, desktop or verified project `.claude` root. Both
 the requested path and its final resolved target must stay in that root; a link
 into another store is not permission to cross between them. In-store aliases
@@ -70,8 +69,7 @@ undo. An archived link is metadata: trash inventory, physical copy verification
 and removal never follow it back into a live store. Undo validates those links
 against the future restored tree before journaling or displacing an occupant.
 Trash size counts physically retained regular-file bytes, excluding referents
-and link metadata. Settings mutation and historical settings Undo are currently
-refused before effects; see the execution restriction below (098).
+and link metadata.
 
 These limits describe access to Claude's data. Kondo's separate
 [application footprint](foundations.md#kondos-own-footprint) also holds its
@@ -79,28 +77,17 @@ journal, trash, caches and appearance preference. The Themes screen stores
 that preference in Kondo's `appearance.json`; it does not read or write
 Claude's own `theme` setting to select Kondo's appearance.
 
-## Current settings execution restriction (098)
+## Settings execution restriction
 
-✅ **Kondo policy, established by source and synthetic fixtures:** every apply
-plan containing a `write` or `splice` is refused on all platforms before step
-preparation, journaling or filesystem effects. Historical Undo entries with
-either step are also refused whole. This includes mixed plans, so a settings
-refusal cannot leave an accompanying move or trash step partly applied.
-Existing history, inverse edits and recovery bytes remain unchanged; Kondo
-records no completion or successful Undo for the refused operation.
-
-The settings conventions and planner behavior described below remain the
-basis for inventory and future planning, not permission to execute a settings
-change today. The restriction covers settings-based skill, plugin and MCP
-toggles, plugin clearing and scope moves, configuration-leftover removal, and
-skill moves that also edit settings. Confirming creation of an absent layer
-does not bypass it. Unrelated moves, trash and their Undo remain available.
-Kondo's own appearance preference is unaffected.
-
-A digest check followed by a rename cannot preserve a competing write made
-between them. This release introduces no native preservation backend; another
-hash check, closing Claude or an advisory lock cannot enable an exception.
-See [ADR-0010](adr/0010-splice-config-files-never-whole-file-writes.md).
+✅ **Kondo policy, established by source and synthetic fixtures:** every plan
+containing a `write` or `splice` — mixed plans and confirmed creation of an
+absent layer included — and every historical Undo containing one is refused on
+all platforms before journaling or filesystem effects
+([ADR-0010](adr/0010-splice-config-files-never-whole-file-writes.md)). The
+settings conventions and planners described below are the basis for inventory
+and future planning, not permission to execute a settings change. Unrelated
+moves, trash and their Undo remain available, and Kondo's own appearance
+preference is unaffected.
 
 ## User store: `~/.claude`
 
@@ -110,23 +97,23 @@ usage):
 | Entry | What it is |
 |---|---|
 | `projects/` | Session transcripts, one subdirectory per working directory. The heart of kondo's session features. |
-| `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'name-only' \| 'user-invocable-only' \| 'off' }` ✅ — the four values Claude Code's own settings schema admits, read off the 2.1.258 binary (entry 029). Its description, verbatim: `name-only` lists the skill without its description, `user-invocable-only` hides it from the model but keeps `/name`, `off` hides it from both, absent = on. **Only `off` is a disabling**; the middle two leave the skill loaded. Precedence is the ordinary local > project > user ✅, and `/skills` writes the key into the *local* layer. It does **not** reach plugin-shipped skills ✅: Claude pins those to `on` before consulting it, and only managed-policy and CLI-flag settings override that — neither of which kondo reads. Kondo resolves it per skill and carries the winner as `SkillInfo.override`, with `enabled` false when it says `off` (entry 029); configuration cleanup preserves every override because its skill sources cannot be completely enumerated (100, ADR-0010). **It is also what kondo's skill toggle plans** (entry 045; execution refused under 098): `disable` splices `<skill>: "off"` into the scope's layer — the one already naming the skill, else `settings.local.json`, the file `/skills` writes — and `enable` removes the member from every layer in the chain that says `off`. A project page switches a *global* skill off for that project alone the same way (entry 062): the `off` lands in the project's own layer and only that project's layers are ever withdrawn from, so `ProjectDetail.inheritedSkills` reads each global skill against the project's local and project layers and reports `off here` apart from `off in All projects`. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
-| `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo plans to disable (execution refused under 098); a key that is simply absent is silence, not a false. A legacy array form is read (a listed key is enabled) but never written. |
+| `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'name-only' \| 'user-invocable-only' \| 'off' }` ✅ — the four values Claude Code's own settings schema admits, read off the 2.1.258 binary. Its description, verbatim: `name-only` lists the skill without its description, `user-invocable-only` hides it from the model but keeps `/name`, `off` hides it from both, absent = on. **Only `off` is a disabling**; the middle two leave the skill loaded. For this key precedence is the ordinary local > project > user ✅, and `/skills` writes the key into the *local* layer. It does **not** reach plugin-shipped skills ✅: Claude pins those to `on` before consulting it, and only managed-policy and CLI-flag settings override that — neither of which kondo reads. Kondo resolves it per skill and carries the winner as `SkillInfo.override`, with `enabled` false when it says `off`; configuration cleanup preserves every override because its skill sources cannot be completely enumerated (ADR-0010). **It is also what kondo's skill toggle plans** (execution refused, see above): `disable` splices `<skill>: "off"` into the scope's layer — the one already naming the skill, else `settings.local.json` for a project skill and `~/.claude/settings.json`, the only user layer Kondo reads, for a user skill — and `enable` removes the member from every layer in the chain that says `off`. A project page switches a *global* skill off for that project alone the same way: the `off` lands in the project's own layer and only that project's layers are ever withdrawn from, so `ProjectDetail.inheritedSkills` reads each global skill against the project's local and project layers and reports `off here` apart from `off in All projects`. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
+| `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo plans to disable (execution refused); a key that is simply absent is silence, not a false. A legacy array form is read (a listed key is enabled) but never written. |
 | `skills/` | User-scope skills, one directory per skill with a `SKILL.md`. |
-| `skills.disabled/` | **Kondo's parking spot, not Claude's convention** ✅. The directory exists on the owner's machine, but the string `skills.disabled` occurs nowhere in the Claude Code 2.1.255 or 2.1.258 binaries (entry 029) — nothing reads it. A skill moved here does stop loading, for the plain reason that it is no longer in `skills/`, which is the "remove from `.claude/skills`" half of Claude's own advice. Claude's *named* per-skill switch is `skillOverrides` above, and since entry 045 that is what the toggle plans (execution refused under 098): nothing new is moved here. Kondo still reads the directory back as the `user-disabled` scope and offers each skill in it the way back into `skills/` (ADR-0006). |
+| `skills.disabled/` | **Kondo's parking spot, not Claude's convention** ✅. The directory exists on the owner's machine, but the string `skills.disabled` occurs nowhere in the Claude Code 2.1.255 or 2.1.258 binaries — nothing reads it. A skill moved here does stop loading, for the plain reason that it is no longer in `skills/`, which is the "remove from `.claude/skills`" half of Claude's own advice. Claude's *named* per-skill switch is `skillOverrides` above, which is what the toggle plans; Kondo never moves skills here. Kondo still reads the directory back as the `user-disabled` scope and offers each skill in it the way back into `skills/` (ADR-0006). |
 | `plugins/cache/<mp>/<plugin>/<ver>/skills/` | Skills a plugin ships ✅. These belong to the plugin, not the user: kondo's skills catalogue deliberately excludes them, because benching or relocating one leaves the plugin referring to a directory that is no longer there. They belong to the plugins view, alongside the plugin that owns them, where `pluginSkills(pluginId)` reads them on demand when a plugin's row is opened. The `plugin` skill scope and its capability-matrix row keep that listing read-only. |
-| `plugins/` | Plugin machinery ✅: `installed_plugins.json` (`version: 2`, `plugins[<name>@<marketplace>]` = array of `{ scope, installPath, version, installedAt, lastUpdated, gitCommitSha }`), `known_marketplaces.json`, `plugin-catalog-cache.json` (holds keys differing only by case — parse case-sensitively), `cache/<marketplace>/<plugin>/<version>/` (the installed code), `marketplaces/`, `data/<plugin>-<marketplace>/`, `.install-manifests/<id>.json`, `.last_inuse_sweep`. Residue accumulates ✅: 28 of 39 cached version directories were not the installed version, `.in_use` markers sat on every version (so the marker does not mean "current"), 4 install manifests and 47 of 55 `data/` directories belonged to plugins no longer installed. Kondo sweeps both (entry 033): `superseded-plugin-versions` offers every `cache/<mp>/<plugin>/<version>/` tree that **no** installation entry of that plugin names as its `installPath` — the walk starts from the manifest's plugin ids and skips each version directory an entry names, and that explicit check is what keeps every installed version out of the candidates — and `orphan-plugin-residue` offers the `data/` directories and `.install-manifests/` files whose `<name>@<marketplace>` id the manifest does not declare. `data/` slugs are derived forwards from each declared id (`@` → `-`), because reading a directory name backwards into an id is ambiguous the moment either half holds a dash. An `installed_plugins.json` that is missing, unreadable or malformed offers **nothing** rather than treating every plugin as uninstalled (ADR-0005); an empty `plugins: {}` is a different answer and does mean everything under `data/` is residue. A cache tree for a plugin absent from the manifest entirely falls under neither category — none was observed, since every cached marketplace/plugin pair was still installed. |
+| `plugins/` | Plugin machinery ✅: `installed_plugins.json` (`version: 2`, `plugins[<name>@<marketplace>]` = array of `{ scope, installPath, version, installedAt, lastUpdated, gitCommitSha }`), `known_marketplaces.json`, `plugin-catalog-cache.json` (holds keys differing only by case — parse case-sensitively), `cache/<marketplace>/<plugin>/<version>/` (the installed code), `marketplaces/`, `data/<plugin>-<marketplace>/`, `.install-manifests/<id>.json`, `.last_inuse_sweep`. Residue accumulates ✅: 28 of 39 cached version directories were not the installed version, `.in_use` markers sat on every version (so the marker does not mean "current"), 4 install manifests and 47 of 55 `data/` directories belonged to plugins no longer installed. Several scopes can keep different installed versions of one plugin ✅, one installation entry each; Kondo's plugin inventory presents only the first entry. Kondo sweeps both: `superseded-plugin-versions` offers every `cache/<mp>/<plugin>/<version>/` tree that **no** installation entry of that plugin names as its `installPath` — the walk starts from the manifest's plugin ids and skips each version directory an entry names, and that explicit check is what keeps every installed version out of the candidates — and `orphan-plugin-residue` offers the `data/` directories and `.install-manifests/` files whose `<name>@<marketplace>` id the manifest does not declare. `data/` slugs are derived forwards from each declared id (`@` → `-`), because reading a directory name backwards into an id is ambiguous the moment either half holds a dash. An `installed_plugins.json` that is missing, unreadable or malformed offers **nothing** rather than treating every plugin as uninstalled (ADR-0005); an empty `plugins: {}` is a different answer and does mean everything under `data/` is residue. A cache tree for a plugin absent from the manifest entirely falls under neither category — none was observed, since every cached marketplace/plugin pair was still installed. |
 | `commands/` | User-scope slash commands (`.md` files) ✅. Read as placed entries — see below. |
-| `hooks/` | Hook scripts ✅. Two scripts observed while `settings.json` `hooks` was `{}`. That does not prove disuse: Kondo inventories only selected settings layers, not every execution source. Each hook row keeps only the status of the first script its command names (`present`, `missing`, or `unverifiable`); the command and the path stay in main (117). Variables are not expanded and paths outside the approved roots are not probed (ADR-0002). ✅ Synthetic fixtures (101): cleanup retains **all** hook scripts, including ones absent from the recognized references. `unarmed-hook-scripts` remains a compatible category identifier with zero candidates and an explicit blocked reason. |
+| `hooks/` | Hook scripts ✅. Two scripts observed while `settings.json` `hooks` was `{}`. That does not prove disuse: Kondo inventories only selected settings layers, not every execution source. Each hook row keeps only the status of the first script its command names (`present`, `missing`, or `unverifiable`); the command and the path stay in main (ADR-0022). Variables are not expanded and paths outside the approved roots are not probed (ADR-0002). ✅ Synthetic fixtures: cleanup retains **all** hook scripts, including ones absent from the recognized references. `unarmed-hook-scripts` remains a compatible category identifier with zero candidates and an explicit blocked reason. |
 | `agents/`, `output-styles/`, `rules/` | User-scope subagents, output styles and rules ◇ (documented by Claude Code; absent on this machine). Read as placed entries — see below. |
 | `history.jsonl` | Global prompt history. Line schema: `display`, `pastedContents`, `timestamp`, `project`, `sessionId` ✅. |
 | `sessions/` | Live-session registry: `<pid>.json` + `<pid>.<hash>.key` pairs ✅. Presence ≠ running; stale entries linger. |
-| `session-env/` | Per-session environment snapshots, one dir per session id ✅. Nothing prunes it. Kondo sweeps it: a uuid-named directory with no transcript behind it is the `orphan-session-env` tidy category (entry 033), decided on the name alone and offered as its own reversible trash step. A snapshot whose transcript is still on disk is never offered — including one whose transcript the same sweep is about to move, since candidates come from a single scan. |
+| `session-env/` | Per-session environment snapshots, one dir per session id ✅. Nothing prunes it. Kondo sweeps it: a uuid-named directory with no transcript behind it is the `orphan-session-env` tidy category, decided on the name alone and offered as its own reversible trash step. A snapshot whose transcript is still on disk is never offered — including one whose transcript the same sweep is about to move, since candidates come from a single scan. |
 | `tasks/` | Background task state, one dir per task id ✅ (`pins.json` ◇, not seen on the last pass). |
 | `jobs/` | Job state, dirs per job id ✅. |
 | `file-history/` | Edit history backing checkpoint/rewind ✅. Excluded from Kondo's cleanup allowlist; safe session-specific pruning is unverified ◇. |
 | `shell-snapshots/` | Shell state snapshots ✅. Tidy candidate. |
-| `backups/`, `paste-cache/`, `cache/`, `debug/`, `telemetry/`, `downloads/`, `ide/` | Support and cache directories ✅. Kondo's user-cache allowlist includes `paste-cache`, `cache`, `debug`, `telemetry`, `downloads` and `shell-snapshots`; it excludes `backups` and `ide`. Directory presence alone does not prove safe cleanup. |
+| `backups/`, `paste-cache/`, `cache/`, `debug/`, `telemetry/`, `downloads/`, `ide/` | Support and cache directories ✅. Kondo's user-cache allowlist includes `paste-cache`, `cache`, `debug`, `telemetry`, `downloads` and `shell-snapshots`; it excludes `backups` and `ide`. An empty cache directory reclaims nothing and is never a candidate. Directory presence alone does not prove safe cleanup. |
 | `chrome/` | Claude in Chrome's native-messaging host (`chrome-native-host.bat`) ✅. 1 KB; not a cache. |
 | `plans/` | Plan-mode plans as markdown, one file per plan with a generated slug name ✅ (3 observed, 60 KB). The user's writing; never a tidy candidate. |
 | `daemon`, `daemon.log` | Daemon socket/state and log ✅. |
@@ -134,7 +121,7 @@ usage):
 | `feedback/`, `daemon-auth-cooldown`, `daemon-auth-status.json`, `gh-pr-status-cache.json`, `.last-update-result.json`, `.last-cleanup`, `statusline-command.sh.bak`, marker files (`.caveman-active`, …) | Small support and state files ✅. Listed by name and size only. |
 | `.credentials.json`, `.claude.json`, `.mcp.json` | Inside the user store: a credentials file (**read-never**, like the desktop token files), and two small JSON files (`.mcp.json` held an empty `mcpServers`) ✅. Not to be confused with `~/.claude.json` below. |
 
-### Configuration absence and incomplete inventory (100)
+### Configuration absence and incomplete inventory
 
 ✅ **Kondo behavior, verified with synthetic fixtures:** installed-plugin reads
 carry complete, partial or unavailable evidence independently of displayed rows.
@@ -162,8 +149,9 @@ bundled Doctor, and legacy commands participate in the skill system. See
 Bundled, managed and additional-directory skills cannot all be enumerated from
 Kondo's bounded stores. Consequently **all skillOverrides are retained**, even
 unknown names; scanning more local skill folders cannot prove global absence.
-The existing skill-override response kind is retained for compatibility but
-no longer emitted by configuration cleanup.
+The skill-override response kind remains in the contract and is not emitted by
+configuration cleanup. The plugin inventory does not list `@skills-dir`
+plugins.
 
 ✅ Preview and removal force a fresh session inventory as well as using a
 fresh per-call plugin context. Recreating a registered project root invalidates
@@ -171,17 +159,18 @@ its previous absence even when the registry and transcript directories did not
 change. A candidate lost after inventory degradation causes the entire mixed
 selection to refuse before planning effects. Proved dead registry projects and
 their MCP declarations remain available despite unrelated plugin errors. The
-UI shows partial-scan problems and explains preserved preferences. All actual
-settings removal and historical settings Undo remain refused under 098.
+UI shows partial-scan problems and explains preserved preferences. The removal
+itself is a settings edit and is refused.
 
 ### `~/.claude.json` — the registry
 
 One file beside the store, ~2 MB, 87 top-level keys ✅, rewritten by Claude
-during every session. Kondo reads it as one parse per inventory and keeps
-only the parts named here (ADR-0009). Because it is rewritten under kondo,
-the cached inventory stats this file (mtime and size) and the `projects/`
-directory on every read and rebuilds when either moved (entry 056,
-ADR-0007) — a project entry Claude adds or a directory another tool removes
+during every session. Each Kondo reader (session inventory, MCP listing,
+skill usage, configuration leftovers, MCP toggle planning) parses it
+separately and keeps only the parts named here (ADR-0009). Because it is
+rewritten under kondo, the cached inventory stats this file (mtime and size)
+and the `projects/` directory on every read and rebuilds when either moved
+(ADR-0007) — a project entry Claude adds or a directory another tool removes
 is seen without a restart:
 
 - `projects` ✅ — an object keyed by the **absolute path** of every directory
@@ -193,41 +182,35 @@ is seen without a restart:
   `enabledMcpjsonServers` (also empty) and `allowedTools` are present but
   unread, and the rest — `lastSessionFirstPrompt`, `lastCost`, token counts,
   `lastSessionId` — is session telemetry kondo never surfaces. 52 keys pointed at directories that no longer exist ✅:
-  that is the dead-project signal (entry 030). These keys are also **half of
+  that is the dead-project signal. These keys are also **half of
   the project set**: kondo lists the union of them and the `projects/`
   directories below, joined on the flattened path, so a directory Claude has
   registered but never kept a transcript for is still a project. Each member
   carries `sources` (`registry`, `transcripts`, or both), `location`
-  (`here`, `gone`, `unlocated` or `unreadable` — `pathExists` was replaced by
-  it in entry 030) and `hasStore`, the last being whether it holds a `.claude`
-  at all.
+  (`here`, `gone`, `unlocated` or `unreadable`) and `hasStore`, the last being
+  whether it holds a `.claude` at all.
 - `mcpServers` ✅ — user-scope MCP servers: `{ name → { type, command, args,
   env } | { type, url, headers } }`. `env` and `headers` can hold secrets.
 - `skillUsage` and `pluginUsage` ✅ — usage counters, `{ name → {
   usageCount, lastUsedAt } }` (127 skill keys observed). The key is the
   skill's own **name**, bare for a user- or project-placed skill and
   `<plugin>:<name>` for a plugin-shipped one. Read for the "never used"
-  badge (entry 032): a name with no key, or a key whose `usageCount` is 0,
+  badge: a name with no key, or a key whose `usageCount` is 0,
   has never been loaded. Only that boolean crosses the seam — the counts and
   timestamps are how often and when a user works, and stay in the main
   process. No `skillUsage` key at all (or no readable `~/.claude.json`) is a
-  third state, carried as `null` (entry 048): kondo cannot tell, and badges
-  nothing.
+  third state, carried as `null`: kondo cannot tell, and badges nothing.
 - Everything else (`oauthAccount`, `userID`, `machineID`, experiment caches)
-  is identity or telemetry and is **read-never**.
+  is identity or telemetry: parsed with the file, never kept or surfaced.
 
 The registry and settings planners express existing-file changes as narrow
-`splice` steps with the digest of the bytes read (ADR-0010). Configuration
-leftover plans remove dead `projects` entries and the `mcpServers` declared
-inside them; settings plans edit only the members needed for a toggle or
-scope move. An absent settings layer is represented by a whole-file `write`
-after the creation confirmation. Historical splice journal entries carry
-inverse edits rather than whole-file snapshots.
-
-These formats preserve intended edits and support historical inspection;
-they do not make replacement atomic with the digest check. All such apply
-plans and historical settings Undo are currently refused before effects,
-including confirmed creation of a missing layer (098).
+`splice` steps carrying the digest of the bytes read, and an absent settings
+layer as a whole-file `write` after a creation confirmation (ADR-0010).
+Configuration-leftover plans remove dead `projects` entries with the
+`mcpServers` declared inside them; settings plans edit only the members a
+toggle or scope move needs. Historical splice journal entries carry inverse
+edits rather than whole-file snapshots. Every such plan is refused before
+effects.
 
 ### MCP servers — three scopes, two files
 
@@ -252,12 +235,10 @@ other failure also records a `stat-failed` error and is never offered.
 Discovery is tier-1 (ADR-0007): one registry
 parse, one `stat` per registry entry that actually declares a server, one
 `.mcp.json` read per verified project. The two disable lists are also what
-kondo's toggle plans (entry 061; execution refused under 098): `disable` adds
-the name to the project's
-`disabledMcpServers` (a `local` declaration) or `disabledMcpjsonServers` (a
-`project` one) and `enable` takes it out, each as one splice of that list's
-value carrying its planned digest (ADR-0010). The digest alone cannot close
-the final replacement race; the execution gate currently refuses the change.
+kondo's toggle plans (execution refused): `disable` adds the name to the
+project's `disabledMcpServers` (a `local` declaration) or
+`disabledMcpjsonServers` (a `project` one) and `enable` takes it out, each as
+one splice of that list's value carrying its planned digest (ADR-0010).
 The user scope has no list and stays
 read-only; a declaration is never moved between files and `.mcp.json` is
 never written (ADR-0002).
@@ -266,7 +247,7 @@ never written (ADR-0002).
 on the observed machine ✅) and is **not** one of the three scopes above;
 kondo does not read it.
 
-### What settings-derived data crosses (117)
+### What settings-derived data crosses
 
 ◇ **Documented Claude behavior, checked 2026-09-15:** the
 [settings reference](https://code.claude.com/docs/en/settings-reference)
@@ -280,7 +261,7 @@ everything. The [MCP guide](https://code.claude.com/docs/en/mcp) documents the
 `stdio`, `http`, `sse` and `ws` declaration types, with `streamable-http` as an
 alias of `http`.
 
-✅ **Kondo projection, verified with synthetic fixtures (117):** a settings-file
+✅ **Kondo projection, verified with synthetic fixtures:** a settings-file
 summary carries only the 161 documented settings-file names it states, and
 `unlistedKeys` when it states others. A hook row carries a documented event or
 null, a documented handler type or null, `hasMatcher`, the status of the first
@@ -332,7 +313,7 @@ than kondo inventing a mechanism (ADR-0006). The owning project travels as
 `PlacedEntryInfo.projectId`, never as a substring the renderer splits out of
 an id (ADR-0008).
 
-`move` **is** permitted (entry 028), because putting the file in the other
+`move` **is** permitted, because putting the file in the other
 scope's directory is exactly how Claude loads it there — nothing is invented.
 A promotion runs the skill move's plan unchanged: copy, verify, trash, as one
 journal entry, so ADR-0001's undo restores it or none of it. `output-style`
@@ -341,7 +322,7 @@ is the exception, and only in one direction: a project store has no
 that kind rather than kondo creating the first one anybody has seen.
 
 A name can repeat across scopes, and that is the one thing kondo removes by
-hand (entry 032). `skillDuplicates` groups the skill listing by name and
+hand. `skillDuplicates` groups the skill listing by name and
 returns only groups of more than one, digesting each member's tree — the
 digest is what says whether the copies are actually the same skill, because
 two scopes can hold the same name over completely different work. A name that
@@ -352,7 +333,7 @@ operation, `trash`, allowed only in the four scopes a user placed a skill in
 by hand — a plugin-shipped skill follows its plugin, and a plugin's files are
 the plugin's to remove.
 
-✅ **Kondo logical equality, verified with synthetic fixtures (118):** tree
+✅ **Kondo logical equality, verified with synthetic fixtures:** tree
 digests frame each entry's type, complete relative path and file bytes with
 explicit lengths. Empty files/directories and binary contents count; safe
 internal links match their materialized copies. Thus a common `SKILL.md` plus
@@ -376,8 +357,7 @@ scan and a mutation can never disagree about where an entry lives.
   The flattening is lossy, so the name cannot be reversed; the reverse map is
   the `projects` object of `~/.claude.json` above, flattened with the same
   rule (ADR-0009). On the owner's machine that named 1,443 of 9,171
-  directories, against 7 for the old un-flattening guess; the rest are
-  scratch directories Claude has already forgotten. Kondo still stats the
+  directories; the rest are scratch directories Claude has already forgotten. Kondo still stats the
   path before claiming it, and records the outcome as four states, never one
   flag: `here`, `gone` (the registry named the path and the stat came back
   ENOENT — a *dead project*), `unlocated` (no key, and the guess never
@@ -386,10 +366,10 @@ scan and a mutation can never disagree about where an entry lives.
   have, a volume no longer mounted, an I/O error). Only ENOENT is evidence of
   deletion, so only `gone` makes a dead-project candidate; an `unreadable`
   project carries a `stat-failed` scan error and is never offered as dead,
-  because an unmounted volume still holds every byte it ever did (entry 075,
-  ADR-0005). Throwaway names are judged separately: a worktree or job marker,
-  or a registry path under the temp root, can offer an inactive directory
-  without `memory/` whatever its location (entries 058 and 102).
+  because an unmounted volume still holds every byte it ever did (ADR-0005).
+  Throwaway names are judged separately: a worktree or job marker, or a known
+  project path (registry key or verified guess) under a temp root, can offer
+  an inactive directory without `memory/` whatever its location.
 - Scale is real: **9,171 project directories** observed on one machine ✅
   (9,031 of them under a temp directory — benchmark and scratchpad runs);
   11,517 registry-plus-directory members on 2026-09-05, 8,498 of them
@@ -398,8 +378,8 @@ scan and a mutation can never disagree about where an entry lives.
   not put one row per member on screen: the projects home names a row by the
   last path segment with the parent beneath (`ProjectRow.name` / `parent`,
   built in `workspace.ts`), folds throwaway and gone rows behind a count
-  (`ProjectRow.throwaway` / `location`), and pages the rest (entry 060).
-- Temporary-project classification (entry 091) uses the locator's lexical and
+  (`ProjectRow.throwaway` / `location`), and pages the rest.
+- Temporary-project classification uses the locator's lexical and
   canonical temporary roots. Native realpath expands Windows 8.3 short names
   (verified locally and covered by an injected classification regression) ✅.
   MacOS `/var` and `/private/var` aliases are expected
@@ -423,8 +403,8 @@ scan and a mutation can never disagree about where an entry lives.
     attaches it to its session (`SessionRecord.released`,
     `SessionSummary.releasedByDesktop`), moves it with the transcript, treats
     one without a transcript as an orphan sidecar, and offers the released
-    sessions as the `desktop-released-sessions` tidy category (entry 059).
-    ✅ **Kondo source inspection (108):** the scanner associates the marker
+    sessions as the `desktop-released-sessions` tidy category.
+    ✅ **Kondo source inspection:** the scanner associates the marker
     by filename without parsing its contents. The current UI's `deleted in
     desktop app` wording therefore does not verify its reason or establish
     that a Desktop or cloud copy is gone.
@@ -435,10 +415,10 @@ scan and a mutation can never disagree about where an entry lives.
     only `memory/` and 23 held no transcript at all ✅ (24 of 8,641 on
     2026-09-05, two of them live projects — `D:\Projects\Knowledge\GRFEditor`
     among them — whose memory is the only thing Claude has recorded there).
-    So "no transcript" is not "scratch" (entry 058): the tidy sweep offers a
+    So "no transcript" is not "scratch": the tidy sweep offers a
     transcript-less directory whole only when it holds no `memory/`, shows no
     recent activity, and either carries a throwaway name (a worktree or job
-    marker, or a registry path under the temp root) or has an *unlocated*
+    marker, or a known project path under a temp root) or has an *unlocated*
     path. Throwaway names are checked first; otherwise one whose path is
     `gone` is a dead project, and one holding `memory/` under a live or
     unlocated path is Claude's record of a project and is offered nowhere.
@@ -459,9 +439,11 @@ scan and a mutation can never disagree about where an entry lives.
   mtime)` under `<kondo-data>` (ADR-0007); it is asked for one project at a
   time, never for the store. A session may be picked out of the listing and
   displaced into kondo's trash with its sidecar, as one journal entry
-  (`sessionTrash`, ADR-0001).
+  (`sessionTrash`, ADR-0001). The tidy preview does not count sidecar bytes
+  beside a session it offers, because measuring them would walk `projects/`;
+  an orphan sidecar is measured.
 
-### Reviewed removal policy (102)
+### Reviewed removal policy
 
 ✅ Synthetic removal regressions verify this Kondo policy. Removal safety uses current filesystem evidence, not a claim that Claude has
 finished with a file. `tidyPreview`, `sessionTrashPreview` and `skillDuplicates`
@@ -470,13 +452,13 @@ Category additions, missing or changed members, resumed transcripts and changed
 duplicate groups require renewed review before mutation (ADR-0015). Session
 sidecars and released markers are part of the reviewed displacement.
 
-A temporary/worktree/job name alone no longer makes its saved tree eligible.
+A temporary/worktree/job name alone is not enough to make its saved tree eligible.
 Scratch trees with memory, recent entries or unreadable activity evidence are
 withheld and counted separately; their sessions do not fall through into another
 cleanup category. Explicit selected-session removal remains a separate review.
 These are Kondo policies over observable state, not proof of process inactivity.
 
-### Session removal scope (108)
+### Session removal scope
 
 ✅ **Kondo implementation, source-reviewed with existing synthetic coverage:**
 `sessionTrashPlan` in `kinds.ts` moves only the selected Code transcript,
@@ -499,15 +481,16 @@ across Claude versions remain unverified for file history, backups, shared
 Desktop artifacts and external copies. They must not become new deletion
 candidates from a matching UUID alone. Kondo's trash retains displaced bytes;
 its journal and scan cache are separate retained records, not cleared by
-selected removal or trash emptying. No action promises privacy erasure.
-See the [itemized scope and follow-up criteria](plans/108-desktop-session-boundary.md)
-and the accepted [ADR-0016](adr/0016-desktop-session-boundary.md).
+selected removal or trash emptying — the scan cache can keep derived
+opening-prompt data and source paths after removal. No action promises
+privacy erasure ([ADR-0016](adr/0016-desktop-session-boundary.md)).
 
 ## Project store: `<project>/.claude`
 
 - `settings.json` (project scope, committed) and `settings.local.json`
-  (local scope, git-ignored) ◇ — same schema family as user settings;
-  `enabledPlugins`, `hooks`, `permissions` appear here too.
+  (local scope, git-ignored) — same schema family as user settings ◇.
+  `settings.local.json` carrying `enabledPlugins` is observed in the wild ✅;
+  `hooks` and `permissions` are expected here too ◇.
 - `skills/`, `agents/`, `rules/`, `hooks/` ✅ — project-scope variants,
   observed in every sampled project store (`agents/*.md`, `rules/*.md`,
   `hooks/` scripts with `__pycache__` and `*.test.js` noise beside them).
@@ -517,23 +500,20 @@ and the accepted [ADR-0016](adr/0016-desktop-session-boundary.md).
   A **project** layer's relative hook path resolves against that project
   directory ✅ — the directory Claude runs its hooks in — which is how
   `.claude/hooks/guard.sh` in a project `settings.json` verifies. The
-  `unarmed-hook-scripts` category is blocked (101): neither user nor project
+  `unarmed-hook-scripts` category is blocked: neither user nor project
   scripts can be classified as unused from this incomplete inventory.
 - `worktrees/` and `docs/` ✅ — seen in one store. Claude registers a git
   worktree under `.claude/worktrees/` as a project of its own in
   `~/.claude.json`, so it is both inside the boundary and a duplicate-project
-  candidate (entry 030).
+  candidate.
 - `CLAUDE.md` ◇ — the in-boundary placement of a project's instructions.
   `./CLAUDE.md` and `CLAUDE.local.md` at the project root are outside
   ADR-0002 and invisible by design.
-- `.claude/settings.local.json` also carries `enabledPlugins` in the wild ✅,
-  alongside `settings.json`.
 - `skills.disabled/` ◇ — the project-scope counterpart of the user store's
-  parking spot. Unobserved in the wild, and entry 029 settled why: no Claude
-  Code build reads it in *any* scope, so there was no project-scope convention
-  to be unobserved. Kondo historically wrote it and reads it back as the
-  `project-disabled` skill scope; the per-skill switch Claude actually honours
-  here is `skillOverrides` in this project's settings layers (ADR-0006).
+  parking spot, unobserved in the wild: no Claude Code build reads it in *any*
+  scope. Kondo reads it back as the `project-disabled` skill scope and never
+  moves skills into it; the per-skill switch Claude honours here is
+  `skillOverrides` in this project's settings layers (ADR-0006).
 - Settings precedence: local > project > user ◇. Settings-file summaries list
   these layers (ADR-0021), and a plugin's state is resolved through
   them: the highest layer that states a value is the one that wins. Layers
@@ -549,8 +529,7 @@ and the accepted [ADR-0016](adr/0016-desktop-session-boundary.md).
   the way back to silence is removing the member from `enabledPlugins`
   (`pluginClear`), which is a splice like the toggle rather than a rewrite —
   the member's span and one separating comma are all that leave the file.
-  These edits are currently refused by the execution gate (098).
-  Which file a position plans to edit is chosen in the main process:
+  These edits are refused by the execution gate. Which file a position plans to edit is chosen in the main process:
   the highest-precedence layer of that scope that *already states a value*,
   and `settings.local.json` when none does.
 - Handing a plugin to another scope is those same statements twice, never a
@@ -558,20 +537,18 @@ and the accepted [ADR-0016](adr/0016-desktop-session-boundary.md).
   layer that enabled it and `true` in the destination scope's layer, as one
   plan (`pluginMove`) carrying one splice per file, each with its own digest.
   A destination that does not exist yet is a write, with a creation
-  confirmation. Both forms are currently refused whole before any effects
-  (098). The destination *file* is chosen by the same rule as a toggle's.
+  confirmation. Both forms are refused whole before any effects. The
+  destination *file* is chosen by the same rule as a toggle's.
 
 ## Desktop store
 
-**Accepted product boundary (108): partial, read-only session
-support.** ✅ Current source inspection: `desktopSessions` is exposed through
-the workspace/typed bridge but has no renderer consumer, including through the
-generic session listing. The adapter reads names, sizes and mtimes, not session
-JSON contents. Code rows receive only a filename-stem match through
+**Partial, read-only session support** ([ADR-0016](adr/0016-desktop-session-boundary.md)).
+✅ Source inspection: `desktopSessions` is exposed through the workspace/typed
+bridge but has no renderer consumer. The adapter reads names, sizes and mtimes,
+not session JSON contents. Code rows receive only a filename-stem match through
 `desktopSessionStems`; that match merges devices/accounts into one set and is
-not content equality or a verified backup. Desktop-only sessions are not
-browsable or removable in the current UI. This session boundary does not remove
-the existing, separate `desktop-caches` cleanup operation.
+not content equality or a verified backup. The separate `desktop-caches`
+cleanup category is unaffected.
 
 Electron app data — 10.9 GB on the owner's machine on 2026-09-05 ✅, against
 1.6 GB for the Claude Code store. Observed top-level entries, by what they
@@ -581,7 +558,7 @@ are:
 |---|---|---|
 | `vm_bundles/` (`claudevm.bundle/`, `warm/`) | 9.3 GB ✅ — the cowork VM image and its warm copy. Whether the app re-downloads a missing bundle is not established ◇. | Reported. **Never offered**: not a cache until proven one. |
 | `claude-code/<version>/`, `claude-code-vm/<version>/` | 416 MB + 205 MB ✅ — the Claude Code CLI the desktop app bundles, one directory per version (2.1.258 and 2.1.260 seen; only the newer has a `-vm` twin). The older version looks superseded ◇, the way a plugin's cache versions are. | Reported. Not offered until the app's rollback behaviour is known. |
-| `Code Cache/`, `Cache/`, `GPUCache/`, `DawnGraphiteCache/`, `DawnWebGPUCache/`, `Shared Dictionary/` | 317 MB + 157 MB + … ✅ — Chromium's own caches; the app rebuilds each on its next launch, which is what "clear cache" means in any Electron app. | The `desktop-caches` tidy category (entry 063), at the root and inside each `Partitions/<name>/`. |
+| `Code Cache/`, `Cache/`, `GPUCache/`, `DawnGraphiteCache/`, `DawnWebGPUCache/`, `Shared Dictionary/` | 317 MB + 157 MB + … ✅ — Chromium's own caches; the app rebuilds each on its next launch, which is what "clear cache" means in any Electron app. | The `desktop-caches` tidy category, at the root and inside each `Partitions/<name>/`. |
 | `Partitions/<name>/` | 129 MB ✅ — one Chromium profile per isolated web view (`cowork-artifact-<ids>`, `cowork-file-preview`, `launch-preview-cowork-shared`, `launch-preview-static`), each with the same cache directories beside its `Local Storage`, `IndexedDB`, `Network`, `Preferences`. | Only the cache directories inside are offered. |
 | `local-agent-mode-sessions/<device-or-install-uuid>/<account-uuid>/` | 287 MB ✅ — desktop/cowork sessions: `local_<session-uuid>.json` + `local_<session-uuid>/` per session, `agent/`, `artifacts.json`, `cowork-*-cache.json`. | Filename match and metadata listing API only; no session UI consumer. Session contents are not opened by this adapter. Never swept or removed by Code session removal. |
 | `claude-code-sessions/<uuid>/`, `scratch-workspaces/`, `git-shadow/`, `git-worktrees.json` | 9 MB + … ✅ — cowork's working state: the CLI sessions it drove, the scratch checkouts it works in, shadow git data. | Reported only. |
@@ -589,30 +566,30 @@ are:
 | `pending-uploads/` | 22 MB, 60 PNGs ✅ — pasted images awaiting upload. | **Never offered**: in-flight user data. |
 | `IndexedDB/`, `Local Storage/`, `Session Storage/`, `WebStorage/`, `File System/`, `blob_storage/`, `Network/`, `DIPS*`, `SharedStorage*`, `InterestGroups/`, `VideoDecodeStats/`, `Local State`, `Preferences`, `shared_proto_db/`, `fcache` | Chromium's state stores ✅. | Reported only; state, not cache. |
 | `Claude Extensions/`, `Claude Extensions Settings/`, `ChromeNativeHost/`, `design/`, `document-baselines/`, `extensions-*.json`, `mcp-user-tool-toggles.json`, `cowork-enabled-cli-ops.json`, `claude_desktop_config.json`, `config.json`, `window-state.json` | The desktop app's own configuration and features ✅. | Reported only. |
-| `ant-device-registry.json`, `ant-did`, `bridge-state.json`, `buddy-tokens.json`, `lockfile` | Device/identity state and Electron's single-instance lock ✅. **Read-never** for the identity and token files: names and sizes only. `lockfile` is opened for writing once per tidy preview — never read — because Electron holds it with exclusive access while the app runs (EBUSY on Windows, verified with the app up), which is how kondo knows not to sweep caches the app has open; on macOS and Linux a `SingletonLock` / `SingletonSocket` / `SingletonCookie` beside it means the same (and may be left behind by a crash ◇, in which case kondo refuses a sweep that would have worked). | The `desktop-caches` block. |
+| `ant-device-registry.json`, `ant-did`, `bridge-state.json`, `buddy-tokens.json`, `lockfile` | Device/identity state and Electron's single-instance lock ✅. **Read-never** for the identity and token files: names and sizes only. `lockfile` is opened `r+` — never read — when a tidy preview finds desktop-cache candidates, because Electron holds it with exclusive access while the app runs (EBUSY on Windows, verified with the app up), which is how kondo knows not to sweep caches the app has open. On every platform a `SingletonLock` / `SingletonSocket` / `SingletonCookie` beside it also blocks the sweep (such a marker may be left behind by a crash ◇, in which case kondo refuses a sweep that would have worked). | The `desktop-caches` block. |
 
 Cloud sessions (claude.ai) have no local files unless mirrored here; kondo
 only sees what is on disk.
 
-The read-never policy is pinned by synthetic fixtures (094): `.credentials.json`
+The read-never policy is pinned by synthetic fixtures: `.credentials.json`
 under the user root and `ant-did`, `ant-device-registry.json`,
-`bridge-state.json`, `buddy-tokens.json` under the desktop root. These fixtures
-verify Kondo's `fs/promises.readFile` call policy, including failed attempts;
-they do not add a new observation about Claude's formats or cover other read
-mechanisms. Names and sizes remain available to store reports.
+`bridge-state.json`, `buddy-tokens.json` under the desktop root. The
+protected-name assertion covers `fs/promises.readFile` calls, including failed
+attempts; see [testing.md](testing.md) for the other read mechanisms the
+boundary test observes. Names and sizes remain available to store reports.
 
 ## Cross-store facts
 
 - A session id is a UUID and appears in: its transcript filename, the
   transcript's lines, `history.jsonl` entries, `session-env/`, and possibly a
-  desktop-store directory — this is how kondo joins data across stores to
-  identify possible relationships. The transcript and its sidecar move together;
-  `session-env/` uses a separate orphan join, not a removal cascade. The desktop
-  store's `local_<uuid>.json` stems are joined to the code store's uuids for
-  `SessionSummary.mirroredIn` ✅, which means a matching identifier only
-  (entry 034), not verified equal contents or completeness. `session-env/` held 5,213 directories
-  against 11,686 transcripts ✅ — the sweep entry 033 shipped reads exactly
-  that join, and offers only the snapshots the transcript set does not claim.
+  desktop-store directory. Kondo joins on it in two places only, and does not
+  read `history.jsonl`. The transcript and its sidecar move together;
+  `session-env/` uses a separate orphan join, not a removal cascade.
+  `session-env/` held 5,213 directories against 11,686 transcripts ✅, and the
+  `orphan-session-env` sweep offers only the snapshots the transcript set does
+  not claim. The desktop store's `local_<uuid>.json` stems are joined to the
+  code store's uuids for `SessionSummary.mirroredIn` ✅, which means a matching
+  identifier only, not verified equal contents or completeness.
 - A project is joined across `~/.claude.json`, `~/.claude/projects/` and
   `<project>/.claude` by its flattened path (ADR-0009). The project set is
   the **union** of the first two, never just one of them, and each member
@@ -623,7 +600,7 @@ mechanisms. Names and sizes remain available to store reports.
   `bad-request` naming the `.claude` directory that would have to exist.
   The exact registry path (or verified fallback guess) stays in main's
   `ProjectRecord.guessedPath`; `SessionProject` exposes only the resulting
-  location/store facts, attribution, IDs and aggregate counts (094).
+  location/store facts, attribution, IDs and aggregate counts.
 - Because the set is a union, its size is not the same figure as "projects
   with transcripts", and the wider one must never be shown wearing the
   narrower one's label. `StoresOverview.sessions` carries both:
@@ -631,8 +608,7 @@ mechanisms. Names and sizes remain available to store reports.
   those hold at least one transcript — derived from the same tier-1
   inventory, not from a second scan (ADR-0007). A registry key Claude has on
   record but never worked in sits in the gap between them, so the pair is
-  what the projects home prints, each number named for the set it counts
-  (entry 038).
+  what the projects home prints, each number named for the set it counts.
 - Which project a thing belongs to travels as a field, never as a substring
   of its id (ADR-0008): `SkillInfo`, `HookInfo`, `SettingsLayerInfo` and
   `PluginScopeState` each carry `projectId`. The folder name beside it
@@ -650,29 +626,31 @@ mechanisms. Names and sizes remain available to store reports.
   both as `null` and `projectDetail` counts them for the one scope opened.
   The one place the two tiers disagree: a directory under `skills/` with no
   `SKILL.md` counts as a skill and is not listed as one.
-- Timestamps are ISO-8601 strings in JSON files ✅; file mtimes are the
-  fallback signal and are what staleness uses first (cheap).
+- Timestamps are ISO-8601 strings in JSON files ✅. Staleness uses file mtime
+  alone (`STALE_AFTER_DAYS`, 30 days), because it is cheap.
 - All JSON/JSONL reads assume partial corruption is possible (interrupted
   writes). A bad line is skipped and reported, never fatal.
 - Settings can be reached through filesystem links ◇; this is a supported
   layout, not a newly observed Claude convention. Settings execution is
-  currently refused before any link or target is changed (098). Other mutation
-  targets
-  must stay inside their resolved store root; missing destinations resolve
-  through existing ancestors and dangling links refuse. The registry remains
-  one named file under its resolved parent, not permission to follow a link
-  into another home file. Historical splice synchronization and target
-  resolution did not close the final replacement race; see ADR-0010.
+  refused before any link or target is changed. Other mutation targets must
+  stay inside their resolved store root; missing destinations resolve through
+  existing ancestors and dangling links refuse. The registry remains one named
+  file under its resolved parent, not permission to follow a link into another
+  home file.
 - Journal shape validation is covered by fixtures ✅: a line is accepted only
   when its record and every step have the fields the operation needs, including
   inverse splice edits and undo/failure links. Valid JSON with the wrong shape
   is skipped as one whole entry and reported as `parse-failed` at
   `journal.jsonl:<line>`. Other entries remain listed, with those
   read errors still returned. Entries containing `write` or `splice` remain
-  readable but their Undo is refused before effects (098). Optional historical
-  fields and additional metadata are accepted; the journal is never rewritten to repair a line (095). Readable
-  `undoOf`/`failedOf` references in rejected entries conservatively block undo of
-  the related change, without supplying steps or claiming a completed undo.
+  readable but their Undo is refused before effects. Optional historical
+  fields and additional metadata are accepted; the journal is never rewritten
+  to repair a line. Readable `undoOf`/`failedOf`/`progressOf` references in
+  rejected entries conservatively block undo of the related change, without
+  supplying steps or claiming a completed undo.
+- A journal step names a store root and a path relative to it, and records the
+  directories it created; Undo removes those directories only while they are
+  still empty.
 - Bytes kondo displaces leave their store entirely: they land in
   `<kondo-data>/trash/<journal-id>/<store-name>/<path relative to that
   store>`, which sits outside every store above (ADR-0001) and so never
@@ -682,7 +660,7 @@ mechanisms. Names and sizes remain available to store reports.
   ever performs; every other operation moves them. The displaced copy is the
   only copy, so an entry whose bytes were emptied can no longer be reversed —
   `undo` refuses it and says so, rather than half-restoring.
-- ✅ Version 2 Kondo journal behavior, verified with synthetic fixtures (099):
+- ✅ Version 2 Kondo journal behavior, verified with synthetic fixtures:
   intention, pending-action digest, confirmed cursor and completion are separate
   append-only records. Only a completed Undo sets `undoneBy`; failed or interrupted
   attempts remain incomplete. A retry reuses the attempt, skips confirmed actions
@@ -691,27 +669,26 @@ mechanisms. Names and sizes remain available to store reports.
   file fingerprints stream bytes; archived links remain metadata. The parser
   checks action identity, order and exact coverage of confirmed forward steps.
   A torn tail remains in place and a later append begins on a separate line.
-- ✅ Pending logical copies now record `tree-v2:<hex>` fingerprints (118).
+- ✅ Pending logical copies record `tree-v2:<hex>` fingerprints (ADR-0019).
   Bare fingerprints from older pending copies remain readable but cannot prove
   equality. Recovery stays uncertain and blocked, with an explanation in History,
   without appending progress or changing either endpoint. Confirmed historical
   cursors and completed copies remain undoable. No journal migration rewrites evidence.
-- ✅ Pending physical moves and Undo moves now record `physical-v2:<hex>`
-  fingerprints (121). Physical tree identity frames entry kind, UTF-8 path,
+- ✅ Pending physical moves and Undo moves record `physical-v2:<hex>`
+  fingerprints (ADR-0020). Physical tree identity frames entry kind, UTF-8 path,
   stored link text and streamed file length/content separately. Bare pending
   move fingerprints and fingerprints carrying the other action type's prefix
   remain readable but cannot prove equality. Recovery blocks before endpoint
   reads, journal appends or effects and keeps all bytes. Completed legacy cursors
   remain usable, but a later checkpoint cannot clear mismatched typed evidence
   into completion or a successful Undo. Link text stays metadata rather than
-  authority to read a target. The settings restriction is unchanged.
-- ✅ Legacy records and failure markers remain readable without migration (099).
+  authority to read a target.
+- ✅ Legacy records and failure markers remain readable without migration.
   A failed legacy Undo lacks action evidence, so it cannot consume the original
   or authorize automatic replay. New partial forward results include the journal
   entry alongside errors, keeping inline recovery reachable. `none` reports no
   confirmed action effects; `uncertain` reports missing confirmation. These are
-  Kondo execution facts, not newly observed Claude file conventions. Historical
-  `write`/`splice` Undo remains refused whole under 098.
+  Kondo execution facts, not newly observed Claude file conventions.
 - An undo never renames over a path that is occupied. The time between an
   operation and its undo belongs to whoever else writes there — Claude
   saving a transcript at the same uuid a sweep trashed is the ordinary case
@@ -722,28 +699,11 @@ mechanisms. Names and sizes remain available to store reports.
   entry is built, because the entry is written before its steps run and a
   step it does not carry is bytes nothing records.
 
-## Claude Code compatibility review — 2026-09-06
+## Known compatibility gaps
 
-The store observations above describe what was checked at their original dates.
-They do not prove complete support for newer Claude Code conventions.
+Checked against Claude Code documentation on 2026-09-06; each is open work in
+[ROADMAP.md](../ROADMAP.md).
 
-- Multiple scopes can keep different installed versions of one plugin ✅.
-  `installed_plugins.json` holds an array of installation entries per id;
-  cleanup now preserves **every** in-store `installPath` in that array, in
-  any order. Fixture sweep/undo tests cover user, project and local records
-  together. This refines the plugin-residue description above: there can be
-  several installed versions, not one. The inventory still presents only the
-  first installation. [Claude Code plugin reference](https://code.claude.com/docs/en/plugins-reference#plugin-uninstall).
-- Directory-discovered `@skills-dir` plugins and overrides for built-in skills
-  are supported by current Claude documentation ✅. Absence from Kondo's
-  installation inventory is **not** proof that a preference is obsolete, so
-  configuration-orphan inference preserves these preferences: only a
-  recognized marketplace source with a complete manifest establishes absence,
-  and every skill override is kept
-  ([100](#configuration-absence-and-incomplete-inventory-100)). The plugin
-  inventory itself still does not list `@skills-dir` plugins (106).
-  [Directory plugins](https://code.claude.com/docs/en/plugins-reference#skills-directory-plugins),
-  [removing a skill](https://code.claude.com/docs/en/skills#remove-a-skill).
 - MCP approval, settings restrictions and per-project disablement are distinct
   states in Claude Code ✅. Kondo's current boolean and historical disable-list
   reader do not represent all of them; its displayed `on` does not prove that
@@ -755,6 +715,6 @@ They do not prove complete support for newer Claude Code conventions.
   still the only layout Kondo's plugin-skills reader inventories.
   [Plugin skills](https://code.claude.com/docs/en/plugins-reference#skills).
 - `CLAUDE_CONFIG_DIR` selects a different Claude configuration directory ✅.
-  Kondo currently checks `KONDO_STORE_ROOT` instead and otherwise defaults to
-  the ordinary user store; profile selection remains a compatibility gap.
+  Kondo checks `KONDO_STORE_ROOT` instead and otherwise defaults to the
+  ordinary user store.
   [Environment variables](https://code.claude.com/docs/en/env-vars).
