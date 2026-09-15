@@ -126,10 +126,10 @@ In-app wording reconciled with the accepted decisions. Acceptance criteria:
 - A public identity and destination for strategy A, a separate public
   repository with a new root commit
   ([plan 111](docs/plans/111-public-history-decision.md)).
-- Finally, 114 revalidates the exact candidate: fresh hosted checks on all
-  three platforms, packaged smoke, cleanup and recovery rehearsal, a privacy
-  re-audit of the final SHA and the release notes. The release itself is the
-  owner's to cut ([docs/release.md](docs/release.md)).
+- Finally, once 120 is settled, 114 revalidates the exact candidate: fresh
+  hosted checks on all three platforms, packaged smoke, cleanup and recovery
+  rehearsal, a privacy re-audit of the final SHA and the release notes. The
+  release itself is the owner's to cut ([docs/release.md](docs/release.md)).
 
 ## Later
 
