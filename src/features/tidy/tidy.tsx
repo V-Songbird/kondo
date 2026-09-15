@@ -116,6 +116,34 @@ function hintFor(category: TidyCategory, staleAfterDays: number): string {
   }
 }
 
+/**
+ * What a move costs, in the three figures it actually has: bytes leave the
+ * store, kondo's trash grows by the same amount, and the disk gets nothing
+ * back until the trash is emptied. One number would read as the third.
+ *
+ * `movingBytes` counts every file that moves, a conversation's sidecar folder
+ * and released marker included, so the trash grows by exactly this.
+ */
+function MoveFigures({ movingBytes, trashBytesBefore, incomplete }: {
+  movingBytes: number
+  trashBytesBefore: number
+  incomplete: boolean
+}) {
+  const after = trashBytesBefore + movingBytes
+  return (
+    <ul className="space-y-1">
+      <li>Moves to trash: {formatBytes(movingBytes)}</li>
+      <li>Trash holds after this: {formatBytes(after)}</li>
+      <li>Freed only if you empty the trash: {formatBytes(after)}</li>
+      {incomplete && (
+        <li className="text-note">
+          Some files could not be read, so these are a minimum, not a total.
+        </li>
+      )}
+    </ul>
+  )
+}
+
 function FileCleanup() {
   const state = useScan((api) => api.tidyPreview())
   const [selected, setSelected] = useState<TidyCategory[]>([])
@@ -201,8 +229,9 @@ function FileCleanup() {
         trash. You can undo the move here or in History.
       </p>
       <p className="mb-5 max-w-2xl">
-        Moving files to trash does not free disk space. Space is freed only when you
-        permanently empty the trash in History.
+        Sizes count every file that moves, including a conversation&rsquo;s saved
+        supporting files. Moving to trash does not free disk space. Space is freed
+        only when you permanently empty the trash in History.
       </p>
       {stale !== null && <ReviewRefusal {...stale} onReview={() => {
         setStale(null)
@@ -308,7 +337,14 @@ function FileCleanup() {
                 <tfoot>
                   <tr>
                     <td />
-                    <td>Total found</td>
+                    <td>
+                      Total found
+                      {scan.data.estimate.incomplete && (
+                        <p className="text-xs text-note">
+                          Some files could not be read, so the sizes are a minimum.
+                        </p>
+                      )}
+                    </td>
                     <td className="num">{scan.data.totalCount.toLocaleString()}</td>
                     <td className="num">{formatBytes(scan.data.totalBytes)}</td>
                   </tr>
@@ -327,12 +363,19 @@ function FileCleanup() {
               {confirming ? (
                 <div className="band band-pencil flex-col items-start gap-3" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
                   <h3 id={questionId}>2. Review before moving anything</h3>
-                  <p>Move {formatCount(count, 'item')} (about {formatBytes(bytes)}) into kondo&rsquo;s trash?</p>
+                  <p>Move {formatCount(count, 'item')} into kondo&rsquo;s trash?</p>
                   <ul className="space-y-1">
                     {reviewed.map((entry) => (
-                      <li key={entry.category}>{LABEL[entry.category]} · {formatCount(entry.count, 'item')}</li>
+                      <li key={entry.category}>
+                        {LABEL[entry.category]} · {formatCount(entry.count, 'item')} · {formatBytes(entry.bytes)}
+                      </li>
                     ))}
                   </ul>
+                  <MoveFigures
+                    movingBytes={bytes}
+                    trashBytesBefore={scan.data.estimate.trashBytesBefore}
+                    incomplete={scan.data.estimate.incomplete}
+                  />
                   <p>Only the reviewed items will move together. If they change, review again. One Undo restores the move.</p>
                   <div className="flex flex-wrap gap-3">
                     <button
@@ -350,11 +393,20 @@ function FileCleanup() {
                 </div>
               ) : (
                 <div>
-                  <p className="mb-3" role="status">
-                    {busy ? 'Moving selected files to trash…' : count === 0
-                      ? 'No categories selected.'
-                      : `${formatCount(count, 'item')} selected · about ${formatBytes(bytes)} to move to trash.`}
-                  </p>
+                  <div className="mb-3" role="status">
+                    <p>
+                      {busy ? 'Moving selected files to trash…' : count === 0
+                        ? 'No categories selected.'
+                        : `${formatCount(count, 'item')} selected.`}
+                    </p>
+                    {!busy && count > 0 && (
+                      <MoveFigures
+                        movingBytes={bytes}
+                        trashBytesBefore={scan.data.estimate.trashBytesBefore}
+                        incomplete={scan.data.estimate.incomplete}
+                      />
+                    )}
+                  </div>
                   <button
                     id={sweepButtonId}
                     type="button"

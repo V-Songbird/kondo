@@ -14,6 +14,7 @@ import type {
   ProjectDetail,
   ProjectRow,
   ProjectRowCounts,
+  RemovalSizeEstimate,
   Scan,
   ScanError,
   SessionDetail,
@@ -65,7 +66,7 @@ import { desktopStoreReport } from './desktop-store'
 import { slashed, tildify } from './display'
 import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
 import { createMutations, type MutationPlan } from './mutations'
-import { createRemovalReviews, snapshotRemovalTree, staleRemoval } from './reviewed-removals'
+import { createRemovalReviews, reviewedBytes, snapshotRemovalTree, staleRemoval } from './reviewed-removals'
 import { tidyCategories } from '../../../shared/contract'
 import { createAppearance } from './appearance'
 import { describeProfile } from './profile'
@@ -256,16 +257,41 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     data: null, errors: [staleRemoval(at, detail)], unknown: []
   })
 
+  /** The removal stores a reviewed trash step may name, and nothing else. */
+  const removalRoot = (store: string): string | null =>
+    store === 'user' ? locator.userRoot : store === 'desktop' ? locator.desktopRoot : null
+
   const snapshotPlan = async (plan: MutationPlan | null): Promise<string> => {
     const result = []
     for (const step of plan?.steps ?? []) {
       if (step.type !== 'trash') throw Error('A removal review may only trash reviewed entries.')
-      const root = step.store === 'user' ? locator.userRoot :
-        step.store === 'desktop' ? locator.desktopRoot : null
+      const root = removalRoot(step.store)
       if (root === null) throw Error('Unknown removal store.')
       result.push([step.store, step.from, await snapshotRemovalTree(path.join(root, step.from), root)])
     }
     return JSON.stringify(result.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))
+  }
+
+  /**
+   * What a reviewed plan will move, and what kondo's trash holds around it.
+   * Three figures rather than one: displacing into the trash frees no disk
+   * space, and only a permanent empty does (ADR-0001).
+   */
+  const estimateFor = async (
+    plan: MutationPlan | null,
+    c: Collector
+  ): Promise<RemovalSizeEstimate> => {
+    const trash = await mutations.trashSize()
+    const measured = await reviewedBytes(plan, removalRoot, new Set(), (at, cause) =>
+      c.fail('read-failed', tildify(at, locator.home), cause))
+    const before = trash.data.bytes
+    return {
+      movingBytes: measured.bytes,
+      trashBytesBefore: before,
+      trashBytesAfter: before + measured.bytes,
+      freedOnEmptyBytes: before + measured.bytes,
+      incomplete: !measured.complete || trash.errors.length > 0
+    }
   }
 
   // Include the complete selected UUID namespace, including formerly absent
@@ -753,10 +779,13 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         const sessions = (await shared.inventory()).projects.flatMap((project) =>
           toSessionSummaries(project, shared.now, stems)).filter((session) => chosen.some((id) =>
             id.toLowerCase() === session.id.toLowerCase()))
+        // Over the plan's own steps, so the transcript's sidecar directory and
+        // released marker are in the figure the confirmation shows.
+        const estimate = await estimateFor(planned.plan, c)
         if (c.errors.length > 0) return finish(null, c)
         const reviewToken = reviews.issue({ kind: 'sessions', ids: chosen, signature })
         if (reviewToken === null) return stale('(sessions)', 'This selection is too large to retain safely.')
-        return finish({ reviewToken, count: chosen.length, sessions }, c)
+        return finish({ reviewToken, count: chosen.length, sessions, estimate }, c)
       } catch {
         c.errors.push(staleRemoval('(sessions)', 'The selected sessions could not be safely reviewed.'))
         return finish(null, c)
@@ -946,7 +975,11 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
     async tidyPreview(): Promise<Scan<TidyPreview>> {
       const c = collector()
       const { candidates, blocked, withheldScratchCount } = await tidyCandidates(c)
-      const preview = toTidyPreview(candidates, blocked, withheldScratchCount)
+      const trash = await mutations.trashSize()
+      const preview = await toTidyPreview(
+        candidates, removalRoot, trash.data.bytes, c, blocked, withheldScratchCount
+      )
+      if (trash.errors.length > 0) preview.estimate.incomplete = true
       const signatures = {} as Record<TidyCategory, string>
       try {
         if (c.errors.length === 0) {
@@ -957,6 +990,9 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       } catch {
         c.errors.push(staleRemoval('(cleanup)', 'The cleanup candidates changed or could not be safely reviewed.'))
       }
+      // Nothing binds a figure that no token holds, so it is a floor and says
+      // so rather than reading as the exact cost of a sweep that cannot run.
+      if (preview.reviewToken === null) preview.estimate.incomplete = true
       return finish(preview, c)
     },
 

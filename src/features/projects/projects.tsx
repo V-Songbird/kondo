@@ -1514,9 +1514,22 @@ function SessionTable({
           <ul className="space-y-1 text-ink-2">
             {review.sessions.map((session) => (
               <li key={session.id} className="break-all">
-                {session.uuid} · {formatBytes(session.bytes)} · last activity {formatAgo(session.mtimeMs)}
+                {session.uuid} · transcript {formatBytes(session.bytes)} · last activity {formatAgo(session.mtimeMs)}
               </li>
             ))}
+          </ul>
+          {/* The three figures a move has. The first counts every file that
+              moves — each transcript, its sidecar folder and its released
+              marker — so the trash grows by exactly that. */}
+          <ul className="space-y-1">
+            <li>Moves to trash: {formatBytes(review.estimate.movingBytes)}</li>
+            <li>Trash holds after this: {formatBytes(review.estimate.trashBytesAfter)}</li>
+            <li>Freed only if you empty the trash: {formatBytes(review.estimate.freedOnEmptyBytes)}</li>
+            {review.estimate.incomplete && (
+              <li className="text-note">
+                Some files could not be read, so these are a minimum, not a total.
+              </li>
+            )}
           </ul>
           <p>If a conversation changes or resumes, nothing moves until you review again.</p>
           <button type="button" disabled={busy || review.count === 0} className="btn btn-pencil btn-sm" onClick={trash}>

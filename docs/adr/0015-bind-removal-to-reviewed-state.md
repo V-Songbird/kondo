@@ -20,6 +20,24 @@ skill groups refuse the whole selection with `stale-plan`. The renderer clears
 selection and offers a fresh review. An expired, missing or already consumed
 token cannot be retried as a deletion. Cancel discards the UI's review.
 
+## What a review is worth in bytes
+
+The size a preview reports is measured over the very trash steps the token
+binds, deduplicated, and never over a second walk of the store. A session's
+sidecar directory and released marker are steps of the same plan as its
+transcript, so their bytes are in its figure. Regular-file bytes are summed the
+way `trashSize` counts the trash, so a confirmed move grows the trash by exactly
+the figure reviewed. Category figures are disjoint — a path counted under one
+category is counted under no other — so a combined selection is the sum of the
+categories it picked.
+
+`RemovalSizeEstimate` crosses the seam with those bytes separated into three:
+what will move, what kondo's trash then holds, and what a permanent empty would
+free. Displacing frees no disk space, and one number would be read as the third.
+A preview whose reviewed path could not be read, or which was issued no token,
+carries `incomplete` and its figures are a floor rather than a total. The
+renderer receives the figures and never a path to measure.
+
 Revalidation runs before journaling, after mutation step planning. It does not
 silently drop changed members, acquire newly eligible members or turn a stale
 review into a partial success. Unselected categories do not expand the selected
