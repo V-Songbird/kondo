@@ -18,6 +18,9 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
+- [135 — An unreadable MCP project path is not a removable orphan](135-unreadable-mcp-paths.md)
+  — `orphan` narrows to ENOENT; a path kondo could not check reads `unknown` and
+  refuses its switch without pointing at Leftovers.
 - [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
   — the experiments that separate an Electron, smoke-harness or kondo startup
   cause; none has run yet.
