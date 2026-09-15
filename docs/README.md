@@ -15,7 +15,7 @@ and its home is not obvious from the table below, fix the table in the same PR.
 | [docs/status.md](status.md) | Where work stands: `main`, branches and worktrees, next steps, open findings and questions | Work starts, lands or stops; a finding is opened or resolved |
 | [CHANGELOG.md](../CHANGELOG.md) | User-visible changes per release | Every user-visible PR |
 | [SECURITY.md](../SECURITY.md) | Threat model, private reporting, supported-version policy | The security posture changes |
-| [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | Bundled font and Electron attribution; packaged license locations | Those components or their licensing change |
+| [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | Attribution for everything the installers carry: fonts, the Electron runtime, the bundled renderer libraries; packaged license locations | A dependency lands or leaves, or a component's licensing changes |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Dev setup, workflow, conventions, review bar | Tooling or process changes |
 | [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | Participation expectations, enforcement and reporting limits | Conduct policy or contact changes |
 | [.github/ISSUE_TEMPLATE/](../.github/ISSUE_TEMPLATE/) | Safe bug and feature intake, security routing | Reporter information needs change |

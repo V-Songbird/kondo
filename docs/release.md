@@ -112,14 +112,32 @@ claiming them enforced. The owner must approve that remote configuration first.
 - The app must run fully offline; a release build making any network request
   is a release blocker (SECURITY.md).
 - `build.extraResources` ships `THIRD-PARTY-NOTICES.md` and the unchanged
-  IBM Plex OFL at `licenses/IBM-Plex/OFL.txt` inside app resources. The release
-  workflow does not run the notice verifier; after a local `npm run package`,
-  run `node scripts/verify-packaged-notices.mjs <resources-directory>`:
-  use `release/win-unpacked/resources` on Windows,
-  `release/mac-arm64/Kondo.app/Contents/Resources` on macOS, or
-  `release/linux-unpacked/resources` on Linux. The verifier compares both
-  shipped files byte-for-byte with their repository originals and fails on
-  missing or changed content. Repeat for each platform's build.
+  IBM Plex OFL at `licenses/IBM-Plex/OFL.txt` inside app resources.
+- Every `package` leg runs `node scripts/verify-packaged-notices.mjs` against
+  the resources directory electron-builder just produced, after the build and
+  before the smoke, so a missing or altered notice fails that leg before an
+  installer is uploaded. The verifier checks three things: that the packaged
+  document carries every notice it expects, that every runtime dependency in
+  `package.json` is one of them, and that both shipped files match their
+  repository originals byte-for-byte. It reads the packaged copy, not the
+  repository's, so an empty or truncated shipped file cannot pass.
+- Run the same command after a local `npm run package`, once per platform
+  build: `node scripts/verify-packaged-notices.mjs <resources-directory>`, with
+  `release/win-unpacked/resources` on Windows — the locally verified path —
+  `release/mac-<arch>/Kondo.app/Contents/Resources` on macOS or
+  `release/linux-unpacked/resources` on Linux. The last two are
+  electron-builder's documented layout and are untested locally; the workflow
+  discovers the directory by glob for that reason.
+- The notice list is derived from what reaches `out/`, not from `package.json`
+  alone. `npx electron-vite build --sourcemap --outDir out/inventory` writes a
+  source map beside each bundle, and every `node_modules/` path in those maps'
+  `sources` names a module the bundler included. `out/` is ignored, so the
+  inventory build leaves nothing behind and never reaches lint or a commit.
+  Re-run it when dependencies change, and add anything new to
+  `THIRD-PARTY-NOTICES.md` and to the verifier's own list. The cross-check
+  against `package.json` catches a new runtime dependency by itself, but a
+  transitive package or a generated asset — `scheduler` and Tailwind CSS
+  today — appears only in the inventory.
 
 ## Signing — decided
 
