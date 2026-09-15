@@ -53,11 +53,6 @@ Four decisions frame this work and are not up for re-argument here:
 
 ### In progress
 
-- **Plugin installation keys kept out of scan diagnostics (131).** A key in
-  `installed_plugins.json` that is not a `<name>@<marketplace>` plugin id is
-  arbitrary file text and must never reach a scan error; a well-formed id still
-  may, and inventory completeness is unchanged
-  ([ADR-0022](docs/adr/0022-project-settings-data-deny-by-default.md)).
 - **The sandboxed-preload startup failure (132).** Windows smoke runs under load
   sometimes fail because Electron's sandbox bundle starts without its startup
   data (`binding.startupData` is null), and one bad launch fails every later

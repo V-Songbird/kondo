@@ -206,8 +206,9 @@ All notable changes to kondo are documented here. The format follows
   others exist. Hooks show their documented event, handler type, whether a
   matcher applies and the script status, without the command, matcher pattern
   or script path. Problems with malformed settings, registry, MCP or history
-  files no longer quote their contents, and connection types outside the
-  documented set read as unknown.
+  files no longer quote their contents, an incomplete plugin installation
+  record names its plugin only when the key is a valid plugin id, and
+  connection types outside the documented set read as unknown.
 
 ## [0.5.0] - 2026-09-05
 

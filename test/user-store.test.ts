@@ -4,6 +4,7 @@ import path from 'node:path'
 import { collector } from '../electron/main/workspace/scan'
 import {
   hooksFromLayers,
+  readPluginInventory,
   readSettingsLayers,
   scanPlugins,
   scanSkills,
@@ -203,6 +204,30 @@ describe('user store adapter', () => {
     const plugins = await scanPlugins(world.locator, [], c)
     expect(plugins).toEqual([])
     expect(c.errors.some((error) => error.code === 'parse-failed')).toBe(true)
+  })
+
+  it('names an incomplete plugin installation entry only by a plugin id (ADR-0022)', async () => {
+    const install = path.join(world.userRoot, 'plugins', 'cache', 'acme', 'alpha', '1.0.0')
+    await writeFileTree(world.userRoot, {
+      'plugins/installed_plugins.json': writeJson({
+        version: 2,
+        plugins: {
+          'alpha@acme': [{ scope: 'user', installPath: install, version: '1.0.0' }],
+          'S131 key text': [{ scope: 'user', installPath: install, version: '1.0.0' }],
+          'beta@acme': [{ scope: 'nowhere', installPath: install }]
+        }
+      })
+    })
+    const c = collector()
+    const inventory = await readPluginInventory(world.locator, c)
+
+    // A key outside the `<name>@<marketplace>` grammar is file text, so it is never named.
+    expect(c.errors.map(({ code, message }) => ({ code, message }))).toEqual([
+      { code: 'parse-failed', message: 'Incomplete plugin installation entry with an unrecognized id; absence cannot be established.' },
+      { code: 'parse-failed', message: 'Incomplete plugin installation entry for beta@acme; absence cannot be established.' }
+    ])
+    expect(inventory.completeness).toBe('partial')
+    expect(Object.keys(inventory.plugins)).toEqual(['alpha@acme'])
   })
 
   it('catalogs the skills the user placed, in the user store and each project', async () => {
