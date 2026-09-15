@@ -6,8 +6,9 @@ Where work stands, for a session that starts without context. Written
 
 ## Main today
 
-- `main` is `b25df65`, the same as `origin/main`. Hosted CI run 34977725352
-  passed `verify` and `smoke` on Windows, macOS and Linux for it.
+- The code on `main` is unchanged since `b25df65`; later commits change only
+  documentation. Hosted CI run 34977725352 passed `verify` and `smoke` on
+  Windows, macOS and Linux for `b25df65`.
 - Local checks on `b25df65`, Windows, 2026-09-15: `npm run guards` reported no
   findings (its two paired-change checks skip when nothing is staged);
   `npm run typecheck`, `npm run lint` and `npm run build` passed; `npm test`
@@ -30,20 +31,18 @@ No pull requests or issues are open, and `origin` holds only `main`.
 
 | Branch | Where | State |
 |---|---|---|
-| `docs/reconciliation-2026-09-15` | main checkout | Documentation-only reconciliation of the docs, ADRs and plans against `b25df65`, committed by topic; not pushed or merged. |
 | `claude/131-plugin-key-diagnostics` | worktree `../kondo-worktrees/131-plugin-key-diagnostics` | Entry 131. No commits of its own; based on `a48ccdf`, one commit behind `main`. The worktree holds an uncommitted fix in `electron/main/workspace/user-store.ts` and an untracked plan, `docs/plans/131-plugin-key-diagnostics.md`. The test in `test/user-store.test.ts`, the `docs/domain.md` line and the checks are still missing. |
 | `claude/132-sandbox-preload-startup` | worktree `../kondo-worktrees/132-sandbox-preload-startup` | Entry 132. One commit, `261fd51`, adding `docs/plans/132-sandbox-preload-startup.md` and its index row; based on `a48ccdf`. No experiment results yet. |
 
-Both task branches predate the plan-index format on the reconciliation branch,
-so their `docs/plans/README.md` rows need re-adding when they rebase.
+Both task branches predate the current plan index, so their
+`docs/plans/README.md` rows need re-adding when they rebase.
 
 ## Next steps
 
-1. Review and merge `docs/reconciliation-2026-09-15` (owner).
-2. Finish 131 in its worktree: rebase onto `main`, add the test and the
+1. Finish 131 in its worktree: rebase onto `main`, add the test and the
    `docs/domain.md` line, run guards, tests, typecheck and lint.
-3. Run 132's experiments from its plan.
-4. Then the open work under "Now" in [ROADMAP.md](../ROADMAP.md), in dependency
+2. Run 132's experiments from its plan.
+3. Then the open work under "Now" in [ROADMAP.md](../ROADMAP.md), in dependency
    order: 103, 104 and 105 first, 110 once its inputs are settled, and 114
    last.
 
