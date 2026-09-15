@@ -29,7 +29,7 @@ import { Refusal } from '../../ui/refusal'
 import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { flatKeyParts, formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
 import { ReviewRefusal } from '../tidy/review-refusal'
-import { mcpStatusFlag } from '../library/catalog'
+import { installationSummary, mcpStatusFlag } from '../library/catalog'
 import { PluginControl } from './plugin-control'
 
 /**
@@ -608,8 +608,13 @@ function ProjectPage({
                           key={plugin.pluginId}
                           className="flex flex-wrap items-start gap-4 border-b border-line py-3 last:border-0"
                         >
-                          <span className="w-56 shrink-0 truncate font-medium" title={plugin.marketplace}>
-                            {plugin.name}
+                          <span className="w-56 shrink-0 font-medium" title={plugin.marketplace}>
+                            <span className="block truncate">{plugin.name}</span>
+                            {/* The same sentence the Library prints, from the
+                                same helper: one plugin, one attribution. */}
+                            <span className="block truncate text-xs font-normal text-ink-2">
+                              {installationSummary(plugin)}
+                            </span>
                           </span>
                           <PluginControl
                             state={plugin}

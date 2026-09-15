@@ -571,20 +571,75 @@ export interface PluginScopeState {
   capabilities: Capabilities
 }
 
+/**
+ * Claude's four installation scopes, read off the 2.1.271 binary's own
+ * version-2 schema for `installed_plugins.json` (domain.md).
+ */
+export type PluginInstallScope = 'managed' | 'user' | 'project' | 'local'
+
+/**
+ * One validated record of `installed_plugins.json`'s `plugins[<id>]` array.
+ * Several scopes, projects and versions of one plugin each get a record, so
+ * the array is the inventory and no record stands for another.
+ */
+export interface PluginInstallation {
+  scope: PluginInstallScope
+  /**
+   * Display path of the project this record belongs to (tildified), or null.
+   * Claude's schema calls it required for the `project` and `local` scopes;
+   * a record missing it is still kept, with null here (ADR-0005).
+   */
+  projectPath: string | null
+  version: string | null
+  installedAt: string | null
+  lastUpdated: string | null
+  /** Display path of the declared install directory (tildified), always. */
+  installPath: string
+  /**
+   * Whether kondo may read that directory. False when the declared path left
+   * the user store: the record stays, because it is a fact of the manifest,
+   * but nothing is read from it and it ships no components here.
+   */
+  followed: boolean
+}
+
+/**
+ * How Claude came to load this plugin. A `record` plugin has an entry in
+ * `installed_plugins.json`; a `skills-dir` one is a folder holding
+ * `.claude-plugin/plugin.json` under a skills directory, which loads as
+ * `<name>@skills-dir` with no marketplace and no install step, so it has no
+ * installation record to carry (domain.md).
+ */
+export type PluginSource = 'record' | 'skills-dir'
+
 export interface PluginInfo extends EntityIdentity {
   /** `plugin:<name>@<marketplace>` */
   id: string
   name: string
   marketplace: string
   /**
-   * `installed_plugins.json` lists it. False for a ghost row: a key in some
+   * Kondo found something Claude would load — an `installed_plugins.json`
+   * record, or a skills-directory plugin. False for a ghost row: a key in some
    * layer's `enabledPlugins` naming a plugin nothing installed. Claude reads
    * that key and finds nothing, so kondo lists it rather than hiding it —
    * every other field below is then null or empty, and the same key is an
    * orphan `configOrphansPreview` offers to remove.
    */
   installed: boolean
+  source: PluginSource
+  /**
+   * Every place this plugin is installed, ordered by scope rank (`managed`,
+   * `user`, `project`, `local`), then project path, version and install path.
+   * Array position in the file is not an ordering Claude promises, so the
+   * stated one is what keeps the same store rendering the same way twice.
+   *
+   * Empty for a ghost row and for a skills-directory plugin, which has no
+   * record — `source` is what tells those two apart.
+   */
+  installations: PluginInstallation[]
+  /** The first installation's, under the order above; null with none. */
   version: string | null
+  /** The first installation's scope, which the capability matrix keys on. */
   installScope: string
   installedAt: string | null
   lastUpdated: string | null
@@ -1193,6 +1248,12 @@ export interface ProjectPluginState {
   pluginId: string
   name: string
   marketplace: string
+  /**
+   * The same two fields `PluginInfo` carries, so a project page attributes a
+   * plugin exactly as the Library does rather than describing it its own way.
+   */
+  source: PluginSource
+  installations: PluginInstallation[]
   /** Which position this scope's own layers put the control in. */
   choice: ProjectPluginChoice
   /** What Claude honours here; null when no layer in the chain speaks. */

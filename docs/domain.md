@@ -151,8 +151,8 @@ usage):
 | `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo plans to disable (execution refused); a key that is simply absent is silence, not a false. A legacy array form is read (a listed key is enabled) but never written. |
 | `skills/` | User-scope skills, one directory per skill with a `SKILL.md`. |
 | `skills.disabled/` | **Kondo's parking spot, not Claude's convention** ✅. The directory exists on the owner's machine, but the string `skills.disabled` occurs nowhere in the Claude Code 2.1.255 or 2.1.258 binaries — nothing reads it. A skill moved here does stop loading, for the plain reason that it is no longer in `skills/`, which is the "remove from `.claude/skills`" half of Claude's own advice. Claude's *named* per-skill switch is `skillOverrides` above, which is what the toggle plans; Kondo never moves skills here. Kondo still reads the directory back as the `user-disabled` scope and offers each skill in it the way back into `skills/` (ADR-0006). |
-| `plugins/cache/<mp>/<plugin>/<ver>/skills/` | Skills a plugin ships ✅. These belong to the plugin, not the user: kondo's skills catalogue deliberately excludes them, because benching or relocating one leaves the plugin referring to a directory that is no longer there. They belong to the plugins view, alongside the plugin that owns them, where `pluginSkills(pluginId)` reads them on demand when a plugin's row is opened. The `plugin` skill scope and its capability-matrix row keep that listing read-only. |
-| `plugins/` | Plugin machinery ✅: `installed_plugins.json` (`version: 2`, `plugins[<name>@<marketplace>]` = array of `{ scope, installPath, version, installedAt, lastUpdated, gitCommitSha }`), `known_marketplaces.json`, `plugin-catalog-cache.json` (holds keys differing only by case — parse case-sensitively), `cache/<marketplace>/<plugin>/<version>/` (the installed code), `marketplaces/`, `data/<plugin>-<marketplace>/`, `.install-manifests/<id>.json`, `.last_inuse_sweep`. Residue accumulates ✅: 28 of 39 cached version directories were not the installed version, `.in_use` markers sat on every version (so the marker does not mean "current"), 4 install manifests and 47 of 55 `data/` directories belonged to plugins no longer installed. Several scopes can keep different installed versions of one plugin ✅, one installation entry each; Kondo's plugin inventory presents only the first entry. Kondo sweeps both: `superseded-plugin-versions` offers every `cache/<mp>/<plugin>/<version>/` tree that **no** installation entry of that plugin names as its `installPath` — the walk starts from the manifest's plugin ids and skips each version directory an entry names, and that explicit check is what keeps every installed version out of the candidates — and `orphan-plugin-residue` offers the `data/` directories and `.install-manifests/` files whose `<name>@<marketplace>` id the manifest does not declare. `data/` slugs are derived forwards from each declared id (`@` → `-`), because reading a directory name backwards into an id is ambiguous the moment either half holds a dash. An `installed_plugins.json` that is missing, unreadable or malformed offers **nothing** rather than treating every plugin as uninstalled (ADR-0005); an empty `plugins: {}` is a different answer and does mean everything under `data/` is residue. A cache tree for a plugin absent from the manifest entirely falls under neither category — none was observed, since every cached marketplace/plugin pair was still installed. |
+| `plugins/cache/<mp>/<plugin>/<ver>/skills/` | Skills a plugin ships ✅ — the default of several layouts, listed under "Plugin component layouts" below. These belong to the plugin, not the user: kondo's skills catalogue deliberately excludes them, because benching or relocating one leaves the plugin referring to a directory that is no longer there. They belong to the plugins view, alongside the plugin that owns them, where `pluginSkills(pluginId)` reads them on demand when a plugin's row is opened. The `plugin` skill scope and its capability-matrix row keep that listing read-only. |
+| `plugins/` | Plugin machinery ✅: `installed_plugins.json` (see "Plugin installation records" below), `known_marketplaces.json`, `plugin-catalog-cache.json` (holds keys differing only by case — parse case-sensitively), `cache/<marketplace>/<plugin>/<version>/` (the installed code), `marketplaces/`, `data/<plugin>-<marketplace>/`, `.install-manifests/<id>.json`, `.last_inuse_sweep`. Residue accumulates ✅: 28 of 39 cached version directories were not the installed version, `.in_use` markers sat on every version (so the marker does not mean "current"), 4 install manifests and 47 of 55 `data/` directories belonged to plugins no longer installed. Several scopes can keep different installed versions of one plugin ✅, one installation entry each; Kondo's plugin inventory keeps every entry and presents the first under a stated order, never the file's array position. Kondo sweeps both: `superseded-plugin-versions` offers every `cache/<mp>/<plugin>/<version>/` tree that **no** installation entry of that plugin names as its `installPath` — the walk starts from the manifest's plugin ids and skips each version directory an entry names, and that explicit check is what keeps every installed version out of the candidates — and `orphan-plugin-residue` offers the `data/` directories and `.install-manifests/` files whose `<name>@<marketplace>` id the manifest does not declare. `data/` slugs are derived forwards from each declared id (`@` → `-`), because reading a directory name backwards into an id is ambiguous the moment either half holds a dash. An `installed_plugins.json` that is missing, unreadable or malformed offers **nothing** rather than treating every plugin as uninstalled (ADR-0005); an empty `plugins: {}` is a different answer and does mean everything under `data/` is residue. A cache tree for a plugin absent from the manifest entirely falls under neither category — none was observed, since every cached marketplace/plugin pair was still installed. |
 | `commands/` | User-scope slash commands (`.md` files) ✅. Read as placed entries — see below. |
 | `hooks/` | Hook scripts ✅. Two scripts observed while `settings.json` `hooks` was `{}`. That does not prove disuse: Kondo inventories only selected settings layers, not every execution source. Each hook row keeps only the status of the first script its command names (`present`, `missing`, or `unverifiable`); the command and the path stay in main (ADR-0022). Variables are not expanded and paths outside the approved roots are not probed (ADR-0002). ✅ Synthetic fixtures: cleanup retains **all** hook scripts, including ones absent from the recognized references. `unarmed-hook-scripts` remains a compatible category identifier with zero candidates and an explicit blocked reason. |
 | `agents/`, `output-styles/`, `rules/` | User-scope subagents, output styles and rules ◇ (documented by Claude Code; absent on this machine). Read as placed entries — see below. |
@@ -200,8 +200,7 @@ Bundled, managed and additional-directory skills cannot all be enumerated from
 Kondo's bounded stores. Consequently **all skillOverrides are retained**, even
 unknown names; scanning more local skill folders cannot prove global absence.
 The skill-override response kind remains in the contract and is not emitted by
-configuration cleanup. The plugin inventory does not list `@skills-dir`
-plugins.
+configuration cleanup.
 
 ✅ Preview and removal force a fresh session inventory as well as using a
 fresh per-call plugin context. Recreating a registered project root invalidates
@@ -211,6 +210,92 @@ selection to refuse before planning effects. Proved dead registry projects and
 their MCP declarations remain available despite unrelated plugin errors. The
 UI shows partial-scan problems and explains preserved preferences. The removal
 itself is a settings edit and is refused.
+
+### Plugin installation records
+
+✅ Read off the Claude Code 2.1.271 binary's own version-2 schema on
+2026-09-15, field descriptions and all. `installed_plugins.json` is
+`{ version: 2, plugins: { <name>@<marketplace>: <entry>[] } }`, and one entry
+is:
+
+| Field | Type | Claude's own description |
+|---|---|---|
+| `scope` | `managed` \| `user` \| `project` \| `local` | Installation scope |
+| `projectPath` | string, optional | Project path (required for project/local scopes) |
+| `installPath` | string | Absolute path to the versioned plugin directory |
+| `version` | string, optional | Currently installed version |
+| `installedAt` | string, optional | ISO 8601 timestamp of installation |
+| `lastUpdated` | string, optional | ISO 8601 timestamp of last update |
+| `gitCommitSha` | string, optional | Git commit SHA for git-based plugins |
+| `resolvedVersion` | string, optional | Tag-derived semver this install resolved to |
+| `auto` | boolean, optional | True when pulled in as a dependency |
+
+✅ **Kondo behavior:** every record survives into `PluginInfo.installations`,
+ordered by scope rank (`managed`, `user`, `project`, `local`), then project
+path, version and install path. Array position in the file is not an ordering
+Claude promises, so the stated one is what makes the same store render the same
+way twice, and no record can hide another of the same plugin. The row's
+displayed `version`, `installScope`, `installedAt`, `lastUpdated` and
+`installPath` are that first installation's — a projection, never a separate
+fact. A record whose `installPath` leaves the user store keeps its place in the
+list with `followed: false` and contributes no components; the refusal is
+itemized where the path is resolved (ADR-0005). `resolvedVersion`, `auto` and
+`gitCommitSha` are read past, not surfaced.
+
+◇ A `version: 1` file holds one entry per id rather than an array, and Claude
+Code converts it on load. The same build also knows a second filename,
+`installed_plugins_v2.json`. Kondo reads neither: it reports any version but 2
+as unsupported and establishes no absence from it.
+
+### Plugin component layouts
+
+✅ Read off the same 2.1.271 binary. A plugin's manifest is
+`<plugin root>/.claude-plugin/plugin.json`, and each component field takes one
+path string or an array of them, relative to the plugin root:
+
+| Field | Default | How a declared path combines with the default |
+|---|---|---|
+| `skills` | `skills/` | **Adds** — "Loaded in addition to the skills/ directory" |
+| `commands` | `commands/` | **Replaces** — "When set, the commands/ directory is not auto-loaded" |
+| `agents` | `agents/` | Replaces, same wording |
+| `outputStyles` | `output-styles/` | Replaces, same wording |
+| `hooks` | `hooks/hooks.json` | Adds — "in addition to those in hooks/hooks.json" |
+
+A `skills` entry names a skill directory, and `.` or `./` denotes the plugin
+root itself. A `commands` entry names "a command file or skill directory", so a
+flat `<name>.md` loads as a skill too. `commands` also accepts an object
+mapping command names to `{ source }` or `{ content }`. The build treats a
+directory as plugin-shaped when it holds `.claude-plugin/` or one of
+`commands/`, `skills/`, `agents/`, `hooks/`, `themes/`, `output-styles/`,
+`monitors/`, `workflows/`, `SKILL.md`, `.mcp.json` or `.lsp.json` at its top
+level.
+
+✅ **Skills-directory plugins.** Any folder under a skills directory holding
+`.claude-plugin/plugin.json` loads as `<name>@skills-dir`, with no marketplace
+and no install step. The two skills directories are `~/.claude/skills/` and
+`<project>/.claude/skills/`, the second only in a workspace the user has
+trusted. The same pass skips that folder *as a skill* ("`[skills] skipping
+<dir>: .claude-plugin/plugin.json is not a regular file or exceeds <n>`"), so a
+folder is a plugin or a skill and never both.
+
+✅ **Kondo behavior, verified with synthetic fixtures:** `pluginSkills` reads,
+per followed installation, the default `skills/`, every additive manifest
+`skills` path, and either the manifest's `commands` paths or the default
+`commands/`. The read boundary is the install root rather than the whole user
+store, matching Claude Code's own refusal of a component path that escapes the
+plugin directory. Two sources shipping one name resolve to a single row, the
+first under the order above, as Claude keeps the first copy it loaded. Kondo
+lists skills-directory plugins as plugins and keeps their folders out of the
+skills catalogue — `countStoreEntries` still counts one as a skill, because
+tier 1 counts by `readdir` alone (ADR-0007), which joins the tier-1/tier-2
+disagreement recorded under "Cross-store facts".
+
+Kondo does **not** read: a plugin's agents, output styles, hooks, MCP or LSP
+servers, themes, monitors or workflows; the object form of `commands`; or a
+`SKILL.md` at the plugin root. An unreadable manifest, a manifest field in a
+shape Kondo does not read, and a component path that leaves the install
+directory are each itemized in `Scan.errors` with a fixed sentence, and the
+layouts that *are* readable still list beside them (ADR-0005, ADR-0022).
 
 ### `~/.claude.json` — the registry
 
@@ -734,8 +819,10 @@ boundary test observes. Names and sizes remain available to store reports.
   cannot be counted that way — a hook is a fragment of `settings.json` and an
   MCP server a key of `~/.claude.json` or `.mcp.json` — so the listing reports
   both as `null` and `projectDetail` counts them for the one scope opened.
-  The one place the two tiers disagree: a directory under `skills/` with no
-  `SKILL.md` counts as a skill and is not listed as one.
+  The two tiers disagree in two places, both because tier 1 opens nothing: a
+  directory under `skills/` with no `SKILL.md` counts as a skill and is not
+  listed as one, and one holding `.claude-plugin/plugin.json` counts as a skill
+  while the catalogue lists it as a plugin (see "Plugin component layouts").
 - Timestamps are ISO-8601 strings in JSON files ✅. Staleness uses file mtime
   alone (`STALE_AFTER_DAYS`, 30 days), because it is cheap.
 - All JSON/JSONL reads assume partial corruption is possible (interrupted
@@ -814,9 +901,6 @@ boundary test observes. Names and sizes remain available to store reports.
 Checked against Claude Code documentation on 2026-09-06; each is open work in
 [ROADMAP.md](../ROADMAP.md).
 
-- Plugin components can use layouts beyond `<install>/skills/` ✅, which is
-  still the only layout Kondo's plugin-skills reader inventories.
-  [Plugin skills](https://code.claude.com/docs/en/plugins-reference#skills).
 - A `CLAUDE_CONFIG_DIR` set in user or managed settings, rather than in the
   environment a launch inherits, still selects a profile for Claude Code ✅,
   and a legacy `.config.json` still replaces the registry ✅ (checked
@@ -824,3 +908,12 @@ Checked against Claude Code documentation on 2026-09-06; each is open work in
   and reads only `.claude.json`, so in either case it shows the default store
   while Claude Code uses another. See Claude profiles above.
   [Environment variables](https://code.claude.com/docs/en/env-vars).
+- A `version: 1` `installed_plugins.json` still loads for Claude Code, which
+  converts it in memory ✅ (checked 2026-09-15), and the same build knows a
+  second filename, `installed_plugins_v2.json`. Kondo reads neither, so on such
+  a machine it reports the file as unsupported and establishes no absence from
+  it. See Plugin installation records above.
+- A plugin's agents, output styles, hooks, MCP and LSP servers, themes,
+  monitors and workflows are components Claude loads and Kondo does not list ✅.
+  Only the skill-producing layouts are inventoried. See Plugin component
+  layouts above.

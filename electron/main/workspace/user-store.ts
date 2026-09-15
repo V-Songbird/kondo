@@ -1,3 +1,4 @@
+import type { Stats } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
@@ -21,7 +22,10 @@ import type {
   ProjectRowCounts,
   PluginEffectiveState,
   PluginInfo,
+  PluginInstallation,
+  PluginInstallScope,
   PluginScopeState,
+  PluginSource,
   SettingsKey,
   SettingsLayerInfo,
   SkillInfo,
@@ -37,6 +41,7 @@ import {
   BoundaryError,
   directorySize,
   isEnoent,
+  mapPool,
   pathWithin,
   redacted,
   resolveAllowedPath,
@@ -454,9 +459,25 @@ export function groupHooks(hooks: HookInfo[]): HookGroup[] {
 // ---------------------------------------------------------------------------
 // Plugins
 
+/**
+ * One install directory kondo may read, with the boundary it resolves
+ * against. A record plugin's boundary is the user store; a skills-directory
+ * plugin living in a project resolves against that project's `.claude`
+ * (ADR-0002).
+ */
+export interface PluginInstallRoot {
+  absPath: string
+  boundary: string
+}
+
 export interface PluginRecord {
   info: PluginInfo
-  installAbs: string | null
+  /**
+   * The install roots to read components from, in `info.installations` order
+   * and holding only the followed ones. Empty for a ghost row, and for a
+   * plugin whose every declared path escaped the store.
+   */
+  roots: PluginInstallRoot[]
 }
 
 /** Where `plugins/` lives, and the two residue directories under it. */
@@ -465,12 +486,66 @@ export const PLUGIN_CACHE_DIR = 'cache'
 export const PLUGIN_DATA_DIR = 'data'
 export const PLUGIN_MANIFEST_DIR = '.install-manifests'
 
+/**
+ * One validated record of the version-2 `plugins[<id>]` array, with the paths
+ * still absolute as the file declares them (domain.md). Everything optional in
+ * Claude's own schema is null here rather than absent, so a reader never has
+ * to ask which shape it got.
+ */
+export interface InstallRecord {
+  scope: PluginInstallScope
+  projectPath: string | null
+  installPath: string
+  version: string | null
+  installedAt: string | null
+  lastUpdated: string | null
+}
+
 /** Installation records are authoritative only for their supported sources. */
 export interface PluginInventory {
-  plugins: Record<string, unknown>
+  plugins: Record<string, InstallRecord[]>
   completeness: 'complete' | 'partial' | 'unavailable'
   /** Sources identified by install records or known_marketplaces.json. */
   marketplaces: ReadonlySet<string>
+}
+
+/** Claude's four scopes, in the order a plugin's installations are listed. */
+const INSTALL_SCOPES: readonly PluginInstallScope[] = ['managed', 'user', 'project', 'local']
+
+const scopeRank = (scope: PluginInstallScope): number => INSTALL_SCOPES.indexOf(scope)
+
+/** A total order over one plugin's records, so no file's write order shows. */
+function compareInstalls(a: InstallRecord, b: InstallRecord): number {
+  return (
+    scopeRank(a.scope) - scopeRank(b.scope) ||
+    (a.projectPath ?? '').localeCompare(b.projectPath ?? '') ||
+    (a.version ?? '').localeCompare(b.version ?? '') ||
+    a.installPath.localeCompare(b.installPath)
+  )
+}
+
+/** A record of the shape `readPluginInventory` admits, or null. */
+function installRecord(value: unknown): InstallRecord | null {
+  const install = asObject(value)
+  if (install === null) return null
+  const installPath = install['installPath']
+  const scope = install['scope']
+  if (typeof installPath !== 'string' || !path.isAbsolute(installPath)) return null
+  if (typeof scope !== 'string' || !INSTALL_SCOPES.includes(scope as PluginInstallScope)) {
+    return null
+  }
+  const text = (key: string): string | null =>
+    typeof install[key] === 'string' ? (install[key] as string) : null
+  return {
+    scope: scope as PluginInstallScope,
+    // Claude's schema calls this required for the project and local scopes; a
+    // record without it is kept anyway, unattributed (ADR-0005).
+    projectPath: text('projectPath'),
+    installPath,
+    version: text('version'),
+    installedAt: text('installedAt'),
+    lastUpdated: text('lastUpdated')
+  }
 }
 
 // These sources load without marketplace installation records. Unknown source
@@ -509,16 +584,14 @@ export async function readPluginInventory(locator: StoreLocator, c: Collector): 
   }
   let complete = json?.['version'] === 2
   if (!complete) c.fail('parse-failed', display, 'Unsupported plugin installation version; readable entries are shown, but absence cannot be established.')
-  const plugins: Record<string, unknown> = Object.create(null) as Record<string, unknown>
+  const plugins: Record<string, InstallRecord[]> =
+    Object.create(null) as Record<string, InstallRecord[]>
   const marketplaces = new Set<string>()
   for (const [key, installs] of Object.entries(entries)) {
-    const valid = (Array.isArray(installs) ? installs : []).filter((value) => {
-      const install = asObject(value)
-      return install !== null && typeof install['installPath'] === 'string' &&
-        path.isAbsolute(install['installPath']) &&
-        typeof install['scope'] === 'string' &&
-        ['user', 'project', 'local', 'managed'].includes(install['scope'])
-    })
+    const valid = (Array.isArray(installs) ? installs : [])
+      .map(installRecord)
+      .filter((record): record is InstallRecord => record !== null)
+      .sort(compareInstalls)
     const named = PLUGIN_KEY.test(key)
     if (!named || !Array.isArray(installs) || valid.length === 0 || valid.length !== installs.length) {
       complete = false
@@ -542,7 +615,7 @@ export async function readPluginInventory(locator: StoreLocator, c: Collector): 
 }
 
 /** A missing or incomplete manifest cannot authorize plugin-residue cleanup. */
-export async function readPluginManifest(locator: StoreLocator, c: Collector): Promise<Record<string, unknown> | null> {
+export async function readPluginManifest(locator: StoreLocator, c: Collector): Promise<Record<string, InstallRecord[]> | null> {
   const inventory = await readPluginInventory(locator, c)
   return inventory.completeness === 'complete' ? inventory.plugins : null
 }
@@ -591,27 +664,25 @@ export async function readInstalledPlugins(
   for (const [key, installs] of Object.entries(plugins)) {
     keys.add(key)
     // Each scope can retain a different installed version of the same
-    // plugin. Array position never makes another scope's live code residue.
-    for (const install of Array.isArray(installs) ? installs : []) {
-      const declared = asObject(install)?.['installPath']
-      if (typeof declared === 'string' && pathWithin(declared, locator.userRoot)) {
-        installPaths.add(installKey(declared))
+    // plugin, and one record kondo may not follow takes none of its siblings'
+    // protection with it.
+    for (const install of installs) {
+      if (pathWithin(install.installPath, locator.userRoot)) {
+        installPaths.add(installKey(install.installPath))
       }
     }
   }
   return { keys, installPaths }
 }
 
-/** The first install record of a manifest entry; `{}` for any other shape. */
-function firstInstall(installs: unknown): Record<string, unknown> {
-  return Array.isArray(installs) && typeof installs[0] === 'object' && installs[0] !== null
-    ? (installs[0] as Record<string, unknown>)
-    : {}
-}
+/** Claude's own manifest directory and file inside a plugin (domain.md). */
+export const PLUGIN_MANIFEST_SUBDIR = '.claude-plugin'
+export const PLUGIN_MANIFEST_FILE = 'plugin.json'
 
 export async function scanPlugins(
   locator: StoreLocator,
   layers: SettingsLayer[],
+  projects: VerifiedProject[],
   c: Collector,
   inventory?: PluginInventory
 ): Promise<PluginRecord[]> {
@@ -649,54 +720,85 @@ export async function scanPlugins(
     chains.set(owner, [...(chains.get(owner) ?? []), layer])
   }
 
-  const records: PluginRecord[] = []
-  for (const [key, installs] of Object.entries(plugins)) {
+  /** One plugin row, from whatever supplied its installations. */
+  const rowFor = (
+    key: string,
+    source: PluginSource,
+    installations: PluginInstallation[],
+    roots: PluginInstallRoot[],
+    fallbackScope: PluginInstallScope
+  ): PluginRecord => {
     const at = key.lastIndexOf('@')
-    const name = at > 0 ? key.slice(0, at) : key
-    const marketplace = at > 0 ? key.slice(at + 1) : ''
-    const install = firstInstall(installs)
-    const declared =
-      typeof install['installPath'] === 'string' ? install['installPath'] : null
-    // Confinement (SECURITY.md): installPath comes from a store manifest and
-    // is untrusted. It is checked here, where it is resolved, rather than at
-    // whichever consumer happens to follow it — an escaping path is nulled,
-    // so no later reader can dereference it by forgetting to ask.
-    let installAbs = declared
-    if (declared !== null && !pathWithin(declared, locator.userRoot)) {
-      c.errors.push({
-        code: 'out-of-store',
-        path: tildify(declared, locator.home),
-        message: `installPath of plugin:${key} escapes the user store; it was not followed.`
-      })
-      installAbs = null
-    }
-    const installScope = typeof install['scope'] === 'string' ? install['scope'] : 'user'
     const scopes = scopesOf(key)
-    const effectiveIn = resolveEffective(key, userLayer, chains)
-    records.push({
+    const primary = installations[0] ?? null
+    const installScope = primary?.scope ?? fallbackScope
+    return {
       info: {
         id: `plugin:${key}`,
         kind: 'plugin',
         capabilities: capabilitiesFor('plugin', installScope),
-        name,
-        marketplace,
+        name: at > 0 ? key.slice(0, at) : key,
+        marketplace: at > 0 ? key.slice(at + 1) : '',
         installed: true,
-        version: typeof install['version'] === 'string' ? install['version'] : null,
+        source,
+        installations,
+        // The projection domain.md states: the first installation under the
+        // documented order, never the file's array position.
+        version: primary?.version ?? null,
         installScope,
-        installedAt:
-          typeof install['installedAt'] === 'string' ? install['installedAt'] : null,
-        lastUpdated:
-          typeof install['lastUpdated'] === 'string' ? install['lastUpdated'] : null,
-        // The declared path, even when it escaped: the display tells the
-        // truth about the manifest, `installAbs` is what may be followed.
-        installPath: declared ? tildify(declared, locator.home) : '(unknown)',
+        installedAt: primary?.installedAt ?? null,
+        lastUpdated: primary?.lastUpdated ?? null,
+        installPath: primary?.installPath ?? '(unknown)',
         enabledIn: scopes.filter((scope) => scope.enabled === true).map((scope) => scope.path),
         scopes,
-        effectiveIn
+        effectiveIn: resolveEffective(key, userLayer, chains)
       },
-      installAbs
-    })
+      roots
+    }
   }
+
+  const records: PluginRecord[] = []
+  for (const [key, installs] of Object.entries(plugins)) {
+    const installations: PluginInstallation[] = []
+    const roots: PluginInstallRoot[] = []
+    for (const install of installs) {
+      // Confinement (SECURITY.md): installPath comes from a store manifest and
+      // is untrusted. It is checked here, where it is resolved, rather than at
+      // whichever consumer happens to follow it — an escaping path yields no
+      // root, so no later reader can dereference it by forgetting to ask. The
+      // record itself stays: it is a fact of the manifest either way.
+      const followed = pathWithin(install.installPath, locator.userRoot)
+      if (!followed) {
+        c.errors.push({
+          code: 'out-of-store',
+          path: tildify(install.installPath, locator.home),
+          message: `installPath of plugin:${key} escapes the user store; it was not followed.`
+        })
+      } else {
+        roots.push({ absPath: install.installPath, boundary: locator.userRoot })
+      }
+      installations.push({
+        scope: install.scope,
+        projectPath:
+          install.projectPath === null ? null : tildify(install.projectPath, locator.home),
+        version: install.version,
+        installedAt: install.installedAt,
+        lastUpdated: install.lastUpdated,
+        installPath: tildify(install.installPath, locator.home),
+        followed
+      })
+    }
+    records.push(rowFor(key, 'record', installations, roots, 'user'))
+  }
+
+  // Skills-directory plugins: a folder holding `.claude-plugin/plugin.json`
+  // under a skills directory loads as `<name>@skills-dir` with no marketplace
+  // and no install record (domain.md), so nothing above can find one.
+  for (const found of await scanSkillsDirPlugins(locator, projects, c)) {
+    if (Object.hasOwn(plugins, found.key)) continue
+    records.push(rowFor(found.key, 'skills-dir', [], [found.root], found.scope))
+  }
+
   // Only a complete supported inventory can label a preference not installed.
   // Unenumerated sources stay in their settings layers without a ghost row.
   const ghosts = new Set<string>()
@@ -704,35 +806,86 @@ export async function scanPlugins(
     for (const key of statedPlugins(layer)) if (pluginProvedAbsent(evidence, key)) ghosts.add(key)
   }
   for (const key of ghosts) {
-    const at = key.lastIndexOf('@')
-    records.push({
-      info: {
-        id: `plugin:${key}`,
-        kind: 'plugin',
-        // The user scope's row: nothing is installed, so there is no install
-        // scope to key on, and every operation is refused by the layer rows
-        // in `scopes` exactly as it is for an installed plugin.
-        capabilities: capabilitiesFor('plugin', 'user'),
-        name: at > 0 ? key.slice(0, at) : key,
-        marketplace: at > 0 ? key.slice(at + 1) : '',
-        installed: false,
-        version: null,
-        installScope: 'user',
-        installedAt: null,
-        lastUpdated: null,
-        installPath: '(not installed)',
-        enabledIn: scopesOf(key)
-          .filter((scope) => scope.enabled === true)
-          .map((scope) => scope.path),
-        scopes: scopesOf(key),
-        effectiveIn: resolveEffective(key, userLayer, chains)
-      },
-      installAbs: null
-    })
+    // The user scope's row: nothing is installed, so there is no install
+    // scope to key on, and every operation is refused by the layer rows in
+    // `scopes` exactly as it is for an installed plugin.
+    const ghost = rowFor(key, 'record', [], [], 'user')
+    ghost.info.installed = false
+    ghost.info.installPath = '(not installed)'
+    records.push(ghost)
   }
 
   records.sort((a, b) => a.info.id.localeCompare(b.info.id))
   return records
+}
+
+/** One skills-directory plugin, as found on disk. */
+interface SkillsDirPlugin {
+  key: string
+  scope: PluginInstallScope
+  root: PluginInstallRoot
+}
+
+/**
+ * Every folder under a skills directory that holds
+ * `.claude-plugin/plugin.json`. Claude Code loads one as `<name>@skills-dir`
+ * and, in the same pass, skips it as a skill — so a folder is a plugin or a
+ * skill and never both, which `isSkillsDirPlugin` keeps `scanSkills` agreeing
+ * with (verified against the 2.1.271 binary, domain.md).
+ *
+ * The manifest is never opened: its presence is the whole signal, so this
+ * costs one `stat` per skill directory and reads nothing (ADR-0007). A project
+ * contributes its own `.claude/skills` and nothing above it (ADR-0002).
+ */
+async function scanSkillsDirPlugins(
+  locator: StoreLocator,
+  projects: VerifiedProject[],
+  c: Collector
+): Promise<SkillsDirPlugin[]> {
+  const { dir } = PLACEMENTS.skill
+  const roots: Array<[string, string, PluginInstallScope]> = [
+    [path.join(locator.userRoot, dir), locator.userRoot, 'user']
+  ]
+  for (const project of projects) {
+    const claudeDir = path.join(project.absPath, '.claude')
+    roots.push([path.join(claudeDir, dir), claudeDir, 'project'])
+  }
+
+  const found: SkillsDirPlugin[] = []
+  const seen = new Set<string>()
+  for (const [root, boundary, scope] of roots) {
+    const display = tildify(root, locator.home)
+    for (const entry of await safeReaddir(root, display, c, boundary)) {
+      if (!entry.isDirectory()) continue
+      const absPath = path.join(root, entry.name)
+      if (!(await isSkillsDirPlugin(absPath, boundary))) continue
+      const key = `${entry.name}@skills-dir`
+      // The user store is read first, and Claude's own shadowing rule is the
+      // same: the first copy of a name wins and later ones do not load.
+      if (seen.has(key)) continue
+      seen.add(key)
+      found.push({ key, scope, root: { absPath, boundary } })
+    }
+  }
+  return found
+}
+
+/**
+ * Whether this directory is a plugin rather than a skill. A failure to tell is
+ * answered `false`: a directory kondo cannot stat is still listed as a skill by
+ * the catalogue that already reports the read error, so nothing disappears
+ * between the two views (ADR-0005).
+ */
+export async function isSkillsDirPlugin(dir: string, boundary: string): Promise<boolean> {
+  try {
+    const manifest = await resolveAllowedPath(
+      path.join(dir, PLUGIN_MANIFEST_SUBDIR, PLUGIN_MANIFEST_FILE),
+      boundary
+    )
+    return (await fs.stat(manifest)).isFile()
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -1966,6 +2119,37 @@ interface SkillDirRead {
   used: ReadonlySet<string> | null
   /** What Claude prefixes this scope's names with there: `<plugin>:` or ''. */
   usagePrefix: string
+  /** How this directory holds its entries; `skill-dir` unless told otherwise. */
+  shape?: PlacedShape
+}
+
+/** One entry of a skill directory, as the scope reading it sees it. */
+function placedToSkill(
+  locator: StoreLocator,
+  read: SkillDirRead,
+  record: PlacedRecord
+): SkillInfo {
+  const override = resolveSkillOverride(read.chain, record.name)
+  return {
+    id: `skill:${read.keyPrefix}:${record.name}`,
+    kind: 'skill',
+    // The matrix row for the scope, narrowed by the override: a skill a
+    // layer has switched off has no toggle to offer in either direction,
+    // and the refusal names the layer rather than the bench.
+    capabilities: skillCapabilities(read.scope, override),
+    name: record.name,
+    description: record.description,
+    scope: read.scope,
+    origin: tildify(record.target, locator.home),
+    enabled: read.live && override?.value !== 'off',
+    override,
+    // Claude's own record, read straight (ADR-0006): a name it has never
+    // counted is one nothing has ever loaded.
+    neverUsed: read.used === null ? null : !read.used.has(`${read.usagePrefix}${record.name}`),
+    // ADR-0008: the owning project travels as a field. The renderer joins
+    // on it rather than splitting `skill:project/<flat>:<name>` apart.
+    projectId: read.owner
+  }
 }
 
 /**
@@ -1980,29 +2164,17 @@ async function readSkillDir(
   read: SkillDirRead,
   c: Collector
 ): Promise<SkillInfo[]> {
-  return (await readPlacedDir(locator, read.root, 'skill-dir', c, read.boundary)).map((record) => {
-    const override = resolveSkillOverride(read.chain, record.name)
-    return {
-      id: `skill:${read.keyPrefix}:${record.name}`,
-      kind: 'skill',
-      // The matrix row for the scope, narrowed by the override: a skill a
-      // layer has switched off has no toggle to offer in either direction,
-      // and the refusal names the layer rather than the bench.
-      capabilities: skillCapabilities(read.scope, override),
-      name: record.name,
-      description: record.description,
-      scope: read.scope,
-      origin: tildify(record.target, locator.home),
-      enabled: read.live && override?.value !== 'off',
-      override,
-      // Claude's own record, read straight (ADR-0006): a name it has never
-      // counted is one nothing has ever loaded.
-      neverUsed: read.used === null ? null : !read.used.has(`${read.usagePrefix}${record.name}`),
-      // ADR-0008: the owning project travels as a field. The renderer joins
-      // on it rather than splitting `skill:project/<flat>:<name>` apart.
-      projectId: read.owner
-    }
-  })
+  const records = await readPlacedDir(locator, read.root, read.shape ?? 'skill-dir', c, read.boundary)
+  const kept = read.scope === 'plugin'
+    ? records
+    // A folder carrying `.claude-plugin/plugin.json` is a plugin, not a
+    // skill: Claude Code loads it as `<name>@skills-dir` and skips it here,
+    // and so does kondo, or the same files would be listed twice and offered
+    // a move that belongs to no one (domain.md).
+    : (await mapPool(records, 16, async (record) =>
+        (await isSkillsDirPlugin(record.target, read.boundary)) ? null : record
+      )).filter((record): record is PlacedRecord => record !== null)
+  return kept.map((record) => placedToSkill(locator, read, record))
 }
 
 /**
@@ -2232,30 +2404,226 @@ export async function scanPluginSkills(
   used: ReadonlySet<string> | null,
   c: Collector
 ): Promise<SkillInfo[]> {
-  if (record.installAbs === null) return []
   // `plugin:<key>` by construction in `scanPlugins`, so the key is the rest.
   const key = record.info.id.slice('plugin:'.length)
-  const skills = await readSkillDir(
-    locator,
-    {
-      root: path.join(record.installAbs, 'skills'),
-      boundary: locator.userRoot,
-      scope: 'plugin',
-      keyPrefix: `plugin/${key}`,
-      // A plugin-shipped skill has no bench of its own: it is live exactly
-      // when its plugin is, which the plugin's own row already says.
-      live: true,
-      // A plugin belongs to no project: it is installed once and reaches
-      // every one of them, so the attribution field has nothing to say.
-      owner: null,
-      chain: [],
-      used,
-      // Claude keys a plugin's skills `<plugin>:<name>` in `skillUsage`, so
-      // the plugin's own name is what turns a listing name into that key.
-      usagePrefix: `${record.info.name}:`
-    },
-    c
-  )
+  const read = (root: string, boundary: string, shape: PlacedShape): SkillDirRead => ({
+    root,
+    boundary,
+    scope: 'plugin',
+    keyPrefix: `plugin/${key}`,
+    // A plugin-shipped skill has no bench of its own: it is live exactly
+    // when its plugin is, which the plugin's own row already says.
+    live: true,
+    // A plugin belongs to no project: it is installed once and reaches
+    // every one of them, so the attribution field has nothing to say.
+    owner: null,
+    chain: [],
+    used,
+    // Claude keys a plugin's skills `<plugin>:<name>` in `skillUsage`, so
+    // the plugin's own name is what turns a listing name into that key.
+    usagePrefix: `${record.info.name}:`,
+    shape
+  })
+
+  const skills: SkillInfo[] = []
+  const seen = new Set<string>()
+  const add = (found: SkillInfo[]): void => {
+    for (const skill of found) {
+      // Claude skips a duplicate name outright ("same file already loaded
+      // from"), and an id has to be unique anyway, so the first source under
+      // the order this walks wins.
+      if (seen.has(skill.id)) continue
+      seen.add(skill.id)
+      skills.push(skill)
+    }
+  }
+
+  for (const root of record.roots) {
+    const manifest = await readPluginManifestOf(locator, root, c)
+
+    // `skills` adds to the default; the default is always scanned.
+    for (const dir of ['skills', ...componentPaths(locator, root, manifest, 'skills', c)]) {
+      add(await readSkillDir(locator, read(path.resolve(root.absPath, dir), root.boundary, 'skill-dir'), c))
+    }
+
+    // `commands` replaces the default: when the manifest sets it, `commands/`
+    // is not auto-loaded. Each entry is a command file or a skill directory.
+    const declared = componentPaths(locator, root, manifest, 'commands', c)
+    for (const source of manifest.commands === undefined ? ['commands'] : declared) {
+      add(await readCommandSource(locator, root, path.resolve(root.absPath, source), read, c))
+    }
+  }
+
   skills.sort((a, b) => a.id.localeCompare(b.id))
   return skills
+}
+
+/** A plugin's own manifest, as much of it as could be read. */
+interface PluginManifest {
+  skills: unknown
+  commands: unknown
+}
+
+/**
+ * `<install>/.claude-plugin/plugin.json`. A plugin without one is the ordinary
+ * case and reads as empty; one kondo cannot read is itemized with a fixed
+ * sentence and then treated as absent, so the default layouts still list
+ * (ADR-0005, ADR-0022 — no parser text and no file content cross the seam).
+ */
+async function readPluginManifestOf(
+  locator: StoreLocator,
+  root: PluginInstallRoot,
+  c: Collector
+): Promise<PluginManifest> {
+  const file = path.join(root.absPath, PLUGIN_MANIFEST_SUBDIR, PLUGIN_MANIFEST_FILE)
+  const display = tildify(file, locator.home)
+  const empty: PluginManifest = { skills: undefined, commands: undefined }
+  let raw: string
+  try {
+    raw = await fs.readFile(await resolveAllowedPath(file, root.boundary), 'utf8')
+  } catch (cause) {
+    if (isEnoent(cause)) return empty
+    c.fail(
+      cause instanceof BoundaryError ? cause.code : 'read-failed',
+      display,
+      'The plugin manifest could not be read, so only the default component directories were listed.'
+    )
+    return empty
+  }
+  let parsed: Record<string, unknown> | null
+  try {
+    parsed = asObject(JSON.parse(raw))
+  } catch {
+    c.fail(
+      'parse-failed',
+      display,
+      'The plugin manifest is not valid JSON, so only the default component directories were listed.'
+    )
+    return empty
+  }
+  if (parsed === null) {
+    c.fail(
+      'parse-failed',
+      display,
+      'The plugin manifest is not an object, so only the default component directories were listed.'
+    )
+    return empty
+  }
+  return { skills: parsed['skills'], commands: parsed['commands'] }
+}
+
+/**
+ * The paths one manifest field names, relative to the plugin root. Claude
+ * accepts a single string or an array of them, and `.` / `./` denote the root
+ * itself. Any other shape — the object form of `commands` among them — is a
+ * source kondo does not read, so it is itemized rather than silently dropped.
+ * A path leaving the plugin root is refused where it is resolved, exactly as
+ * Claude Code refuses one that "escapes plugin directory".
+ */
+function componentPaths(
+  locator: StoreLocator,
+  root: PluginInstallRoot,
+  manifest: PluginManifest,
+  field: 'skills' | 'commands',
+  c: Collector
+): string[] {
+  const value = manifest[field]
+  if (value === undefined) return []
+  const display = tildify(path.join(root.absPath, PLUGIN_MANIFEST_SUBDIR, PLUGIN_MANIFEST_FILE), locator.home)
+  const declared = typeof value === 'string' ? [value] : Array.isArray(value) ? value : null
+  if (declared === null) {
+    c.fail('parse-failed', display, `The plugin manifest declares "${field}" in a form Kondo does not read, so those components were not listed.`)
+    return []
+  }
+  const paths: string[] = []
+  for (const entry of declared) {
+    if (typeof entry !== 'string') {
+      c.fail('parse-failed', display, `The plugin manifest declares a "${field}" entry in a form Kondo does not read, so that component was not listed.`)
+      continue
+    }
+    const resolved = path.resolve(root.absPath, entry)
+    if (resolved !== root.absPath && !pathWithin(resolved, root.absPath)) {
+      c.fail('out-of-store', tildify(resolved, locator.home), `A "${field}" path of this plugin leaves its install directory; it was not followed.`)
+      continue
+    }
+    paths.push(entry)
+  }
+  return paths
+}
+
+/**
+ * One `commands` source: Claude calls each a "command file or skill
+ * directory". A directory holding its own `SKILL.md` is that one skill; any
+ * other directory holds flat `.md` commands, which load as skills too; a named
+ * `.md` file is one command. Anything else is itemized, because a source kondo
+ * cannot read must not reach the view as an empty list.
+ */
+async function readCommandSource(
+  locator: StoreLocator,
+  root: PluginInstallRoot,
+  target: string,
+  read: (root: string, boundary: string, shape: PlacedShape) => SkillDirRead,
+  c: Collector
+): Promise<SkillInfo[]> {
+  let stats: Stats
+  try {
+    stats = await fs.stat(await resolveAllowedPath(target, root.boundary))
+  } catch (cause) {
+    if (isEnoent(cause)) return []
+    c.fail(
+      cause instanceof BoundaryError ? cause.code : 'read-failed',
+      tildify(target, locator.home),
+      'This plugin command source could not be read, so the components under it were not listed.'
+    )
+    return []
+  }
+  if (stats.isDirectory()) {
+    const own = await readOneSkillDir(locator, root, target, c)
+    return own === null
+      ? readSkillDir(locator, read(target, root.boundary, 'markdown'), c)
+      : [placedToSkill(locator, read(target, root.boundary, 'skill-dir'), own)]
+  }
+  if (stats.isFile() && target.toLowerCase().endsWith(MARKDOWN)) {
+    const record = await readPlacedFile(locator, root, target, path.basename(target, path.extname(target)), c)
+    return record === null ? [] : [placedToSkill(locator, read(path.dirname(target), root.boundary, 'markdown'), record)]
+  }
+  c.fail(
+    'read-failed',
+    tildify(target, locator.home),
+    'This plugin command source is neither a directory nor a Markdown file, so nothing under it was listed.'
+  )
+  return []
+}
+
+/** The directory itself as one skill, when it carries its own `SKILL.md`. */
+async function readOneSkillDir(
+  locator: StoreLocator,
+  root: PluginInstallRoot,
+  dir: string,
+  c: Collector
+): Promise<PlacedRecord | null> {
+  return readPlacedFile(locator, root, path.join(dir, SKILL_MANIFEST), path.basename(dir), c, dir)
+}
+
+/** One entry whose manifest is a named file rather than a directory listing. */
+async function readPlacedFile(
+  locator: StoreLocator,
+  root: PluginInstallRoot,
+  manifest: string,
+  name: string,
+  c: Collector,
+  target = manifest
+): Promise<PlacedRecord | null> {
+  try {
+    const content = await fs.readFile(await resolveAllowedPath(manifest, root.boundary), 'utf8')
+    return { name, description: readFrontmatter(content.slice(0, MAX_MANIFEST_BYTES)).description, target }
+  } catch (cause) {
+    if (isEnoent(cause)) return null
+    c.fail(
+      cause instanceof BoundaryError ? cause.code : 'read-failed',
+      tildify(manifest, locator.home),
+      'This plugin component could not be read, so it was not listed.'
+    )
+    return null
+  }
 }

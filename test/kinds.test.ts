@@ -396,6 +396,30 @@ describe('conservative configuration inventory (100)', () => {
     expect(plugins.data.some((r) => r.id === 'plugin:alpha@acme' && r.installed)).toBe(true)
   })
 
+  it('lists a skills-directory plugin as a plugin, with no installation record', async () => {
+    const found = (await api.pluginsList()).data.find((r) => r.id === 'plugin:my-tool@skills-dir')!
+    expect(found.installed).toBe(true)
+    expect(found.source).toBe('skills-dir')
+    // It loads without an install step, so there is no record to carry —
+    // `source` is what keeps that apart from "nothing is installed".
+    expect(found.installations).toEqual([])
+    expect(found.marketplace).toBe('skills-dir')
+
+    // ...and a record plugin keeps every field of its own record.
+    const alpha = (await api.pluginsList()).data.find((r) => r.id === 'plugin:alpha@acme')!
+    expect(alpha.source).toBe('record')
+    expect(alpha.installations).toHaveLength(1)
+    expect(alpha.installations[0]?.scope).toBe('user')
+    expect(alpha.installations[0]?.followed).toBe(true)
+  })
+
+  it('keeps a skills-directory plugin out of the skills catalogue', async () => {
+    // Claude loads the folder as `my-tool@skills-dir` and skips it as a
+    // skill; listing it in both places would offer a move on a plugin's files.
+    const skills = await api.skillsList()
+    expect(skills.data.some((skill) => skill.name === 'my-tool')).toBe(false)
+  })
+
   it.each([undefined, '{broken', 'null', '[]', '{}', '{"version":2,"plugins":[]}',
     '{"version":2,"plugins":null}', '{"plugins":{}}'])('does not infer absence from unavailable manifest %s', async (source) => {
     const file = path.join(world.userRoot, 'plugins/installed_plugins.json')
@@ -411,7 +435,7 @@ describe('conservative configuration inventory (100)', () => {
       ...installed(), 'broken@acme': [null], 'shapeless@acme': { installPath: 'unknown' }
     }) })
     const plugins = await api.pluginsList()
-    expect(plugins.data.map((r) => r.id)).toEqual(['plugin:alpha@acme'])
+    expect(plugins.data.map((r) => r.id)).toEqual(['plugin:alpha@acme', 'plugin:my-tool@skills-dir'])
     expect(plugins.errors.length).toBeGreaterThanOrEqual(2)
     expect((await preview()).data.map((r) => r.kind).sort()).toEqual(['mcp-declaration', 'project-entry'])
   })
@@ -419,7 +443,7 @@ describe('conservative configuration inventory (100)', () => {
   it('keeps readable entries of unsupported versions without making absence claims', async () => {
     await writeFileTree(world.userRoot, { 'plugins/installed_plugins.json': writeJson({ version: 99, plugins: installed() }) })
     const plugins = await api.pluginsList()
-    expect(plugins.data.map((r) => r.id)).toEqual(['plugin:alpha@acme'])
+    expect(plugins.data.map((r) => r.id)).toEqual(['plugin:alpha@acme', 'plugin:my-tool@skills-dir'])
     expect(plugins.errors.length).toBeGreaterThan(0)
     expect((await preview()).data.some((r) => r.kind === 'enabled-plugin')).toBe(false)
   })

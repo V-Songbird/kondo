@@ -929,6 +929,39 @@ describe('session-env snapshots and plugin residue', () => {
     }
   )
 
+  it('protects every in-store install path when one record escapes the store', async () => {
+    // A record kondo may not follow is still a record: it cannot be allowed to
+    // take the sibling records' protection down with it (ADR-0005).
+    const escaping = path.join(world.base, 'outside-the-store', 'keep', '9.9.9')
+    await writeFileTree(world.userRoot, {
+      'plugins/installed_plugins.json': writeJson({
+        version: 2,
+        plugins: {
+          [KEEP]: [
+            { scope: 'user', installPath: liveInstallPath(world.userRoot), version: LIVE_VERSION },
+            { scope: 'managed', installPath: escaping, version: '9.9.9' },
+            {
+              scope: 'local',
+              projectPath: path.join(world.home, 'local-project'),
+              installPath: inStore('plugins/cache/mp/keep/1.5.0'),
+              version: '1.5.0'
+            }
+          ]
+        }
+      })
+    })
+
+    const preview = await api.tidyPreview()
+    expect(byCategory(preview.data)['superseded-plugin-versions'].examples).toEqual([
+      '~/.claude/plugins/cache/mp/keep/1.0.0'
+    ])
+
+    expect((await reviewedSweep(api, ['superseded-plugin-versions'])).errors).toEqual([])
+    expect(await exists(liveInstallPath(world.userRoot))).toBe(true)
+    expect(await exists(inStore('plugins/cache/mp/keep/1.5.0'))).toBe(true)
+    expect(await exists(inStore('plugins/cache/mp/keep/1.0.0'))).toBe(false)
+  })
+
   it('offers data and install records for ids no manifest declares', async () => {
     const found = byCategory((await api.tidyPreview()).data)
     expect(found['orphan-plugin-residue'].count).toBe(2)

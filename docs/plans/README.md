@@ -18,6 +18,9 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
+- [106 — Every plugin installation and component layout](106-plugin-installation-inventory.md)
+  — the verified `installed_plugins.json` record shape and the component
+  layouts Claude Code 2.1.271 loads, and how kondo inventories both.
 - [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
   — the experiments that separate an Electron, smoke-harness or kondo startup
   cause; none has run yet.

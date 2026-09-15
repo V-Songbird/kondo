@@ -18,6 +18,8 @@ import {
   filterCatalog,
   findings,
   hookName,
+  installScopeWord,
+  installationSummary,
   objectKey,
   managementProjects,
   mcpStatusFlag,
@@ -474,7 +476,7 @@ function PluginPage({ object, input, management }: ObjectPageProps) {
         object={object}
         facts={[
           plugin.marketplace,
-          plugin.version ?? 'no version recorded',
+          installationSummary(plugin),
           plugin.installed ? 'installation found' : 'installation not found',
           plugin.lastUpdated === null ? null : `updated ${formatAgo(Date.parse(plugin.lastUpdated))}`
         ]
@@ -482,6 +484,28 @@ function PluginPage({ object, input, management }: ObjectPageProps) {
           .join(' · ')}
       />
       {management}
+
+      <Section title="Where it is installed" count={plugin.installations.length}>
+        {plugin.installations.length === 0
+          ? <p>{plugin.source === 'skills-dir'
+            ? 'This plugin is a folder in a skills directory, so Claude loads it without an installation record.'
+            : 'No installation record names this plugin.'}</p>
+          : <table className="ledger">
+            <thead><tr><th>Where it applies</th><th>Version</th><th>Details</th></tr></thead>
+            <tbody>{plugin.installations.map((place) => (
+              <tr key={`${place.scope}:${place.installPath}`} data-force={place.followed ? undefined : 'off'}>
+                <td>{installScopeWord(place.scope)}
+                  {place.projectPath === null ? null : <p className="break-all">{place.projectPath}</p>}</td>
+                <td>{place.version ?? <span className="null">—</span>}</td>
+                <td><details className="technical-details"><summary>Technical details</summary>
+                  <p className="break-all">Files: {place.installPath}</p>
+                  {place.followed ? null : <p>This path is outside the Claude store, so Kondo did not read it.</p>}
+                  {place.installedAt === null ? null : <p>Installed: {place.installedAt}</p>}
+                </details></td>
+              </tr>
+            ))}</tbody>
+          </table>}
+      </Section>
 
       <Section title="Where it is configured" count={stated.length}>
         <p className="mb-3">These are explicit settings. A project's own setting can override the shared one.</p>
@@ -507,6 +531,7 @@ function PluginPage({ object, input, management }: ObjectPageProps) {
                 <tr>
                   <th>Skill</th>
                   <th>Description</th>
+                  <th>Where it comes from</th>
                 </tr>
               </thead>
               <tbody>
@@ -516,6 +541,9 @@ function PluginPage({ object, input, management }: ObjectPageProps) {
                     <td className="text-ink-2">
                       {skill.description ?? <span className="null">—</span>}
                     </td>
+                    {/* A plugin can ship one name from several directories and
+                        several installations; the path is what says which. */}
+                    <td className="break-all font-mono text-ink-2">{skill.origin}</td>
                   </tr>
                 ))}
               </tbody>
@@ -523,7 +551,7 @@ function PluginPage({ object, input, management }: ObjectPageProps) {
           )}
         </AsyncView>
         <p className="mt-3 text-xs">
-          These skills are managed together with their plugin. Open a management location above to see its controls.
+          Kondo reads a plugin's own skills folder, any skills folder its manifest adds, and its commands. These skills are managed together with their plugin. Open a management location above to see its controls.
         </p>
       </Section>
 
