@@ -1154,6 +1154,8 @@ test('cleanup refuses a cache that appeared after review, then a fresh choice ap
     assert.equal(await client.evaluate(`${checkbox}.checked`), false)
     await client.evaluate(`${checkbox}.focus()`)
     await press(' ')
+    // After a refusal the checkbox is usable while the preview reloads; Review is not.
+    await client.waitFor(`${review} !== undefined && !${review}.disabled`)
     await keyboardActivate(review)
     await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel'`)
   }
