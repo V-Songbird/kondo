@@ -198,6 +198,16 @@ All notable changes to kondo are documented here. The format follows
   - Flattened project keys retain their split treatment; legitimate paths
     and filenames are not altered.
 
+### Security
+
+- Settings content that can hold credentials no longer reaches the window.
+  Settings files list only documented top-level setting names and say when
+  others exist. Hooks show their documented event, handler type, whether a
+  matcher applies and the script status, without the command, matcher pattern
+  or script path. Problems with malformed settings, registry, MCP or history
+  files no longer quote their contents, and connection types outside the
+  documented set read as unknown.
+
 ## [0.5.0] - 2026-09-05
 
 The first version stamped as such. It collects everything since the

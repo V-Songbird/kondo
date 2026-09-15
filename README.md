@@ -48,9 +48,11 @@ machine; nothing is ever sent anywhere.
   commands and rules move between scopes the way a skill does; output styles
   have no project destination.
 - **Hooks** — read-only declarations from user settings and verified projects'
-  project/local settings, with source attribution and limited script checks.
-  Kondo does not move, toggle or remove hook declarations, or prove which hooks
-  execute. See the [hook boundary decision](docs/plans/109-hook-layer-boundary.md).
+  project/local settings: event, handler type, source attribution and limited
+  script checks. Commands and matcher patterns are not shown, because they can
+  hold private values. Kondo does not move, toggle or remove hook declarations,
+  or prove which hooks execute. See the
+  [hook boundary decision](docs/plans/109-hook-layer-boundary.md).
 - **MCP servers** — connections declared in `~/.claude.json` and a project's
   `.mcp.json`. Their on/off state comes only from the disable lists in
   `~/.claude.json`; disable lists in project settings files and Claude's

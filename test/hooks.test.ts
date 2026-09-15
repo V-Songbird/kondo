@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { slashed } from '../electron/main/workspace/display'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type {
@@ -118,33 +117,25 @@ describe('hooks, their scripts, and the scripts nothing arms', () => {
   it('reports a script that is there, one that is gone, and one it may not place', async () => {
     const { hooks } = await layersFor()
 
-    expect(find(hooks, 'SessionStart').script).toEqual({
-      path: '~/.claude/hooks/present.sh',
-      status: 'present'
-    })
-    expect(find(hooks, 'PreToolUse').script).toEqual({
-      path: '~/.claude/hooks/gone.sh',
-      status: 'missing'
-    })
-    // The token exactly as the command wrote it: a path kondo refused to
-    // resolve is not a path it may restate as one of its own (ADR-0002).
-    expect(find(hooks, 'Stop').script).toEqual({
-      path: '$CLAUDE_PLUGIN_ROOT/scripts/gate.js',
-      status: 'unverifiable'
-    })
+    expect(find(hooks, 'SessionStart').script).toBe('present')
+    expect(find(hooks, 'PreToolUse').script).toBe('missing')
+    // A variable kondo does not expand is reported, never resolved (ADR-0002).
+    expect(find(hooks, 'Stop').script).toBe('unverifiable')
     // An inline command names no script, and null is the honest answer —
     // not a third status covering two different facts.
     expect(find(hooks, 'Notification').script).toBeNull()
 
     // A project layer's relative path resolves against that project, which
     // is the directory Claude runs its hooks in.
-    const guard = find(hooks, 'PostToolUse').script!
-    expect(guard.status).toBe('present')
-    expect(guard.path).toBe(slashed(path.join(workdir, '.claude', 'hooks', 'guard.sh')))
-    expect(find(hooks, 'SubagentStop').script).toEqual({
-      path: OUTSIDE,
-      status: 'unverifiable'
-    })
+    expect(find(hooks, 'PostToolUse').script).toBe('present')
+    expect(find(hooks, 'SubagentStop').script).toBe('unverifiable')
+    expect(find(hooks, 'PreToolUse')).toMatchObject({ type: 'command', hasMatcher: true })
+
+    // Only statuses cross: no command, script token or resolved path (ADR-0022).
+    const serialized = JSON.stringify(hooks)
+    for (const fragment of ['present.sh', 'gone.sh', 'CLAUDE_PLUGIN_ROOT', 'gate.js', 'echo hello', 'guard.sh', 'rogue.sh', 'Bash']) {
+      expect(serialized).not.toContain(fragment)
+    }
   })
 
   it('never stats a path outside the stores, even to find out it is absent', async () => {
@@ -165,15 +156,25 @@ describe('hooks, their scripts, and the scripts nothing arms', () => {
   it('degrades rather than dies when a script cannot be statted (ADR-0005)', async () => {
     const c = collector()
     const layers = await readSettingsLayers(world.locator, verified, c)
-    vi.spyOn(fsp, 'stat').mockRejectedValue(
-      Object.assign(new Error('permission denied'), { code: 'EACCES' })
-    )
+    // Node's own message names the path, which the command chose.
+    vi.spyOn(fsp, 'stat').mockImplementation(async (target) => {
+      throw Object.assign(new Error(`EACCES: permission denied, stat '${String(target)}'`), { code: 'EACCES' })
+    })
     const hooks = await hooksFromLayers(layers, world.locator, verified, c)
 
     // Every hook is still listed, and the failure is itemized beside them.
     expect(hooks).toHaveLength(6)
-    expect(find(hooks, 'SessionStart').script?.status).toBe('missing')
-    expect(c.errors.some((error) => error.code === 'stat-failed')).toBe(true)
+    expect(find(hooks, 'SessionStart').script).toBe('missing')
+    // The error names the settings file in Kondo's words, never the script (ADR-0022).
+    expect(c.errors).toContainEqual({
+      code: 'stat-failed',
+      path: '~/.claude/settings.json',
+      message: 'Kondo could not check a script this settings file names.'
+    })
+    const serialized = JSON.stringify(c.errors)
+    for (const fragment of ['present.sh', 'guard.sh', 'EACCES', 'permission denied']) {
+      expect(serialized).not.toContain(fragment)
+    }
   })
 
   // -------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { listView, PAGE } from './project-rows'
 import type {
-  HookScript,
   HookScriptStatus,
   InheritedSkillState,
   JournalEntryInfo,
@@ -631,15 +630,15 @@ function ProjectPage({
                   count={detail.hooks.length}
                   empty="Nothing here runs a command on a Claude event. A hook only exists once a settings file names it."
                 >
-                  {/* Five columns of paths outgrow the sheet on a narrow window,
-                      so the table scrolls inside it rather than the page. */}
+                  {/* Five columns outgrow the sheet on a narrow window, so the
+                      table scrolls inside it rather than the page. */}
                   <div className="overflow-x-auto">
                     <table className="ledger">
                       <thead>
                         <tr>
                           <th>Event</th>
+                          <th>Type</th>
                           <th>Matcher</th>
-                          <th>Command</th>
                           <th>Script</th>
                           <th>Settings file</th>
                         </tr>
@@ -647,11 +646,11 @@ function ProjectPage({
                       <tbody>
                         {detail.hooks.map((hook) => (
                           <tr key={hook.id}>
-                            <td className="font-mono text-xs">{hook.event}</td>
-                            <td className="font-mono text-xs text-ink-2">{hook.matcher ?? '*'}</td>
-                            <td className="max-w-xs truncate font-mono text-xs" title={hook.command}>
-                              {hook.command}
+                            <td className="font-mono text-xs">
+                              {hook.event ?? <span className="stamp-unknown">not recognized</span>}
                             </td>
+                            <td className="font-mono text-xs text-ink-2">{hook.type ?? '—'}</td>
+                            <td className="text-xs text-ink-2">{hook.hasMatcher ? 'set' : '—'}</td>
                             <td>
                               <HookScriptCell script={hook.script} />
                             </td>
@@ -666,6 +665,10 @@ function ProjectPage({
                       </tbody>
                     </table>
                   </div>
+                  <p className="mt-3 text-xs text-ink-2">
+                    Commands, matcher patterns and names Kondo does not recognize can hold private
+                    values, so they are not shown. Open the settings file to read them.
+                  </p>
                 </Section>
               )}
 
@@ -813,6 +816,11 @@ function ProjectPage({
                         {layer.keys.length > 0 && (
                           <div className="mt-1 font-mono text-[11px] text-ink-2">
                             {layer.keys.join(' · ')}
+                          </div>
+                        )}
+                        {layer.unlistedKeys && (
+                          <div className="mt-1 text-xs text-ink-2">
+                            Other top-level settings are not shown. Kondo lists only documented setting names.
                           </div>
                         )}
                       </div>
@@ -978,24 +986,14 @@ const SCRIPT_TONE: Record<HookScriptStatus, { label: string; tone: string }> = {
 }
 
 /**
- * The script a hook runs, and whether it is there. "cannot check" is not a
- * shrug: the path holds a variable kondo does not expand, or it lies outside
- * the stores kondo may read (ADR-0002), and saying so is more honest than
- * reaching for it.
+ * Whether the script a hook runs is there. "cannot check" is not a shrug: the
+ * path holds a variable kondo does not expand, or it lies outside the stores
+ * kondo may read (ADR-0002). The path itself stays in main (ADR-0022).
  */
-function HookScriptCell({ script }: { script: HookScript | null }) {
+function HookScriptCell({ script }: { script: HookScriptStatus | null }) {
   if (script === null) return <span className="text-ink-2">—</span>
-  const { label, tone } = SCRIPT_TONE[script.status]
-  return (
-    <span className="flex items-baseline gap-2">
-      {/* The verdict first: it is the finding, and the path behind it is what
-          you go and look at once the verdict says there is something to see. */}
-      <span className={`${tone} shrink-0`}>{label}</span>
-      <span className="max-w-40 truncate font-mono text-xs" title={script.path}>
-        {script.path}
-      </span>
-    </span>
-  )
+  const { label, tone } = SCRIPT_TONE[script]
+  return <span className={tone}>{label}</span>
 }
 
 /**

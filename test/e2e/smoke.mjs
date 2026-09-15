@@ -820,6 +820,161 @@ test('hook cleanup stays blocked for a HOME reference at both supported window s
   }
 })
 
+test('settings-derived secrets stay out of pages, tooltips and bridge responses in Chalk and Carbon', async () => {
+  const userSettings = path.join(base, 'home', '.claude', 'settings.json')
+  const projectStore = path.join(base, 'work', 'apiserver', '.claude')
+  const mcpFile = path.join(base, 'work', 'apiserver', '.mcp.json')
+  const originalUser = await fs.readFile(userSettings, 'utf8')
+  const originalMcp = await fs.readFile(mcpFile, 'utf8')
+  const before = await fixtureSnapshot()
+  const journal = await journalBytes()
+  // Synthetic sentinels in the positions 117 names (ADR-0022); no real store.
+  await fs.writeFile(userSettings, JSON.stringify({
+    ...JSON.parse(originalUser),
+    S117_TOP_LEVEL_NAME: 'S117_TOP_LEVEL_VALUE',
+    env: { S117_ENV_NAME: 'S117_ENV_VALUE' },
+    permissions: { allow: ['Bash(S117_PERMISSION_RULE)'], S117_NESTED_NAME: true },
+    hooks: {
+      // `~` is the app's real home, outside the fixture store: unverifiable and never statted.
+      PreToolUse: [{ matcher: 'S117_MATCHER', hooks: [{ type: 'command', command: 'node ~/.claude/hooks/S117_UNCHECKED_SCRIPT.js --token=S117_COMMAND_ARG' }] }],
+      S117_EVENT_NAME: [{ hooks: [{ type: 'S117_HANDLER_TYPE', command: 'echo S117_UNKNOWN_EVENT_COMMAND' }] }]
+    }
+  }, null, 2))
+  // A project-relative script resolves inside the fixture project, so its absence is checked.
+  await fs.writeFile(path.join(projectStore, 'settings.json'), JSON.stringify({ hooks: {
+    Stop: [{ hooks: [{ type: 'prompt', prompt: 'S117_PROMPT' }] }],
+    PostToolUse: [{ matcher: 'S117_PROJECT_MATCHER', hooks: [{ type: 'command', command: '.claude/hooks/S117_MISSING_SCRIPT.sh S117_PROJECT_ARG' }] }]
+  } }))
+  await fs.writeFile(path.join(projectStore, 'settings.local.json'), '{"env":{"S117_MALFORMED_NAME":S117_MALFORMED_VALUE}}')
+  await fs.writeFile(mcpFile, JSON.stringify({ mcpServers: { linter: {
+    type: 'S117_TRANSPORT', command: 'npx',
+    env: { S117_MCP_ENV_NAME: 'S117_MCP_ENV_VALUE' }, headers: { S117_HEADER_NAME: 'S117_HEADER_VALUE' }
+  } } }))
+
+  /** Opens problem lists and technical details, then reads text and every tooltip-like attribute. */
+  const leaks = async () => {
+    await client.evaluate(`(() => {
+      for (const toggle of document.querySelectorAll('.band button[aria-expanded="false"]')) toggle.click()
+      for (const details of document.querySelectorAll('details')) details.open = true
+    })()`)
+    await client.waitFor(`document.querySelector('.band button[aria-expanded="false"]') === null`)
+    return client.evaluate(`(() => {
+      const found = new Set()
+      const scan = (text) => { for (const match of String(text ?? '').matchAll(/S117_\\w*/g)) found.add(match[0]) }
+      scan(document.body.innerText)
+      scan(document.body.textContent)
+      for (const element of document.querySelectorAll('*')) {
+        for (const name of ['title', 'aria-label', 'aria-description', 'placeholder', 'alt', 'value']) scan(element.getAttribute(name))
+      }
+      return [...found]
+    })()`)
+  }
+  const technical = `document.querySelector('nav[aria-label="Project sections"]')`
+  /** Returning to the list refocuses the previous row on the next frame; wait before the next key press. */
+  const backToLibrary = async () => {
+    await keyboardActivate(button('Back to Library'))
+    await client.waitFor(`document.activeElement?.hasAttribute('data-library-key') === true || document.activeElement?.id === 'library-search'`)
+  }
+  /** The focused top of the page, then the changed section, when screenshots are requested. */
+  const shoot = async (name, heading) => {
+    if (!process.env.KONDO_E2E_SHOTS) return
+    await capture(`${name}-top`)
+    await client.evaluate(`[...document.querySelectorAll('section h2')].find((title) => title.textContent.trim() === ${JSON.stringify(heading)})?.closest('section')?.scrollIntoView({ block: 'start' })`)
+    await capture(`${name}-section`)
+  }
+
+  try {
+    // Screenshots show settled control colors rather than a 90ms transition.
+    await client.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+    for (const theme of ['chalk', 'carbon']) {
+      await openThemes()
+      await chooseTheme(theme)
+      for (const [width, height] of [[1360, 860], [900, 600]]) {
+        await client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+
+        await openProject('All projects')
+        await client.waitFor(`${technical} !== null`)
+        await keyboardActivate(button('Technical details', technical))
+        await client.waitFor(`document.body.innerText.includes('Other top-level settings are not shown')`)
+        const shared = await client.evaluate('document.body.innerText')
+        for (const text of ['PreToolUse', 'not recognized', 'cannot check', 'env · permissions · hooks']) {
+          assert.ok(shared.includes(text), `All projects technical details lack ${text}`)
+        }
+        assert.notEqual(await client.evaluate(`getComputedStyle(document.activeElement).outlineStyle`), 'none')
+        await assertNoHorizontalOverflow()
+        await shoot(`117-shared-technical-${theme}-${width}`, 'Hooks')
+        assert.deepEqual(await leaks(), [])
+
+        await openProject('apiserver')
+        await section('Project sections', 'Technical details')
+        await client.waitFor(`document.body.innerText.includes('prompt')`)
+        const own = await client.evaluate('document.body.innerText')
+        for (const text of ['Stop', 'PostToolUse', 'not found']) assert.ok(own.includes(text), `apiserver technical details lack ${text}`)
+        await assertNoHorizontalOverflow()
+        await shoot(`117-project-technical-${theme}-${width}`, 'Hooks')
+        assert.deepEqual(await leaks(), [])
+
+        await navigate('Projects')
+        await browseLibrary()
+        const clear = button('Clear filters')
+        if (await client.evaluate(`${clear} !== undefined`)) await client.evaluate(`${clear}.click()`)
+        assert.deepEqual(await leaks(), [])
+        const hook = `[...document.querySelectorAll('[data-library-key]')].find((item) => item.textContent.includes('PreToolUse'))`
+        await client.waitFor(`${hook} !== undefined`)
+        await keyboardActivate(hook)
+        await client.waitFor(`document.body.innerText.includes('Set (pattern not shown)')`)
+        assert.equal(await client.evaluate(`document.activeElement?.tagName`), 'H1')
+        await assertNoHorizontalOverflow()
+        await shoot(`117-library-hook-${theme}-${width}`, 'What it runs')
+        assert.deepEqual(await leaks(), [])
+
+        await backToLibrary()
+        const layer = `[...document.querySelectorAll('[data-library-key]')].find((item) => item.textContent.includes('Global · user'))`
+        await client.waitFor(`${layer} !== undefined`)
+        await keyboardActivate(layer)
+        await client.waitFor(`document.querySelector('.workspace-detail h1')?.textContent === 'Global · user'`)
+        await client.waitFor(`document.querySelector('.workspace-detail details') !== null`)
+        await client.evaluate(`document.querySelector('.workspace-detail details').open = true`)
+        await client.waitFor(`document.body.innerText.includes('Other top-level settings are not shown')`)
+        await assertNoHorizontalOverflow()
+        await shoot(`117-library-settings-${theme}-${width}`, 'What it states')
+        assert.deepEqual(await leaks(), [])
+        await backToLibrary()
+      }
+    }
+
+    const bridge = await call(`JSON.stringify(await (async () => {
+      const projects = await window.kondo.projectsList()
+      const apiserver = projects.data.find((row) => row.name === 'apiserver')
+      return {
+        projects,
+        layers: await window.kondo.settingsLayers(),
+        hooks: await window.kondo.hooksList(),
+        shared: await window.kondo.projectDetail('store:user:user'),
+        project: await window.kondo.projectDetail(apiserver.id),
+        mcp: await window.kondo.entityList('mcp'),
+        journal: await window.kondo.journalList()
+      }
+    })())`)
+    assert.deepEqual(bridge.match(/S117_\w*/g) ?? [], [])
+    const responses = JSON.parse(bridge)
+    assert.equal(responses.project.data.mcpServers.find((server) => server.name === 'linter').transport, 'unknown')
+    assert.ok(responses.project.errors.some((error) => error.code === 'parse-failed'))
+  } finally {
+    await fs.writeFile(userSettings, originalUser)
+    await fs.writeFile(mcpFile, originalMcp)
+    await fs.rm(path.join(projectStore, 'settings.json'), { force: true })
+    await fs.rm(path.join(projectStore, 'settings.local.json'), { force: true })
+    await client.send('Emulation.clearDeviceMetricsOverride')
+    await client.send('Emulation.setEmulatedMedia', { features: [] })
+    await openThemes()
+    await chooseTheme('chalk')
+    await browseLibrary()
+  }
+  assert.deepEqual(await fixtureSnapshot(), before)
+  assert.equal(await journalBytes(), journal)
+})
+
 test('file cleanup review applies once and Undo restores all fixture bytes', async () => {
   const snapshot = async (root) => {
     const files = []

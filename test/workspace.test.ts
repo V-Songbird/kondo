@@ -1,14 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { KondoApi } from '../shared/contract'
+import { slashed } from '../electron/main/workspace/display'
 import { createLocator } from '../electron/main/workspace/locator'
+import { INVALID_JSON } from '../electron/main/workspace/scan'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   healthyTranscript,
   hashTree,
   flattenPath,
   makeWorld,
+  mcpServer,
+  registerMcp,
   registerProjects,
   skillManifest,
   UUID_A,
@@ -235,5 +239,183 @@ describe('workspace first read without user data', () => {
     } else {
       await expect(fs.lstat(locator.userRoot)).rejects.toMatchObject({ code: 'ENOENT' })
     }
+  })
+})
+
+describe('settings-derived data crosses deny-by-default (117, ADR-0022)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+  let workdir: string
+
+  // Synthetic sentinels in every position named for 117: top-level and nested
+  // unknown names, env and header names and values, hook matchers, commands,
+  // an unknown event and handler type, and malformed JSON for each reader.
+  const userSettings = writeJson({
+    S117_TOP_LEVEL_NAME: 'S117_TOP_LEVEL_VALUE',
+    env: { S117_ENV_NAME: 'S117_ENV_VALUE' },
+    permissions: { allow: ['Bash(S117_PERMISSION_RULE)'], S117_NESTED_NAME: true },
+    statusLine: { type: 'command', command: 'S117_STATUS_COMMAND' },
+    enabledPlugins: { 'alpha@acme': true, S117_PLUGIN_KEY: true },
+    skillOverrides: { S117_SKILL_NAME: 'off' },
+    hooks: {
+      PreToolUse: [{
+        matcher: 'S117_MATCHER',
+        S117_GROUP_FIELD: 'S117_GROUP_VALUE',
+        hooks: [
+          { type: 'command', command: 'node ~/.claude/hooks/guard.js --token=S117_COMMAND_ARG', S117_HOOK_FIELD: 1 },
+          { type: 'command', command: 'bash ~/.claude/hooks/S117_MISSING_SCRIPT.sh' }
+        ]
+      }],
+      Stop: [{ matcher: '*', hooks: [{ type: 'prompt', prompt: 'S117_PROMPT' }] }],
+      S117_EVENT_NAME: [{ hooks: [{ type: 'S117_HANDLER_TYPE', command: 'echo S117_UNKNOWN_EVENT_COMMAND' }] }]
+    }
+  })
+  // The denied script sits in the project store, which no store report walks,
+  // so only the hook check stats it.
+  const projectSettings = writeJson({
+    outputStyle: 'quiet',
+    hooks: {
+      PostToolUse: [{
+        matcher: 'S117_PROJECT_MATCHER',
+        hooks: [{ type: 'command', command: '.claude/hooks/S117_DENIED_SCRIPT.sh S117_PROJECT_ARG' }]
+      }]
+    }
+  })
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    workdir = path.join(world.base, 'work', 'proj')
+    const install = path.join(world.userRoot, 'plugins', 'cache', 'acme', 'alpha', '1.0.0')
+    await writeFileTree(world.userRoot, {
+      [`projects/${flattenPath(workdir)}/${UUID_A}.jsonl`]: healthyTranscript(UUID_A),
+      'settings.json': userSettings,
+      'hooks/guard.js': 'never executed\n',
+      'skills/alpha-skill/SKILL.md': skillManifest('alpha-skill', 'First skill'),
+      'plugins/installed_plugins.json': writeJson({
+        version: 2,
+        plugins: { 'alpha@acme': [{ scope: 'user', installPath: install, version: '1.0.0' }] }
+      })
+    })
+    await registerMcp(world, {
+      mcpServers: {
+        registry: mcpServer({
+          type: 'S117_TRANSPORT',
+          env: { S117_MCP_ENV_NAME: 'S117_MCP_ENV_VALUE' },
+          headers: { S117_HEADER_NAME: 'S117_HEADER_VALUE' }
+        })
+      },
+      projects: {
+        [workdir]: {
+          mcpServers: {
+            local: { type: 'streamable-http', url: 'https://example.invalid/S117_URL', headers: { Authorization: 'Bearer S117_BEARER' } }
+          }
+        }
+      }
+    })
+    await writeFileTree(workdir, {
+      '.claude/settings.json': projectSettings,
+      '.claude/hooks/S117_DENIED_SCRIPT.sh': 'never executed\n',
+      '.claude/settings.local.json': '{"env":{"S117_MALFORMED_NAME":S117_MALFORMED_VALUE}}',
+      '.mcp.json': '{"mcpServers":{"committed":{"env":{"S117_MCP_FILE_NAME":S117_MCP_FILE_VALUE}}}}'
+    })
+    await writeFileTree(world.kondoDataRoot, {
+      'journal.jsonl': '{"id":"torn","steps":[{"insert":S117_JOURNAL_BYTES}]}\n'
+    })
+    api = createWorkspace({ locator: world.locator, platform: process.platform })
+  })
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await world.cleanup()
+  })
+
+  it('keeps every sentinel out of the public envelopes and refusals while healthy summaries remain', async () => {
+    const flat = flattenPath(workdir)
+    const projectId = `project:code:${flat}`
+    const localLayer = `settings:local:${flat}`
+    // Node's own message names the path the command chose.
+    const stat = fs.stat.bind(fs)
+    vi.spyOn(fs, 'stat').mockImplementation(async (target) => {
+      if (String(target).includes('S117_DENIED_SCRIPT')) {
+        throw Object.assign(new Error(`EACCES: permission denied, stat '${String(target)}'`), { code: 'EACCES' })
+      }
+      return stat(target)
+    })
+    const journal = path.join(world.kondoDataRoot, 'journal.jsonl')
+    const bytes = async (): Promise<string[]> => [
+      await hashTree(world.userRoot),
+      await hashTree(workdir),
+      await fs.readFile(world.locator.userConfigFile, 'utf8'),
+      await fs.readFile(journal, 'utf8')
+    ]
+    const before = await bytes()
+
+    const envelopes = {
+      settingsLayers: await api.settingsLayers(),
+      settings: await api.entityList('settings'),
+      hookGroups: await api.hooksList(),
+      hooks: await api.entityList('hook'),
+      projects: await api.projectsList(),
+      globalDetail: await api.projectDetail('store:user:user'),
+      projectDetail: await api.projectDetail(projectId),
+      mcp: await api.entityList('mcp'),
+      skills: await api.skillsList(),
+      plugins: await api.pluginsList(),
+      leftovers: await api.configOrphansPreview(),
+      cleanup: await api.tidyPreview(),
+      history: await api.journalList(),
+      overview: await api.storesOverview()
+    }
+    const firstHook = envelopes.hookGroups.data[0]!.hooks[0]!
+    const refusals = {
+      hook: await api.entityMutate(firstHook.id, { op: 'disable' }),
+      layer: await api.entityMutate(localLayer, { op: 'enable' }),
+      plugin: await api.pluginToggle('plugin:alpha@acme', localLayer, 'enable'),
+      mcp: await api.entityMutate(`mcp:local:${flat}/local`, { op: 'disable' })
+    }
+
+    expect(JSON.stringify({ envelopes, refusals }).match(/S117_\w*/g) ?? []).toEqual([])
+    for (const refusal of Object.values(refusals)) {
+      expect(refusal.data).toBeNull()
+      expect(refusal.errors.length).toBeGreaterThan(0)
+    }
+    expect(await bytes()).toEqual(before)
+
+    // Documented names and validated states stay useful beside the omissions.
+    expect(envelopes.settingsLayers.data.map(({ layer, exists, keys, unlistedKeys }) => ({ layer, exists, keys, unlistedKeys })))
+      .toEqual([
+        { layer: 'user', exists: true, keys: ['env', 'permissions', 'statusLine', 'enabledPlugins', 'skillOverrides', 'hooks'], unlistedKeys: true },
+        { layer: 'project', exists: true, keys: ['outputStyle', 'hooks'], unlistedKeys: false },
+        { layer: 'local', exists: true, keys: [], unlistedKeys: false }
+      ])
+    expect(envelopes.hookGroups.data.flatMap((group) => group.hooks)
+      .map(({ event, type, hasMatcher, script, layer }) => ({ event, type, hasMatcher, script, layer })))
+      .toEqual([
+        { event: 'PreToolUse', type: 'command', hasMatcher: true, script: 'present', layer: 'user' },
+        { event: 'PreToolUse', type: 'command', hasMatcher: true, script: 'missing', layer: 'user' },
+        { event: 'Stop', type: 'prompt', hasMatcher: false, script: null, layer: 'user' },
+        { event: null, type: null, hasMatcher: false, script: null, layer: 'user' },
+        // Its script exists but the stat is denied: missing, with an itemized error.
+        { event: 'PostToolUse', type: 'command', hasMatcher: true, script: 'missing', layer: 'project' }
+      ])
+    const projectFile = (name: string): string => slashed(path.join(workdir, '.claude', name))
+    expect(envelopes.hookGroups.errors).toEqual([
+      { code: 'parse-failed', path: projectFile('settings.local.json'), message: INVALID_JSON },
+      { code: 'stat-failed', path: projectFile('settings.json'), message: 'Kondo could not check a script this settings file names.' }
+    ])
+    expect(envelopes.mcp.errors).toEqual([
+      { code: 'parse-failed', path: slashed(path.join(workdir, '.mcp.json')), message: INVALID_JSON }
+    ])
+    expect(envelopes.globalDetail.data!.mcpServers.map(({ name, transport }) => ({ name, transport })))
+      .toEqual([{ name: 'registry', transport: 'unknown' }])
+    const detail = envelopes.projectDetail.data!
+    expect(detail.mcpServers.map(({ name, transport }) => ({ name, transport }))).toEqual([{ name: 'local', transport: 'http' }])
+    expect(detail.settings.map((layer) => layer.layer)).toEqual(['project', 'local'])
+    expect(detail.hooks.map((hook) => hook.event)).toEqual(['PostToolUse'])
+    expect(detail.row.counts.hooks).toBe(1)
+    expect(envelopes.plugins.data.map((plugin) => [plugin.id, plugin.scopes.find((scope) => scope.layer === 'user')?.enabled]))
+      .toEqual([['plugin:alpha@acme', true]])
+    expect(envelopes.history).toEqual({
+      data: [], errors: [{ code: 'parse-failed', path: 'journal.jsonl:1', message: INVALID_JSON }], unknown: []
+    })
   })
 })

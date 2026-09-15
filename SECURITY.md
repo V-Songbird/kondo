@@ -54,6 +54,15 @@ machine keys of `~/.claude.json` — are statted for size but never opened or
 surfaced; of `~/.claude.json` kondo keeps only the project paths and, later,
 MCP server names (ADR-0009).
 
+Settings files, `~/.claude.json` and `.mcp.json` can hold credentials in
+arbitrary keys, commands and nested values. Their data reaches the renderer only
+as documented setting names, validated states (hook event, handler type, matcher
+presence and script status; MCP transport), identities, display paths and
+Kondo's own error sentences. Hook commands, matcher patterns, script paths,
+`env` and `headers` names and values, undocumented names and parser messages
+stay in the main process, and no view offers to reveal or copy them
+([ADR-0022](docs/adr/0022-project-settings-data-deny-by-default.md)).
+
 Kondo currently refuses every store-mutation plan containing a `write` or
 `splice`, on every platform, before journal or filesystem effects. Historical
 Undo entries containing those steps are also refused whole, retaining their

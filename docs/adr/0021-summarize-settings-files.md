@@ -42,3 +42,10 @@ explicit field allowlist, a source-completeness model and fixture evidence.
 - Future resolution work keeps unknown states distinct: an unreadable or
   invalid higher layer never becomes a definitive answer from a lower one, and
   unknown is never shown as off or as the default.
+
+## Amendment (117)
+
+[ADR-0022](0022-project-settings-data-deny-by-default.md) replaces the
+projections the second consequence names: summaries carry documented setting
+names and an `unlistedKeys` flag, hook rows carry no command text, and settings
+diagnostics use fixed sentences.

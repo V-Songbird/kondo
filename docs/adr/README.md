@@ -29,6 +29,7 @@ re-asked. Numbered, never renumbered; a superseded ADR stays and gains a
 - [0019 — Frame logical tree digests](0019-frame-logical-tree-digests.md)
 - [0020 — Frame physical recovery digests](0020-frame-physical-recovery-digests.md)
 - [0021 — Summarize settings files instead of promising an effective-settings viewer](0021-summarize-settings-files.md) — **accepted**
+- [0022 — Project settings-derived data deny-by-default](0022-project-settings-data-deny-by-default.md) — **accepted**
 
 ## Template
 
