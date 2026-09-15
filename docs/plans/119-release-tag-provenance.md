@@ -104,7 +104,8 @@ None. Nothing under `electron/`, `shared/` or `src/` changes.
 - A tag on an unrelated branch exits non-zero; stderr names both commits and
   says the tag commit is not reachable from `origin/main`.
 - A tag on an older main commit exits non-zero as not main's tip, including
-  when the clone's own `origin/main` still points at the tag commit.
+  when the clone's own `origin/main` still points at the tag commit, and when
+  the checkout is shallow at main's tip so the comparison needs deeper history.
 - A tag moved on `origin` after the run's commit was pushed exits non-zero,
   naming both commits.
 - A tag or `main` missing on `origin` exits non-zero and says what is missing.
