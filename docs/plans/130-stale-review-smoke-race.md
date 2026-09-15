@@ -1,6 +1,6 @@
 # Plan: stale-cache review smoke race
 
-Status: **in progress — awaiting owner acceptance**
+Status: **done — accepted 2026-09-15**
 
 Electron smoke test 20, "cleanup refuses a cache that appeared after review,
 then a fresh choice applies and undoes", failed only on hosted Windows. The
@@ -107,3 +107,11 @@ None.
 
 Test 20 passes on hosted Windows because the renewed review starts only after
 the refreshed preview is available, and the owner accepts the evidence.
+
+## Owner acceptance
+
+The owner accepted this result on 2026-09-15, conditional on hosted
+validation: the Windows smoke job on the pull request must pass three times.
+A sample that fails only with the sandboxed-preload startup error tracked as
+entry 132 does not count and is rerun once. The squash commit will record the
+runs.
