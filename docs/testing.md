@@ -24,11 +24,11 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
    the path with `read-failed` or `stat-failed`. Spies restore before fixture
    cleanup. This is deterministic adapter coverage, not evidence of native
    OS ACL enforcement; no real stores or system permissions are changed.
-2. **Unit — analysis.** Staleness (`isStale`) and the project-path join
-   (`projects.ts`) are pure functions over scanned data, table-tested.
-   Prompt-signature grouping (`sessionNearDuplicates`) and the scan cache
-   join them in `test/session-duplicates.test.ts`; worked time will when it
-   ships.
+2. **Unit — analysis.** The project-path join (`projects.ts`) is
+   table-tested in `test/projects.test.ts`; the staleness threshold
+   (`STALE_AFTER_DAYS`) is exercised through the tidy, journal and
+   projects-home suites. Prompt-signature grouping (`sessionNearDuplicates`)
+   and the scan cache are covered in `test/session-duplicates.test.ts`.
 3. **Integration — the seam.** Workspace methods — the functions the IPC
    handlers delegate to one line each — invoked directly against a fixture
    store; asserts channel contracts (shape in, shape out, errors as values).
@@ -55,7 +55,7 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      file-handle `read`, `readFile`, `readv` and `createReadStream`, resolving
      observed content paths at call time. Deliberate negative probes prove that
      the observer detects these mechanisms. Synthetic links exercise external
-     skills directories (A6), cross-store escapes, post-inventory transcript
+     skills directories, cross-store escapes, post-inventory transcript
      swaps, nested trees, dangling links, cycles and positive in-store aliases.
      File-link setup failures explicitly skip only those cases; directory
      junction variants provide Windows coverage without file-link privileges.
@@ -84,28 +84,26 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      and Undo. Session selection checks in `test/session-duplicates.test.ts`
      cover one journal entry for the whole selection, sidecars, restoration
      and refusal when any chosen id no longer resolves.
-   - Settings execution is currently refused on every platform (098,
-     ADR-0010). Tests must exercise the production gate for both `write` and
-     `splice`, before step preparation, journaling or filesystem effects.
-     Mixed plans must refuse whole, even if a move or trash step appears
-     first. Confirmed creation of a missing layer must also refuse. Assert
-     unchanged target and recovery bytes, unchanged or absent journal, no
-     temporary artifacts and no success result. Historical Undo fixtures must
-     include write, splice and mixed records and prove no completion is
-     appended and no recovery evidence is consumed. Preserve coverage for
-     permitted moves, trash and their Undo.
+   - Settings execution is refused on every platform (ADR-0010). Tests must
+     exercise the production gate for both `write` and `splice`, before step
+     preparation, journaling or filesystem effects. Mixed plans must refuse
+     whole, even if a move or trash step appears first, and confirmed
+     creation of a missing layer must also refuse. Assert unchanged target
+     and recovery bytes, unchanged or absent journal, no temporary artifacts
+     and no success result. Historical Undo fixtures must include write,
+     splice and mixed records and prove no completion is appended and no
+     recovery evidence is consumed. Preserve coverage for permitted moves,
+     trash and their Undo.
    - `test/mutation.test.ts` retains the pure check "retains reversible byte
      edits without permitting publication" for `applyEdits`, `invertEdits`
-     and `digestSource`. This establishes only helper behavior, not exhaustive
-     planner coverage or safe filesystem replacement. Per-feature suites
-     retain discovery and precedence checks and now assert workspace refusal
-     with unchanged stores and history. Re-enabling settings execution must
-     restore successful per-feature planning, publication and Undo coverage.
-     A pre-replacement competing write reproduced the old apply/Undo data
-     loss; refusal prevents entry into that replacement path. Re-enabling it
-     requires native concurrency and recovery evidence beyond digest checks,
+     and `digestSource`. This establishes only helper behavior, not planner
+     coverage or safe filesystem replacement. Per-feature suites retain
+     discovery and precedence checks and assert workspace refusal with
+     unchanged stores and history. Re-enabling settings execution must
+     restore per-feature planning, publication and Undo coverage, and needs
+     native concurrency and recovery evidence beyond digest checks,
      temporary-file synchronization or injected-error tests.
-   - Undo recovery (099, ADR-0018) uses synthetic rename and journal failures.
+   - Undo recovery (ADR-0018) uses synthetic rename and journal failures.
      `test/mutation.test.ts` proves a zero-effect Undo remains retryable after
      recreating the workspace; partial Undo preserves later edits at confirmed
      paths; occupant displacement resumes without losing either version; pending
@@ -115,7 +113,7 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      adjusted completion cursors, escaped trash references, torn lines and failed legacy Undo retain
      history and cannot establish a false `undoneBy`. Existing settings refusal,
      streaming, privacy and EXDEV byte-preservation assertions remain in force.
-   - Logical tree framing (118, ADR-0019): `test/skill-duplicates.test.ts`
+   - Logical tree framing (ADR-0019): `test/skill-duplicates.test.ts`
      distinguishes filename/content and cross-file concatenation collisions,
      with no review token or direct-removal effects. `test/skill-move.test.ts`
      injects an `a=bc` to `ab=c` copy substitution and asserts the source and
@@ -133,7 +131,7 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      base64 file bytes in sorted order, so path/content boundaries, empty
      directories versus files, creation order and binary bytes remain observable
      in the fixture oracle. `test/helpers.test.ts` covers those distinctions.
-   - Physical tree framing (121, ADR-0020): `test/relocation.test.ts` reproduces
+   - Physical tree framing (ADR-0020): `test/relocation.test.ts` reproduces
      the metadata/content boundary collision and covers binary and empty entries,
      link-target identity, short-read chunk independence and bounded refusal of
      a growing file. Its existing EXDEV corruption cases verify mismatched copies
@@ -145,7 +143,7 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      Forged completion and same-cursor failure rows cannot erase typed mismatch
      evidence, mark the operation complete or resume an Undo that moves an
      occupant. Completed bare legacy copy and move cursors remain undoable.
-   - Settings-derived privacy (117, ADR-0022): `test/workspace.test.ts` plants
+   - Settings-derived privacy (ADR-0022): `test/workspace.test.ts` plants
      synthetic `S117_` sentinels in top-level and nested unknown setting names,
      settings `env` and MCP `env`/`headers` names and values, an MCP `type`,
      hook matchers, commands, an unknown event and handler type, malformed
@@ -167,10 +165,8 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
    reached separately from the shell; the projects list
    is the fixture's union, All projects lists the fixture's skills and plugins,
    the three Clean up sections answer, and one skill move goes through the bridge and comes back with its
-   undo — the journal on disk checked both times. CI is configured to run it on
-   all three OSes (`smoke` job, xvfb on Linux) after `npm run build`; the last
-   recorded hosted run passed on 2026-09-15 for `a48ccdf` (CI run 34969346844).
-   It shares its
+   undo — the journal on disk checked both times. CI runs it on all three OSes
+   (`smoke` job, xvfb on Linux) after `npm run build`. It shares its
    protocol client (`.claude/skills/run-kondo/cdp.mjs`) with the `run-kondo`
    skill's `drive.mjs`, the manual UI check, so the two cannot drift apart.
    It is not part of `npm test`: it needs a built app and a display.
@@ -179,6 +175,11 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
    leaves journal/fixtures unchanged, and genuine equality restores reviewed
    removal and Undo. Chalk/Carbon at 1360×860 and 900×600 retain the existing
    focus, error, overflow and renderer-network checks.
+   The smoke's `keyboardActivate` only waits for a control to exist. A control
+   that re-enables after a reload — Review after a stale-review refusal, which
+   stays disabled during the refresh because the refused sweep consumed its
+   token — needs an explicit wait for `!disabled` before focus and Enter, or
+   the key press lands on the previously focused element.
    The shared client exposes `on(method, handler)` (returning unsubscribe),
    `exceptions` (`Runtime.exceptionThrown` payloads), and `consoleErrors`
    (error-type `Runtime.consoleAPICalled` payloads, including arguments and
@@ -223,8 +224,8 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
    Gatekeeper approval. Installer prompts, signing warnings and broader desktop
    behavior still need platform-specific checks.
 
-Project fixtures in the plugin-move, plugin-toggle, skill-move, skill-toggle
-and placed-move suites use `registerProjects` from `test/helpers.ts` before
+Project fixtures in suites such as plugin-move, skill-move and placed-move
+use `registerProjects` from `test/helpers.ts` before
 creating the workspace. It writes exact synthetic paths to the fixture's
 `~/.claude.json` (ADR-0009), so project resolution does not depend on reversing
 flattened directory names. Their mutation and undo cases run unconditionally,
@@ -247,12 +248,12 @@ Chalk and Carbon are checked at 1360x860 and 900x600 with optional screenshots
 and unchanged fixture stores/journal. This does not establish screen-reader
 announcements or recovery of asynchronous actions or store mutations.
 
-## Reviewed removals (102)
+## Reviewed removals
 
 The focused fixture suites `test/tidy.test.ts`, `test/session-duplicates.test.ts`
 and `test/skill-duplicates.test.ts` cover review-token requirements and stale
-preconditions. Audit A5/A9/A11 are inverted: adding a cache after preview,
-resuming a transcript, or changing a formerly identical skill must refuse before
+preconditions: adding a cache after preview, resuming a transcript, or
+changing a formerly identical skill must refuse before
 store mutation or journal append. Unchanged reviewed plans retain their existing
 apply/Undo checks. Scratch activity and memory checks keep uncertain trees out
 of the reviewed candidate set.
@@ -265,7 +266,7 @@ evidence for the host tested. A clean mechanical detector is separate evidence
 from those rendered states. None of these tests claims filesystem transactions
 or a complete absence of races with external writers after preflight.
 
-The 099 built-app smoke moves a fixture's recovery directory temporarily out of
+The Undo recovery built-app smoke moves a fixture's recovery directory temporarily out of
 reach, verifies the inline `data:null` refusal does not claim Undo or consume the
 original, checks result focus and keyboard retry, and restores exact fixture
 bytes. Another case relaunches Electron against a partial prefix of the journal
@@ -334,11 +335,10 @@ These are fixture and injected-error checks, not a native multi-volume proof.
 
 ## Coverage limits
 
-- Local evidence comes from Windows. macOS and Linux evidence is hosted CI,
-  last recorded passing on 2026-09-15 for `a48ccdf` (CI run 34969346844), and
-  the release rehearsal, last recorded passing on 2026-09-07 for `ea99297`
-  ([plan 113](plans/113-hosted-ci-rehearsal.md)); later commits have no
-  hosted evidence until a run passes for them.
+- Local evidence comes from Windows. macOS and Linux evidence comes from
+  hosted CI and the release rehearsal, and a run is evidence only for the
+  commit it ran on. The last release rehearsal passed all three package jobs
+  on 2026-09-07 for `ea99297` (release run 34170848986).
 - File-link cases skip when the host cannot create file symlinks. A Windows
   host without that privilege reports 14 skipped tests; directory junction
   variants keep the Windows coverage.
@@ -376,9 +376,9 @@ Six invariants are also enforced outside the suite, by checks under
 
 | Guard | Refuses | Lanes |
 |---|---|---|
-| `renderer-reaches-past-the-bridge` | `node:` / `electron` imports and `require()` under `src/` | session, pre-commit, CI |
-| `outbound-network-call` | `fetch`, `WebSocket`, `XMLHttpRequest`, `node:http(s)` anywhere shipped | session, pre-commit, CI |
-| `raw-path-across-the-seam` | a path-shaped parameter in `electron/preload/` or `ipc.ts` (ADR-0008) | session, pre-commit, CI |
+| `renderer-reaches-past-the-bridge` | `from 'node:…'`, `from 'electron'` and `require(` in `src/**/*.ts(x)`; side-effect and dynamic imports are not matched | session, pre-commit, CI |
+| `outbound-network-call` | `fetch(`, `new WebSocket(`, `new XMLHttpRequest(` and imports of `node:http`, `https`, `net`, `dgram` or `tls` in `src/**/*.ts(x)`, `electron/**/*.ts` and `shared/**/*.ts` | session, pre-commit, CI |
+| `raw-path-across-the-seam` | a parameter named `…Path`, `…Dir` or `…Filename` typed `string` or `unknown`, or a `node:fs` import, in `electron/preload/**/*.ts` or `electron/main/ipc.ts` (ADR-0008) | session, pre-commit, CI |
 | `test-touches-a-real-store` | `homedir()`, home-ish env vars, or a hard-coded store path in `test/**/*.ts` (the `.mjs` and `.tsx` tests are not scanned) | session, pre-commit, CI |
 | `workspace-adapter-outruns-domain-doc` | a commit touching `electron/main/workspace/` without `docs/domain.md` staged | pre-commit only |
 | `seam-contract-outruns-its-adr` | a commit touching `shared/contract.ts` without an ADR staged | pre-commit only |
@@ -389,12 +389,12 @@ That lane runs only where the jig plugin is installed and enabled, through
 the plugin's own hook registration. The repository's `.claude/settings.json`
 still registers `.jig/hooks/session-guards.cjs` on `PostToolUse`; jig runs
 only the guards whose runner matches the event, so that shim evaluates none
-of them (entry 125 decides whether to move or remove it). The session
-evaluator honours each guard's `paths` but not `perLine`, so a pattern can
-match across the lines of one edit (also entry 125); `.jig/checks/run.mjs`,
-used at pre-commit and in CI, honours both. The two paired-change guards read
-the git index, so they run at pre-commit (`core.hooksPath=.jig/hooks`, per
-clone; the tracked hook is not yet executable for Unix Git, entry 126) and
+of them. The session evaluator honours each guard's `paths` but not
+`perLine`, so a pattern can match across the lines of one edit;
+`.jig/checks/run.mjs`, used at pre-commit and in CI, honours both. The two
+paired-change guards read the git index, so they run at pre-commit
+(`core.hooksPath=.jig/hooks`, per clone; the tracked hook is not executable
+for Unix Git) and
 report themselves skipped in CI. Each check carries a violation/near-miss
 fixture pair inline and proves itself with `node .jig/checks/run.mjs
 --selftest`. The driver is standard-library node, so it runs with nothing

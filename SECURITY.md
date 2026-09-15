@@ -76,27 +76,25 @@ no additional concurrency guarantee for them.
 
 ## Supported versions
 
-No published releases or tags were returned by the repository's authenticated
-GitHub API on 2026-09-08. There is currently **no supported release range**.
-The source package version, 0.5.0, is not evidence of a published release.
-Development builds, prereleases and older versions have no security-maintenance
-commitment. No response deadline, fix deadline or backport window is promised.
+There are no published releases or tags, so there is currently **no supported
+release range**. The source package version, 0.5.0, is not a published release.
 
-The owner approved this maintenance policy on 2026-09-08: only the latest
-published stable release receives security maintenance, with no guaranteed
-backports to older versions and no response or fix deadline. This policy becomes
-applicable when a release is published; there is no active supported range today.
-Before publication, identify the exact supported version here. See the
-[approved release maintenance policy](docs/release.md#security-maintenance-and-publication-gate)
-and [GitHub Releases](https://github.com/V-Songbird/kondo/releases) when assessing
-artifacts, and include the exact version or source commit in a report.
+Once a stable release is published, only the latest published non-draft,
+non-prerelease version receives security maintenance. Fixes target that release
+line or its successor; older versions receive no guaranteed backports, and
+development builds and prereleases are unsupported. No response deadline, fix
+deadline or backport window is promised. Before publication, identify the exact
+supported version here; see the
+[release gate](docs/release.md#security-maintenance-and-publication-gate). When
+assessing artifacts, use [GitHub Releases](https://github.com/V-Songbird/kondo/releases),
+and include the exact version or source commit in a report.
 
 ## Reporting a vulnerability
 
 Email [songbird@tuta.com](mailto:songbird@tuta.com) to report a vulnerability
-privately. The repository owner authorized this contact and confirmed that they
-control and monitor it on 2026-09-08. Email delivery has not been independently
-tested. No response or fix deadline is promised.
+privately. The repository owner authorized this contact and confirms that they
+control and monitor it; email delivery has not been independently tested, and
+no test message has been authorized. No response or fix deadline is promised.
 
 Do not put vulnerability details in public issues, pull requests or discussions.
 The issue forms are not a security-reporting fallback. If email cannot be
@@ -107,9 +105,7 @@ Include the Kondo version or source commit, OS, impact, and a minimal synthetic
 reproduction. Do not attach real transcripts, settings, credentials, tokens,
 personal paths, or copied private store data, even in a private report.
 
-The repository was verified as private on 2026-09-08. GitHub documents
-[private vulnerability reporting for public repositories](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository).
-The authenticated reporting-status request returned HTTP 404, so the GitHub
-advisory form is not advertised as an available channel. A 404 alone does not
-establish whether a feature is disabled or whether the caller can inspect it.
-Use the approved email contact above while the repository remains private.
+The repository is private. GitHub documents
+[private vulnerability reporting for public repositories](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository),
+so its advisory form is not advertised here as an available channel. Use the
+approved email contact above while the repository remains private.

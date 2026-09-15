@@ -95,13 +95,14 @@ needs new hosted check evidence. Release acceptance also requires the packaging
 and publication gates in `docs/release.md`. Local hooks and green checks do not
 establish server-enforced protection.
 
-On 2026-09-08, GitHub denied reads of `main` protection and repository rulesets
-with an explicit plan/visibility restriction. Until the owner enables and
-verifies a supported protection configuration, maintainers must perform this
-review manually; GitHub enforcement is not established. Do not change repository
-visibility or buy a plan as part of routine contribution work. See the
-[release gate](docs/release.md#security-maintenance-and-publication-gate) and
-[capability record](docs/plans/112-security-reporting-maintenance.md#observed-capabilities).
+GitHub does not enforce these checks: it refuses `main` protection and
+repository rulesets for this private repository on its current plan. Until the
+owner enables and verifies a supported protection configuration, maintainers
+perform this review manually. Describe CI as configured unless a run for the
+exact commit is recorded, and date any hosted run you cite. Do not change
+repository visibility or buy a plan as part of routine contribution work. See
+the [release gate](docs/release.md#security-maintenance-and-publication-gate)
+and [how to recheck GitHub capabilities](docs/release.md#recheck-github-capabilities).
 
 ## Review checklist
 
