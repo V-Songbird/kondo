@@ -32,16 +32,13 @@ No pull requests or issues are open, and `origin` holds only `main`.
 | Branch | Where | State |
 |---|---|---|
 | `claude/131-plugin-key-diagnostics` | worktree `../kondo-worktrees/131-plugin-key-diagnostics` | Entry 131. No commits of its own; based on `a48ccdf`, one commit behind `main`. The worktree holds an uncommitted fix in `electron/main/workspace/user-store.ts` and an untracked plan, `docs/plans/131-plugin-key-diagnostics.md`. The test in `test/user-store.test.ts`, the `docs/domain.md` line and the checks are still missing. |
-| `claude/132-sandbox-preload-startup` | worktree `../kondo-worktrees/132-sandbox-preload-startup` | Entry 132. One commit, `261fd51`, adding `docs/plans/132-sandbox-preload-startup.md` and its index row; based on `a48ccdf`. No experiment results yet. |
-
-Both task branches predate the current plan index, so their
-`docs/plans/README.md` rows need re-adding when they rebase.
 
 ## Next steps
 
 1. Finish 131 in its worktree: rebase onto `main`, add the test and the
    `docs/domain.md` line, run guards, tests, typecheck and lint.
-2. Run 132's experiments from its plan.
+2. Run 132's experiments from [its plan](plans/132-sandbox-preload-startup.md);
+   none has run yet.
 3. Then the open work under "Now" in [ROADMAP.md](../ROADMAP.md), in dependency
    order: 103, 104 and 105 first, 110 once its inputs are settled, and 114
    last.
