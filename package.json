@@ -16,7 +16,7 @@
   "type": "module",
   "main": "./out/main/index.js",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
   },
   "scripts": {
     "dev": "electron-vite dev",

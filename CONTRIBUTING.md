@@ -7,7 +7,7 @@ for bugs and feature requests. For vulnerabilities, follow
 
 ## Setup
 
-- Node 22+ (`.nvmrc` provided; `fnm use` / `nvm use`).
+- Node 22.12+ (`.nvmrc` provided; `fnm use` / `nvm use`).
 - `npm install`, then `npm run dev` for the app with hot reload.
 - `npm run guards`, `npm test`, `npm run typecheck`, `npm run lint` must all
   pass before review. Tests use synthetic stores; never point tests at real data.

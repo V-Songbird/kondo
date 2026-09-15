@@ -309,7 +309,7 @@ remain in that terminal for subsequent launches).
 
 ## Getting started from source
 
-Requires Node 22+ (an `.nvmrc` is provided; `fnm use` or `nvm use` picks it up).
+Requires Node 22.12+ (an `.nvmrc` is provided; `fnm use` or `nvm use` picks it up).
 
 ```bash
 npm install
