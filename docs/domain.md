@@ -547,7 +547,10 @@ privacy erasure ([ADR-0016](adr/0016-desktop-session-boundary.md)).
 - `settings.json` (project scope, committed) and `settings.local.json`
   (local scope, git-ignored) — same schema family as user settings ◇.
   `settings.local.json` carrying `enabledPlugins` is observed in the wild ✅;
-  `hooks` and `permissions` are expected here too ◇.
+  `hooks` and `permissions` are expected here too ◇. Claude's MCP approval
+  prompt writes its answer here as well — `enabledMcpjsonServers`,
+  `disabledMcpjsonServers` or `enableAllProjectMcpServers` ✅ — which is why
+  this file decides whether a `.mcp.json` server loads.
 - `skills/`, `agents/`, `rules/`, `hooks/` ✅ — project-scope variants,
   observed in every sampled project store (`agents/*.md`, `rules/*.md`,
   `hooks/` scripts with `__pycache__` and `*.test.js` noise beside them).

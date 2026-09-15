@@ -18,9 +18,6 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
-- [103 — MCP approval and disable scopes](103-mcp-approval-and-disable-scopes.md)
-  — reads approval, the per-project switch and restrictions the way Claude
-  Code 2.1.271 does, and lists a project that holds only `.mcp.json`.
 - [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
   — the experiments that separate an Electron, smoke-harness or kondo startup
   cause; none has run yet.

@@ -53,10 +53,13 @@ machine; nothing is ever sent anywhere.
   or prove which hooks execute. See the
   [hook boundary decision](docs/adr/0017-hook-layer-boundary.md).
 - **MCP servers** — connections declared in `~/.claude.json` and a project's
-  `.mcp.json`. Their on/off state comes only from the disable lists in
-  `~/.claude.json`; disable lists in project settings files and Claude's
-  approval state are not read yet. On/off changes are temporarily unavailable.
-  Kondo does not test live connectivity.
+  `.mcp.json`, each with what Claude Code does with it there: configured or
+  approved, waiting for approval, rejected, switched off for that project,
+  blocked by a settings rule, replaced by a declaration of the same name, or
+  unknown where the answer lies outside what Kondo may read. A connection
+  declared for every project is switched off one project at a time, and those
+  changes are temporarily unavailable because they edit settings. Kondo does
+  not read managed policy and does not test live connectivity.
 - **Settings files** — summaries of user, project and local files: location,
   size and the top-level setting names Claude Code documents, with a note when
   a file holds other names. Values are not shown. Skills and Plugins show their

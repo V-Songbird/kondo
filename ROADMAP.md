@@ -60,10 +60,8 @@ Four decisions frame this work and are not up for re-argument here:
 
 ### Accuracy and compatibility
 
-- **MCP approval and disable scopes (103)**, including projects that hold only
-  `.mcp.json`: a faithful model of settings, per-project disable lists and
-  approvals, with toggle fixtures. An unreadable local MCP project path must not
-  read as a removable orphan (135); coordinate its order with 103.
+- **An unreadable local MCP project path must not read as a removable orphan
+  (135).**
 - **Alternate Claude profiles through `CLAUDE_CONFIG_DIR` (104)**, with injected
   profile fixtures and kondo's own fixture roots taking precedence.
 - **Every companion file counted in removal size estimates (105).** Until then,

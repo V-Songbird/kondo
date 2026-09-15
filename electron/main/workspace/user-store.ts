@@ -1147,7 +1147,7 @@ function approvalsIn(parsed: Record<string, unknown> | null, name: string): Appr
  * The servers one settings file blocks by name, and whether it also states
  * rules kondo does not evaluate — an allowlist, or a deny entry matching a URL
  * or a command. Those leave a positive answer `unknown` rather than kondo
- * guessing at Claude's pattern matching (plan 103).
+ * guessing at Claude's pattern matching (entry 103).
  */
 function restrictionsIn(layer: SettingsLayer): { blocks: string[]; unevaluated: boolean } {
   const parsed = layer.parsed
@@ -1220,7 +1220,7 @@ interface McpState extends McpSwitchState {
 
 /**
  * What kondo can establish about one declaration in one place, in the order
- * Claude Code decides it (plan 103): a name a higher scope has taken, a
+ * Claude Code decides it (entry 103): a name a higher scope has taken, a
  * restriction, a rejection, an approval Claude has not been given, this
  * project's own switch, then whatever could not be read. The positive answer
  * comes last, so nothing reads as on while a source is missing (ADR-0005).
