@@ -51,7 +51,6 @@ Batch 2 is in flight on worktree branches, all cut from `3856bee`:
 | 129 | `worktree-129-non-boolean-enabled-plugins` |
 | 106 | `worktree-106-plugin-installation-inventory` |
 | 105 | `worktree-105-companion-file-sizes` |
-| 146 | `worktree-146-status-after-batch-1` |
 
 ## Next steps
 
