@@ -11,7 +11,8 @@ and its home is not obvious from the table below, fix the table in the same PR.
 | Document | Holds | Update when |
 |---|---|---|
 | [README.md](../README.md) | Front door: what kondo is, principles, quickstart | The product story or commands change |
-| [ROADMAP.md](../ROADMAP.md) | Direction and non-goals | Priorities shift; an item ships or dies |
+| [ROADMAP.md](../ROADMAP.md) | Direction, open work and non-goals | Priorities shift; an item ships or dies |
+| [docs/status.md](status.md) | Where work stands: `main`, branches and worktrees, next steps, open findings and questions | Work starts, lands or stops; a finding is opened or resolved |
 | [CHANGELOG.md](../CHANGELOG.md) | User-visible changes per release | Every user-visible PR |
 | [SECURITY.md](../SECURITY.md) | Threat model, private reporting, supported-version policy | The security posture changes |
 | [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | Bundled font and Electron attribution; packaged license locations | Those components or their licensing change |
@@ -19,13 +20,13 @@ and its home is not obvious from the table below, fix the table in the same PR.
 | [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | Participation expectations, enforcement and reporting limits | Conduct policy or contact changes |
 | [.github/ISSUE_TEMPLATE/](../.github/ISSUE_TEMPLATE/) | Safe bug and feature intake, security routing | Reporter information needs change |
 | [AGENTS.md](../AGENTS.md) | Operating manual for AI agents and humans working here | Working rules change |
-| [CLAUDE.md](../CLAUDE.md) | Claude Code entry point; defers to AGENTS.md | Rarely |
+| [CLAUDE.md](../CLAUDE.md) | Claude Code entry point: verified commands, constraints and links; defers to AGENTS.md | Commands or constraints change |
 | [.claude/skills/run-kondo/SKILL.md](../.claude/skills/run-kondo/SKILL.md) | Launching and driving the built app against a synthetic fixture | Navigation, controls or the fixture change |
 | [DESIGN.md](../DESIGN.md) | The visual system: palette, type, shapes, cards, controls and rules | The look changes; a new control, state or colour is designed |
 | [docs/domain.md](domain.md) | Facts about Claude's on-disk world (stores, files, formats) | You observe a new store fact or Claude changes one |
 | [docs/foundations.md](foundations.md) | Architecture: processes, seams, modules, data flow | Structure changes |
-| [docs/adr/](adr/) | Decisions with reasons, one file each | A decision is made, revisited, or superseded |
-| [docs/plans/](plans/) | Feature plans, one file each, written before building ([index and template](plans/README.md)) | A feature is planned; marked done when shipped |
+| [docs/adr/](adr/) | Decisions in force, with reasons, one file each | A decision is made or changes; delete one that no longer holds |
+| [docs/plans/](plans/) | Feature plans, one file each, written before building ([index and template](plans/README.md)) | A feature is planned; folded into lasting docs and deleted when shipped |
 | [docs/glossary.md](glossary.md) | Shared vocabulary | A term is coined or found ambiguous |
 | [docs/testing.md](testing.md) | Test strategy and safety invariants | The strategy changes |
 | [docs/release.md](release.md) | Versioning, packaging, shipping | The release process changes |
@@ -66,6 +67,12 @@ that were previously committed.
 - About to **build a feature**? → a plan in [plans/](plans/) first.
 - Defined or bent a **term**? → [glossary.md](glossary.md).
 - Everything about **process** (branching, review, style)? → CONTRIBUTING.md.
+- Changed **where work stands** — a branch, a pull request, a next step, an
+  open finding? → [status.md](status.md).
+
+Documents describe what `main` does today. When something stops being true,
+rewrite or delete it rather than marking it superseded; Git keeps the history.
+Keep dated evidence only where it qualifies a current claim.
 
 Documentation debt is a bug. A PR that makes any doc above wrong and does not
 fix it is incomplete — reviewers should treat it exactly like a failing test.

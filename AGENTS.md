@@ -35,6 +35,7 @@ each rule links to the document that carries the detail.
    process seam.
 4. [docs/adr/README.md](docs/adr/README.md) — the decision index; read the
    ADRs a change touches before structural work.
+5. [docs/status.md](docs/status.md) — where work stands, before picking any up.
 
 ## Hard rules
 
@@ -54,7 +55,8 @@ each rule links to the document that carries the detail.
   native concurrency and recovery evidence.
 - **Docs move with code.** Learned a store fact → update domain.md (with a
   ✅/◇ marker). Made a lasting decision → add an ADR. Planned a feature →
-  plan file first. A PR that leaves a doc wrong is incomplete. Two
+  plan file first; shipped it → fold what stays true into lasting docs and
+  delete the plan. A PR that leaves a doc wrong is incomplete. Two
   paired-change guards read the staged index (`npm run guards`, or the
   opt-in pre-commit hook): a `shared/contract.ts` change needs a `docs/adr/`
   edit, and an `electron/main/workspace/` change needs a `docs/domain.md` edit
