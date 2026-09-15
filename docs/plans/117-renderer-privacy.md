@@ -1,6 +1,6 @@
 # Plan: Settings-derived data stays in main
 
-Status: **in progress**
+Status: **done — accepted 2026-09-15**
 
 Decision 107 reproduced three ways settings content reached the renderer, with
 synthetic fixtures at `b028598`: every top-level setting name, raw hook commands
@@ -150,5 +150,14 @@ compiler found no other consumer.
 - Left unchanged: `readPluginInventory` (`user-store.ts:520`) still names an
   invalid `installed_plugins.json` key in its `parse-failed` message. That
   manifest is plugin machinery rather than settings, outside this projection
-  chain.
-- No Impeccable detector pass ran: the tool is not available in this session.
+  chain; a separate follow-up that depends on 117 owns it.
+- A separate Impeccable detector pass over `projects.tsx`, `library.tsx` and
+  `catalog.ts` returned no findings at both `667e9aa` and `8bc3a8b`.
+
+## Owner acceptance
+
+The owner accepted this implementation on 2026-09-15; the reviewed source was
+`8bc3a8b`. The acceptance is conditional on the branch, rebased onto the current
+`main`, passing the full verification again: `npm ci`, `npm test`, typecheck,
+lint, the staged guards and their self-test, `git diff --check`, build and
+`npm run test:e2e`. Nothing was pushed.

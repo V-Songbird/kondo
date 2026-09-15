@@ -1,6 +1,6 @@
 # Project settings-derived data deny-by-default
 
-Status: **proposed — entry 117, awaiting owner acceptance**
+Status: **accepted by the owner — entry 117 (2026-09-15)**
 
 Settings files, `~/.claude.json` and `.mcp.json` hold credentials in `env`,
 `headers`, helper commands and arbitrary keys. Kondo copied parts of them into
