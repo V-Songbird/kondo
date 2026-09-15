@@ -249,7 +249,8 @@ describe('settings-derived data crosses deny-by-default (117, ADR-0022)', () => 
 
   // Synthetic sentinels in every position named for 117: top-level and nested
   // unknown names, env and header names and values, hook matchers, commands,
-  // an unknown event and handler type, and malformed JSON for each reader.
+  // an unknown event and handler type, and malformed JSON for each reader; 131
+  // adds a plugin installation key that is not a plugin id.
   const userSettings = writeJson({
     S117_TOP_LEVEL_NAME: 'S117_TOP_LEVEL_VALUE',
     env: { S117_ENV_NAME: 'S117_ENV_VALUE' },
@@ -293,7 +294,10 @@ describe('settings-derived data crosses deny-by-default (117, ADR-0022)', () => 
       'skills/alpha-skill/SKILL.md': skillManifest('alpha-skill', 'First skill'),
       'plugins/installed_plugins.json': writeJson({
         version: 2,
-        plugins: { 'alpha@acme': [{ scope: 'user', installPath: install, version: '1.0.0' }] }
+        plugins: {
+          'alpha@acme': [{ scope: 'user', installPath: install, version: '1.0.0' }],
+          S117_INSTALL_KEY: [{ scope: 'user', installPath: install, version: '1.0.0' }]
+        }
       })
     })
     await registerMcp(world, {

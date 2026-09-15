@@ -271,7 +271,9 @@ the documented set reads as `unknown`. Settings read failures and hook-script
 stat failures carry a fixed sentence and the settings file's display path. A
 JSON syntax error from a settings file, the registry, `.mcp.json`, the plugin
 manifest or a journal line carries one fixed sentence, because V8's message
-quotes the parsed source. The lists live in `shared/contract.ts` (ADR-0022); a
+quotes the parsed source. An incomplete plugin installation entry is named only
+by a `<name>@<marketplace>` key; any other key is file text and gets a fixed
+sentence. The lists live in `shared/contract.ts` (ADR-0022); a
 name Claude documents later reads as unlisted or unrecognized until they are
 updated.
 

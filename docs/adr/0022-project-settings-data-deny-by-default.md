@@ -52,7 +52,8 @@ validated states, chosen in the main process before a DTO is built:
 - Identifiers already published are unchanged: skill, MCP server and plugin
   names, project and display paths. A plugin key from `enabledPlugins` crosses
   only after it matches `<name>@<marketplace>` with installation evidence
-  (ADR-0010).
+  (ADR-0010), and a key from `installed_plugins.json` is named in a diagnostic
+  only when it matches that grammar.
 - Settings writes stay refused (ADR-0010), the renderer gains no disk access,
   and nothing adds network access. This hardens projections; it is not an
   effective-settings viewer (ADR-0021).

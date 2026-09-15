@@ -515,11 +515,15 @@ export async function readPluginInventory(locator: StoreLocator, c: Collector): 
         typeof install['scope'] === 'string' &&
         ['user', 'project', 'local', 'managed'].includes(install['scope'])
     })
-    if (!PLUGIN_KEY.test(key) || !Array.isArray(installs) || valid.length === 0 || valid.length !== installs.length) {
+    const named = PLUGIN_KEY.test(key)
+    if (!named || !Array.isArray(installs) || valid.length === 0 || valid.length !== installs.length) {
       complete = false
-      c.fail('parse-failed', display, 'Incomplete plugin installation entry for ' + key + '; absence cannot be established.')
+      // Only a well-formed plugin id is an identity worth naming; any other key is file text (ADR-0022).
+      c.fail('parse-failed', display, named
+        ? `Incomplete plugin installation entry for ${key}; absence cannot be established.`
+        : 'Incomplete plugin installation entry with an unrecognized id; absence cannot be established.')
     }
-    if (valid.length > 0 && PLUGIN_KEY.test(key)) {
+    if (valid.length > 0 && named) {
       plugins[key] = valid
       const marketplace = marketplaceOf(key)
       if (marketplace !== null) marketplaces.add(marketplace)

@@ -147,13 +147,16 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
      synthetic `S117_` sentinels in top-level and nested unknown setting names,
      settings `env` and MCP `env`/`headers` names and values, an MCP `type`,
      hook matchers, commands, an unknown event and handler type, malformed
-     settings and `.mcp.json` files and a torn journal line, and denies one hook
-     script stat. Every settings, hook, project, MCP, skill, plugin, leftover,
-     cleanup, history and overview envelope, plus hook, settings, plugin and MCP
+     settings and `.mcp.json` files, a torn journal line and a plugin
+     installation key that is not a plugin id, and denies one hook script stat.
+     Every settings, hook, project, MCP, skill, plugin, leftover, cleanup,
+     history and overview envelope, plus hook, settings, plugin and MCP
      refusals, serializes without a sentinel, while documented names, events,
      handler types, script statuses, transports and healthy layers remain and
      store and journal bytes stay unchanged. `test/hooks.test.ts` pins a denied
-     stat to the settings file and a fixed sentence. The Electron smoke repeats
+     stat to the settings file and a fixed sentence, and
+     `test/user-store.test.ts` names an incomplete plugin installation entry
+     only by its plugin id. The Electron smoke repeats
      the check over visible text, opened details and problem lists, `title` and
      `aria-label` attributes and bridge responses in Chalk and Carbon at 1360×860
      and 900×600. These tests cover the planted positions, not every future field.

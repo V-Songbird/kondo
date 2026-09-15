@@ -6,17 +6,22 @@ Where work stands, for a session that starts without context. Written
 
 ## Main today
 
-- The code on `main` is unchanged since `b25df65`; later commits change only
-  documentation. Hosted CI run 34977725352 passed `verify` and `smoke` on
-  Windows, macOS and Linux for `b25df65`.
-- Local checks on `b25df65`, Windows, 2026-09-15: `npm run guards` reported no
+- Hosted CI last ran for `b25df65` (run 34977725352) and passed `verify` and
+  `smoke` on Windows, macOS and Linux; `gh run list --branch main` shows any
+  later run.
+- Local checks, Windows, 2026-09-15. On `b25df65`: `npm run guards` reported no
   findings (its two paired-change checks skip when nothing is staged);
   `npm run typecheck`, `npm run lint` and `npm run build` passed; `npm test`
   passed 731 tests in 42 files, with 14 skipped because the host cannot create
-  file symlinks. `npm run test:e2e` failed 10 of 28 twice — the first time with
+  file symlinks; `npm run test:e2e` failed 10 of 28 twice — the first time with
   the sandboxed-preload startup error (132) while other processes loaded the
   machine, the second time with a cause that was not captured — and then passed
-  with no failures (27 passed). `npm run dev` was not run.
+  with no failures (27 passed). With 131's change: typecheck and lint passed,
+  the commit hook's guards reported no findings, and `npm test` passed
+  732 tests with 14 skipped. A first run, made while other work loaded the
+  machine, timed out once in `test/tidy.test.ts` ("leaves an unlocated project
+  alone"); that file then passed alone and the full rerun passed. The smoke and
+  the build were not rerun with 131, and `npm run dev` was not run.
 - Version 0.5.0, pre-release. There are no releases or tags, and the repository
   is private.
 - What the app does is in [README.md](../README.md#what-it-does). Refused or
@@ -27,19 +32,14 @@ Where work stands, for a session that starts without context. Written
 
 ## Work in progress
 
-No pull requests or issues are open, and `origin` holds only `main`.
-
-| Branch | Where | State |
-|---|---|---|
-| `claude/131-plugin-key-diagnostics` | worktree `../kondo-worktrees/131-plugin-key-diagnostics` | Entry 131. No commits of its own; based on `a48ccdf`, one commit behind `main`. The worktree holds an uncommitted fix in `electron/main/workspace/user-store.ts` and an untracked plan, `docs/plans/131-plugin-key-diagnostics.md`. The test in `test/user-store.test.ts`, the `docs/domain.md` line and the checks are still missing. |
+No pull requests, issues or task branches are open, and `origin` holds only
+`main`. Entry 132 is in progress: its plan is written and no experiment has
+run.
 
 ## Next steps
 
-1. Finish 131 in its worktree: rebase onto `main`, add the test and the
-   `docs/domain.md` line, run guards, tests, typecheck and lint.
-2. Run 132's experiments from [its plan](plans/132-sandbox-preload-startup.md);
-   none has run yet.
-3. Then the open work under "Now" in [ROADMAP.md](../ROADMAP.md), in dependency
+1. Run 132's experiments from [its plan](plans/132-sandbox-preload-startup.md).
+2. Then the open work under "Now" in [ROADMAP.md](../ROADMAP.md), in dependency
    order: 103, 104 and 105 first, 110 once its inputs are settled, and 114
    last.
 
@@ -69,7 +69,7 @@ entry.
    refused.
 4. **An unreadable local MCP project path reads as gone.** Any stat failure
    sets `orphan: true`
-   ([user-store.ts:1186](../electron/main/workspace/user-store.ts)), so the
+   ([user-store.ts:1190](../electron/main/workspace/user-store.ts)), so the
    toggle is refused as "gone; Leftovers removes the whole entry"
    ([capabilities.ts:115](../electron/main/workspace/capabilities.ts)), while
    Leftovers requires ENOENT and never offers it — against ADR-0005 and
@@ -93,7 +93,7 @@ entry.
    ([contract.ts:943](../shared/contract.ts)); plugin toggle, clear, move and
    leftover removal as working edits ([contract.ts:1316](../shared/contract.ts),
    [contract.ts:1419](../shared/contract.ts)); "entry 031 will remove"
-   ([user-store.ts:1138](../electron/main/workspace/user-store.ts)); and a
+   ([user-store.ts:1142](../electron/main/workspace/user-store.ts)); and a
    settings file "created only then"
    ([projects.tsx:1174](../src/features/projects/projects.tsx)).
 7. **Read-only tooling out of step with the docs:** `.jig/hooks/pre-commit` is
@@ -125,7 +125,7 @@ entry.
 2. **Should ADR-0022's fixed-sentence rule cover the plugin manifest and the
    registry?** A non-ENOENT read failure of `installed_plugins.json` or
    `~/.claude.json` passes the exception into `Scan.errors`
-   ([user-store.ts:491](../electron/main/workspace/user-store.ts), line 1437),
+   ([user-store.ts:491](../electron/main/workspace/user-store.ts), line 1441),
    and ADR-0022 names `~/.claude.json` as a credential holder.
 3. **Does Claude keep a user-level `settings.local.json`?** Kondo reads none
    ([user-store.ts:205](../electron/main/workspace/user-store.ts)), so a global
