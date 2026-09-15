@@ -68,10 +68,18 @@ Four decisions frame this work and are not up for re-argument here:
   scopes, and one fixture per supported layout.
 - **Unreadable hook scripts reported as unverifiable rather than missing (127).**
 - **Non-boolean `enabledPlugins` values never read as a definite plugin state (129).**
+- **A `CLAUDE_CONFIG_DIR` set in a Claude settings `env` block followed (138).**
+- **A legacy `.config.json` registry in a configuration home read (139).**
+- **Transcripts stored under `CLAUDE_CODE_PROJECT_DIR_NAME` located (140).**
+- **MCP allowlists and URL or command deny rules evaluated (143).**
+- **`.mcp.json` reads measured on a large registry before the release
+  candidate (144).**
 
 ### Privacy and safety
 
 - Kondo's data directory never resolving inside a Claude store (115).
+- A profile data root keyed by its resolved path, and a refusal that names the
+  store set (141).
 
 ### Product claims (110)
 
@@ -109,6 +117,8 @@ In-app wording reconciled with the accepted decisions. Acceptance criteria:
 - The Jig edit-guard false positive and the repository session lane (125).
 - The pre-commit hook's Unix mode (126).
 - The real-store guard scanning every test file type, not only `test/**/*.ts` (134).
+- Repository checks that never collect `.claude/worktrees` (137).
+- The bundle inventory diffed against the notice table in CI (142).
 
 ### Publication
 
@@ -130,6 +140,7 @@ In-app wording reconciled with the accepted decisions. Acceptance criteria:
   ADR-0016; they are not part of the supported session workflow.
 - Time analytics: worked time per session (active spans, not wall clock),
   timelines per project and per week.
+- An in-app picker for the Claude profile kondo reads (145).
 - Code signing and macOS notarization, when ADR-0011's conditions hold.
 
 ## Non-goals
