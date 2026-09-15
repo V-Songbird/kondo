@@ -18,6 +18,10 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
+- [105 — Every companion file counted in removal size estimates](105-companion-file-sizes.md)
+  — cleanup and session-removal figures come from the reviewed trash steps, and
+  the one number becomes three: what moves, what the trash then holds, and what
+  a permanent empty would free.
 - [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
   — the experiments that separate an Electron, smoke-harness or kondo startup
   cause; none has run yet.
