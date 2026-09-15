@@ -31,6 +31,14 @@ the figure reviewed. Category figures are disjoint — a path counted under one
 category is counted under no other — so a combined selection is the sum of the
 categories it picked.
 
+`TidyCategoryPreview.bytes` kept its name through that change and did not keep
+its meaning. It was the transcript and directory bytes the inventory had already
+stat'd, with a session's sidecar and marker riding along uncounted; it is now
+every reviewed trash-step byte for that category. `SessionSummary.bytes` is the
+field that still means one transcript, because a listing is a listing and stats
+no companion (ADR-0007). Reading the first as the second is the misreading this
+paragraph exists to prevent.
+
 `RemovalSizeEstimate` crosses the seam with those bytes separated into three:
 what will move, what kondo's trash then holds, and what a permanent empty would
 free. Displacing frees no disk space, and one number would be read as the third.

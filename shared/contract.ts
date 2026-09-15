@@ -327,6 +327,12 @@ export interface SessionSummary extends EntityIdentity {
   id: string
   uuid: string
   projectId: string
+  /**
+   * The transcript alone, as the listing stat'd it (ADR-0007) — a sidecar
+   * directory beside it is not walked to draw a row. What removing this
+   * session would move is `SessionTrashPreview.estimate`, which counts every
+   * companion; this figure is never that one.
+   */
   bytes: number
   mtimeMs: number
   stale: boolean
@@ -1103,6 +1109,13 @@ export interface TidyCategoryPreview {
    * grows the trash by exactly this. Categories are disjoint: a path counted
    * here is counted in no other, which is what makes summing a multi-category
    * selection honest.
+   *
+   * The field kept its name when entry 105 changed what it counts. It used to
+   * be the transcript and directory bytes the inventory had already stat'd,
+   * with a session's companions riding along uncounted; it is now every
+   * reviewed trash-step byte. A reader of this seam should not carry the old
+   * transcript-only reading across — and `SessionSummary.bytes`, which is
+   * still one transcript, is the field that kept the old meaning.
    */
   bytes: number
   /** Display paths of the first few, so the count is inspectable. */
