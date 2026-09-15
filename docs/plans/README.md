@@ -18,6 +18,9 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
+- [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
+  — the experiments that separate an Electron, smoke-harness or kondo startup
+  cause; none has run yet.
 - [111 — Public Git history decision](111-public-history-decision.md) — the
   owner chose strategy A, a separate public repository with a new root commit;
   the public identity and destination are open. Its
