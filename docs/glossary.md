@@ -45,9 +45,15 @@ names and storage identifiers. Conversation numbers label rows within the
 current list; the saved ID is available in Conversation details.
 
 - **Store** — a root directory where a Claude product keeps its state. Kondo
-  knows three kinds: the *user store* (`~/.claude`), *project stores*
-  (`<project>/.claude`), and the *desktop store* (the Claude desktop app's
-  data directory). See [domain.md](domain.md).
+  knows three kinds: the *user store* (`~/.claude`, or the Claude profile a
+  launch selected), *project stores* (`<project>/.claude`), and the *desktop
+  store* (the Claude desktop app's data directory). See
+  [domain.md](domain.md).
+- **Claude profile** — one Claude Code configuration directory: `~/.claude`, or
+  whichever directory `CLAUDE_CONFIG_DIR` or Kondo's `--claude-config-dir`
+  names. The UI says "Claude profile" too. One launch reads exactly one, fixed
+  before the single-instance lock, and each keeps its own Kondo history
+  ([domain.md](domain.md#claude-profiles)).
 - **Store adapter** — the main-process module that knows one store kind:
   where it lives per OS, what is inside, how to read it. Adapters return data
   plus per-item errors; they never throw a whole scan away.

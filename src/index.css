@@ -135,6 +135,14 @@
   .skip-link:focus { clip-path: none; }
   /* Keep controls below the 36px native overlay and its draggable region. */
   .titlebar { position: fixed; inset: 0 0 auto; height: 36px; z-index: 10; background: var(--chrome); -webkit-app-region: drag; }
+  /* Centred, so it clears the native window controls on either side. */
+  .titlebar-profile {
+    margin: 0 auto; max-width: calc(100% - 320px); height: 36px; line-height: 36px;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: center;
+    font-size: 12px; color: var(--chrome-muted);
+  }
+  .titlebar-root { font-family: var(--font-mono); color: var(--chrome-ink); }
+  .profile-notice { flex-direction: column; flex-shrink: 0; gap: 2px; margin: 12px 28px 0; }
   .app-shell { display: flex; flex-direction: column; height: 100vh; padding: 36px 0 0; gap: 0; overflow: hidden; }
   .side {
     display: flex; flex-direction: row; align-items: stretch; flex-shrink: 0;
@@ -327,6 +335,7 @@
     .side { min-height: 80px; }
     .side .tab { padding: 12px; font-size: 13px; }
     .colophon { display: none; }
+    .profile-notice { margin: 12px 20px 0; }
     .app-content { padding: 22px 20px 20px; }
     .page-intro { margin: -22px -20px 0; padding: 20px; }
     .workspace-split { gap: 0; }

@@ -51,9 +51,12 @@ KONDO_DATA_ROOT="<fixture>/kondo-data" \
 Run step 3 in the background — it holds the window open. It calls Electron's
 own launcher script rather than `node_modules/.bin/electron`, a shell shim that
 a version manager's `exec` (such as `fnm exec`) cannot start on Windows.
-`createLocator` in `electron/main/workspace/locator.ts` is what reads those
-three variables; it is the whole of the safety story, so if a run ever reports
-paths under the real home, stop and fix the launch rather than continuing.
+`electron/main/workspace/locator.ts` is what reads those three variables —
+`createLocator` for the store roots, and `kondoDataRootFor`, which the entry
+module calls before the single-instance lock, for `KONDO_DATA_ROOT` — and they
+outrank any `CLAUDE_CONFIG_DIR` the shell exports. That is the whole of the
+safety story, so if a run ever reports paths under the real home, stop and fix
+the launch rather than continuing.
 
 Confirm the port is up, and that kondo is what answers, before driving:
 

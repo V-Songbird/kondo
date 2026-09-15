@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createLocator } from '../electron/main/workspace/locator'
+import { createLocator, kondoDataRootFor } from '../electron/main/workspace/locator'
 import { makeWorld } from './helpers'
 import { isScratchProjectName } from '../electron/main/workspace/analysis'
 
@@ -120,6 +120,96 @@ describe('createLocator', () => {
     expect(locator.userConfigFile).toBe(path.join('/fixtures', '.claude.json'))
   })
 
+  it('keeps every fixture root and its sibling registry when a Claude profile is also selected', () => {
+    const fixture = {
+      KONDO_STORE_ROOT: '/fixtures/home/store',
+      KONDO_DESKTOP_STORE_ROOT: '/fixtures/desktop',
+      KONDO_DATA_ROOT: '/fixtures/kondo-data'
+    }
+    const locator = createLocator({
+      ...linux,
+      env: { ...fixture, CLAUDE_CONFIG_DIR: '/fixtures/inherited-profile' },
+      argv: ['kondo', '--claude-config-dir=/fixtures/launch-profile']
+    })
+    expect(locator.userRoot).toBe(fixture.KONDO_STORE_ROOT)
+    expect(locator.desktopRoot).toBe(fixture.KONDO_DESKTOP_STORE_ROOT)
+    expect(locator.kondoDataRoot).toBe(fixture.KONDO_DATA_ROOT)
+    expect(locator.userConfigFile).toBe(path.join('/fixtures/home', '.claude.json'))
+    expect(locator.userConfigRoot).toBe(path.dirname(locator.userConfigFile))
+    expect(locator.userConfigRoot).toBe(path.normalize('/fixtures/home'))
+  })
+
+  it('reads the profile CLAUDE_CONFIG_DIR names, with its registry inside that directory', () => {
+    const profile = '/fixtures/profiles/work'
+    const locator = createLocator({ ...linux, env: { CLAUDE_CONFIG_DIR: profile } })
+    expect(locator.userRoot).toBe(profile)
+    expect(locator.userConfigFile).toBe(path.join(profile, '.claude.json'))
+    expect(locator.userConfigRoot).toBe(path.dirname(path.join(profile, '.claude.json')))
+    expect(locator.desktopRoot).toBe(path.join(linux.home, '.config', 'Claude'))
+    expect(locator.kondoDataRoot).toBe(KONDO_DATA)
+    expect(locator.profile).toEqual({ source: 'environment', ignored: [] })
+  })
+
+  it('prefers the launch argument to an inherited variable and names the one it drops', () => {
+    const locator = createLocator({
+      ...linux,
+      env: { CLAUDE_CONFIG_DIR: '/fixtures/inherited' },
+      argv: ['kondo', '--claude-config-dir=/fixtures/earlier', '--claude-config-dir=/fixtures/launched']
+    })
+    expect(locator.userRoot).toBe('/fixtures/launched')
+    expect(locator.userConfigFile).toBe(path.join('/fixtures/launched', '.claude.json'))
+    expect(locator.profile).toEqual({
+      source: 'argument',
+      ignored: [{ setting: 'CLAUDE_CONFIG_DIR', reason: 'displaced', root: '/fixtures/inherited' }]
+    })
+  })
+
+  it('names both profile selections a fixture override displaces', () => {
+    const locator = createLocator({
+      ...linux,
+      env: { KONDO_STORE_ROOT: '/fixtures/user', CLAUDE_CONFIG_DIR: '/fixtures/inherited' },
+      argv: ['--claude-config-dir=/fixtures/launched']
+    })
+    expect(locator.userRoot).toBe('/fixtures/user')
+    expect(locator.profile).toEqual({
+      source: 'fixture',
+      ignored: [
+        { setting: '--claude-config-dir', reason: 'displaced', root: '/fixtures/launched' },
+        { setting: 'CLAUDE_CONFIG_DIR', reason: 'displaced', root: '/fixtures/inherited' }
+      ]
+    })
+  })
+
+  it.each(['relative/profile', './profile', 'C:\\profiles\\work'])(
+    'does not follow a profile that is not absolute on this platform (%s)', (value) => {
+      const locator = createLocator({ ...linux, env: { CLAUDE_CONFIG_DIR: value } })
+      expect(locator.userRoot).toBe(path.join(linux.home, '.claude'))
+      expect(locator.profile).toEqual({
+        source: 'default',
+        ignored: [{ setting: 'CLAUDE_CONFIG_DIR', reason: 'not-absolute' }]
+      })
+    }
+  )
+
+  it.each([undefined, ''])('reads an unset or empty profile variable as no selection (%s)', (value) => {
+    const locator = createLocator({ ...linux, env: { CLAUDE_CONFIG_DIR: value } })
+    expect(locator.userRoot).toBe(path.join(linux.home, '.claude'))
+    expect(locator.profile).toEqual({ source: 'default', ignored: [] })
+  })
+
+  it('judges absoluteness by the launch platform and normalizes like Claude Code', () => {
+    const windows = {
+      home: 'C:\\Users\\x', appData: 'C:\\Users\\x\\AppData\\Roaming',
+      userData: KONDO_DATA, platform: 'win32' as const, ...TEMP
+    }
+    const composed = 'D:\\claude\\cafe\u0301'
+    const locator = createLocator({ ...windows, env: { CLAUDE_CONFIG_DIR: composed } })
+    expect(locator.userRoot).toBe('D:\\claude\\caf\u00e9')
+    expect(locator.userConfigFile).toBe(path.join('D:\\claude\\caf\u00e9', '.claude.json'))
+    expect(createLocator({ ...windows, env: { CLAUDE_CONFIG_DIR: 'profiles\\work' } }).profile)
+      .toEqual({ source: 'default', ignored: [{ setting: 'CLAUDE_CONFIG_DIR', reason: 'not-absolute' }] })
+  })
+
   it('resolves the desktop store per platform', () => {
     expect(
       createLocator({
@@ -178,5 +268,45 @@ describe('createLocator', () => {
     expect(
       createLocator({ ...base, env: { KONDO_DATA_ROOT: '/fixtures/other' } }).kondoDataRoot
     ).toBe('/fixtures/other')
+  })
+})
+
+describe('kondoDataRootFor', () => {
+  const linux = {
+    home: '/fixtures/home', appData: null, userData: KONDO_DATA,
+    platform: 'linux' as const, ...TEMP
+  }
+  const derived = /[\\/]profiles[\\/][0-9a-f]{16}$/
+
+  it('keeps Electron’s own directory for Claude’s default store set', () => {
+    expect(kondoDataRootFor({ ...linux, env: {} })).toBeNull()
+  })
+
+  it('takes KONDO_DATA_ROOT as given, whichever profile the launch selected', () => {
+    const env = { KONDO_DATA_ROOT: '/fixtures/data', CLAUDE_CONFIG_DIR: '/fixtures/work' }
+    expect(kondoDataRootFor({ ...linux, env })).toBe('/fixtures/data')
+    expect(kondoDataRootFor({ ...linux, env: { KONDO_DATA_ROOT: '/fixtures/data' } })).toBe('/fixtures/data')
+  })
+
+  it('gives every other store set a directory of its own, one per profile', () => {
+    const work = kondoDataRootFor({ ...linux, env: { CLAUDE_CONFIG_DIR: '/fixtures/work' } })
+    const launched = kondoDataRootFor({ ...linux, env: {}, argv: ['--claude-config-dir=/fixtures/work'] })
+    const other = kondoDataRootFor({ ...linux, env: { CLAUDE_CONFIG_DIR: '/fixtures/other' } })
+    expect(work).toMatch(derived)
+    expect(work?.startsWith(path.join(KONDO_DATA, 'profiles'))).toBe(true)
+    // The same directory, whichever setting named it, so one profile keeps one journal.
+    expect(launched).toBe(work)
+    expect(other).not.toBe(work)
+    expect(kondoDataRootFor({ ...linux, env: { KONDO_STORE_ROOT: '/fixtures/user' } })).toMatch(derived)
+    expect(kondoDataRootFor({ ...linux, env: { KONDO_DESKTOP_STORE_ROOT: '/fixtures/desk' } })).toMatch(derived)
+  })
+
+  it('reads two spellings of one Windows directory as one profile', () => {
+    const windows = {
+      ...linux, platform: 'win32' as const,
+      home: 'C:\\Users\\x', appData: 'C:\\Users\\x\\AppData\\Roaming'
+    }
+    expect(kondoDataRootFor({ ...windows, env: { CLAUDE_CONFIG_DIR: 'D:\\Claude\\Work' } }))
+      .toBe(kondoDataRootFor({ ...windows, env: { CLAUDE_CONFIG_DIR: 'd:\\claude\\work' } }))
   })
 })

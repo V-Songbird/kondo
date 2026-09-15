@@ -82,8 +82,12 @@ driven by another's signal and nothing crosses back.
 
 ## Kondo's appearance preference
 
-`KondoApi` covers operations against a Claude store plus Kondo's own
-appearance preference: `appearanceGet()` and `appearanceSet(theme)`. The
+`KondoApi` covers operations against a Claude store, Kondo's own appearance
+preference — `appearanceGet()` and `appearanceSet(theme)` — and one read-only
+description of which Claude profile this process reads, `profileGet()`. That
+one takes no argument and returns a source, a display path and the sentences
+naming selections the launch did not follow: main chose the profile before the
+single-instance lock and no call can choose another (ADR-0003, ADR-0008). The
 workspace composes a separate appearance helper, outside the entity registry
 and Claude's mutation journal. Only an identifier from the shared theme
 catalog is accepted, validated again in main; no file path, arbitrary CSS or
@@ -101,12 +105,24 @@ quits and cannot enter startup. A second launch restores and focuses the
 existing window; a request arriving before its first read settles waits for
 the splash handover. Reopening on activation reuses the workspace and handlers.
 
-When `KONDO_DATA_ROOT` overrides the journal/trash root, startup creates and
-canonicalizes that directory and selects it as Electron's `userData` before
-locking. Otherwise separate Chromium profile flags could bypass exclusion
-while sharing that override. This is a local application lock, not coordination
-between different OS users or machines. The override also relocates Electron's
-profile data; ordinary launches retain Electron's existing path selection.
+Startup chooses that directory before locking: `KONDO_DATA_ROOT` as given,
+Electron's own `userData` for Claude's default store set, and
+`<userData>/profiles/<key>` for any other set — a selected Claude profile
+(ADR-0003) or a fixture root. It creates and canonicalizes the directory and
+selects it as Electron's `userData`, so the lock, the Chromium profile, the
+journal and the trash follow one profile: two profiles run side by side, two
+launches of one profile share an owner, and separate Chromium profile flags
+cannot bypass exclusion while sharing a data root. This is a local application
+lock, not coordination between different OS users or machines. Ordinary
+default-profile launches retain Electron's existing path selection.
+
+A journal step names a store rather than a root, so a journal and trash that
+serve one store set must never be handed another: an Undo would restore into a
+store the bytes never came from. After the lock and before the workspace,
+`claimDataRoot` reads `stores.json` in the data root — recording this launch's
+user, registry and desktop roots on first use — and refuses a launch that
+brings a different set with an error box, before any window or store read.
+Nothing is ever migrated between data roots.
 
 Both main and splash explicitly disable Node integration, enable context
 isolation and sandboxing, deny window opens and prevent navigation.
