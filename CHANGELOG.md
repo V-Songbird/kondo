@@ -165,6 +165,20 @@ All notable changes to kondo are documented here. The format follows
 
 ### Changed
 
+- Connections now say what Claude Code does with each MCP server where it is
+  declared: configured or approved, waiting for approval, rejected, switched
+  off for that project, blocked by a settings rule, replaced by another
+  declaration of the same name, or unknown where the answer lies outside the
+  files Kondo may read. Each state names the file that decided it. A rejection
+  written only in a project's `settings.local.json` no longer reads as on; a
+  registered project whose only Claude file is `.mcp.json` now appears with its
+  servers; and a connection shared with every project is switched off one
+  project at a time, from that project's page. Those switches remain
+  temporarily unavailable because they edit settings, so Projects and Library
+  show the state and offer no control. Kondo does not read managed policy, does
+  not evaluate allowlists or URL and command rules, and never checks whether a
+  server is running.
+
 - Release targets explicitly select Windows x64 NSIS, Apple silicon arm64 DMG
   and Linux x64 AppImage. Installation guidance distinguishes recorded Windows
   validation from CI smoke requirements and documents scoped macOS quarantine
