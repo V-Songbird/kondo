@@ -227,7 +227,7 @@ quality gates — produced entries 071–096. All have shipped:
   malformed journal lines dropped whole (095) and the public repository
   surface (096).
 
-## Shipped — publication-audit hardening, 2026-09-07 to 2026-09-10
+## Shipped — publication-audit hardening, 2026-09-07 to 2026-09-15
 
 A publication audit on 2026-09-07 reproduced defects in classification,
 confirmation, concurrency, Undo and privacy. Shipped and accepted:
@@ -253,6 +253,12 @@ confirmation, concurrency, Undo and privacy. Shipped and accepted:
   verification and recovery ([plan 118](docs/plans/118-framed-tree-digests.md),
   [plan 121](docs/plans/121-physical-recovery-digests.md)), with the fixture
   write observer and snapshot helper corrected alongside (116, 122).
+- Settings-derived data kept in the main process: settings summaries name only
+  documented settings, hook rows show documented events and handler types
+  without commands, matcher patterns or script paths, MCP transports are
+  validated, and malformed files are reported without quoting them
+  ([plan 117](docs/plans/117-renderer-privacy.md),
+  [ADR-0022](docs/adr/0022-project-settings-data-deny-by-default.md)).
 - Decisions: Desktop sessions stay read-only with a named removal scope
   ([ADR-0016](docs/adr/0016-desktop-session-boundary.md)); hook declarations
   stay read-only ([ADR-0017](docs/adr/0017-hook-layer-boundary.md)); settings
@@ -279,18 +285,21 @@ Open work:
 - Accuracy and compatibility: MCP approval and disable scopes, including
   projects that hold only `.mcp.json` (103); alternate Claude profiles through
   `CLAUDE_CONFIG_DIR` (104); every companion file counted in size estimates
-  (105); every plugin installation and component layout (106); and unreadable
-  hook scripts reported as unverifiable rather than missing (127).
-- Privacy and safety: settings key names, hook commands and parser text kept
-  out of the renderer (117); Kondo's data directory never resolving inside a
-  Claude store (115); and release tags bound to the reviewed main candidate
-  (119).
-- Product claims: in-app wording reconciled with the accepted decisions, after
-  117 (110).
-- Tooling and evidence: the intermittent smoke focus failure (120), run-kondo
-  stopping only the process it launched (124), the Jig edit-guard false
-  positive and the repository session lane (125), the pre-commit hook's Unix
-  mode (126), and personal context still in the tree (123).
+  (105); every plugin installation and component layout (106); unreadable
+  hook scripts reported as unverifiable rather than missing (127); and
+  non-boolean `enabledPlugins` values never read as a definite plugin state
+  (129).
+- Privacy and safety: plugin installation keys that are not plugin ids kept
+  out of scan diagnostics, the follow-up to 117 (131); Kondo's data directory
+  never resolving inside a Claude store (115); and release tags bound to the
+  reviewed main candidate (119).
+- Product claims: in-app wording reconciled with the accepted decisions (110).
+- Tooling and evidence: intermittent focus loss in the Library smoke (120), the
+  Electron sandboxed-preload startup failure that fails Windows smoke runs
+  under load (132), run-kondo stopping only the process it launched (124), the
+  Jig edit-guard false positive and the repository session lane (125), the
+  pre-commit hook's Unix mode (126), and personal context still in the tree
+  (123).
 - The owner chose strategy A, a separate public repository with a new root
   commit, on 2026-09-15; the public identity and destination are still to
   choose ([plan 111](docs/plans/111-public-history-decision.md)).

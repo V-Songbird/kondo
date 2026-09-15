@@ -73,9 +73,12 @@ Decision, three parts:
   counts (entry 038). Reporting the union alone under a bare "projects" made
   a widened definition read as sessions having gone missing.
 - A failed stat means different things on the two halves, so the seam carries
-  three states and not a flag (`ProjectLocation` in `shared/contract.ts`).
+  a location state and not a flag (`ProjectLocation` in `shared/contract.ts`).
   Where the registry named the path, a failed stat is *evidence*: the path
-  was exact, so the directory is `gone` and the project is dead. Where only
+  was exact, so the directory is `gone` and the project is dead. Entry 075
+  narrowed that to ENOENT: any other stat failure on a registry path is
+  `unreadable`, carries a `stat-failed` error and is never read as deletion,
+  which makes four states in all. Where only
   the un-flattening guess proposed one, a failed stat says nothing — the
   guess is lossy and usually wrong, so the project is `unlocated` and may
   well be alive under a name kondo cannot reverse. Collapsing the two into

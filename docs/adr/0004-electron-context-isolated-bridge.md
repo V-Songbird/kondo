@@ -55,8 +55,8 @@ So the seam grows by **operation**. Two generic channels carry every kind:
 - `entityList(kind, parentId?)` — every entity of one kind, narrowed to a
   parent where a listing takes one.
 - `entityMutate(entityId, request)` — one request against one entity, where
-  `request` is `{ op, targetId?, confirm? }` and `op` is a
-  `CapabilityOperation`.
+  `request` is a `MutateRequest` (today `{ op, targetId?, sourceId?,
+  reviewToken?, confirm? }`) and `op` is a `CapabilityOperation`.
 
 The main process picks the registry entry from the id's kind prefix
 (ADR-0008); the renderer still hands back the id it was given and parses
@@ -73,7 +73,10 @@ permission was never a property of the channel.
 
 Channels shipped before this amendment stay, as thin aliases over the two
 above, so views already written against them keep working. New work takes the
-generic pair.
+generic pair. Two paths do not: `pluginClear`, which predates this amendment,
+plans and mutates directly, and selected-session removal has its own
+`sessionTrashPreview` and `sessionTrash` channels because removal binds to the
+reviewed state (ADR-0015); `entityMutate` refuses session trash.
 
 ## Amendment: window lifecycle rides beside the contract, not inside it
 

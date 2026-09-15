@@ -62,8 +62,8 @@ Decision, two halves:
 - The project set is the union of Claude's two records of a project — the
   `projects` keys of `~/.claude.json` and the directories under
   `~/.claude/projects` — joined on the flattened path. `SessionProject`
-  therefore says which half named it (`sources`), whether its directory is
-  still on disk (`pathExists`), and whether it holds a `.claude` at all
+  therefore says which half named it (`sources`), where its directory stands
+  (`location`), and whether it holds a `.claude` at all
   (`hasStore`). A member with `hasStore: false` is a project kondo can name
   and cannot write into; the skill-move picker filters on that field, and the
   workspace refuses such a destination as `bad-request` naming the missing
@@ -117,7 +117,7 @@ Decision, two halves:
   `ProjectRow.name` is the last segment of the real directory and
   `ProjectRow.parent` the directory above it, both through `slashed`; the
   renderer shows them and never splits `label` or `path` to get them.
-  `ProjectRow.location` carries ADR-0009's three-state answer and
+  `ProjectRow.location` carries ADR-0009's location state and
   `ProjectRow.throwaway` the tidy sweep's name rule, so the list can fold
   both kinds of row away without asking a second scan.
 - A store fact travels as a fact, and the verdict on it lives in one place

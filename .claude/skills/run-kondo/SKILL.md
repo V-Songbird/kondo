@@ -8,8 +8,9 @@ user-invocable: true
 
 Kondo writes to real Claude data. CLAUDE.md's one repeated warning is never
 to point mutating code at a real store, and the mutations that run today —
-moving skills, agents, commands and rules between scopes, and every Clean up
-move to Kondo's trash — make that live. So the app is never launched bare for
+moving skills, agents, commands and rules between scopes, a benched skill's
+Enable back into `skills/`, selected conversation removal, every Clean up move
+to Kondo's trash, and Undo — make that live. So the app is never launched bare for
 a check. It is launched against a fixture.
 
 That is the only precaution needed. With it, running is cheap, and a UI
@@ -22,7 +23,9 @@ Skill, plugin and MCP switches, plugin moves and clearing, and settings-leftover
 removal answer `Settings changes are temporarily unavailable because Kondo
 cannot safely exclude concurrent Claude writes. No files were changed.` and
 journal nothing. That refusal is the expected result of those controls, not a
-broken run.
+broken run. The exception is a benched skill's Enable (the fixture's
+`old-linter`): it moves the directory back into `skills/`, so it runs and
+journals.
 
 ## Launch
 
@@ -250,9 +253,10 @@ The desktop half of the fixture carries three Chromium cache directories
 (`Cache`, `Code Cache`, one inside `Partitions/cowork-file-preview`) beside a
 `Local Storage` and a `vm_bundles` that must never be offered, so Clean up's
 `Caches the desktop app rebuilds` row reads 3 items. It carries no `lockfile`
-and no `Singleton*` marker, so the row is not blocked; on a machine with the
-desktop app open it reads "The Claude desktop app is running…" and its
-checkbox is dark.
+and no `Singleton*` marker, so the row is not blocked. The check reads only the
+launched desktop root, so a Claude desktop app running on the same machine does
+not change the row; an empty `SingletonLock` file in `<fixture>/desktop` shows
+the blocked state, "The Claude desktop app is running…" with its checkbox dark.
 
 `hush@acme` is there for that empty case alone. Its install root at
 `plugins/cache/acme/hush/1.0.0` holds a `commands/` file and **no `skills/`
@@ -271,7 +275,7 @@ in.`:
 | --- | --- | --- | --- |
 | `work/apiserver` | yes | yes, 3 sessions | the ordinary project; declares two MCP servers in the registry (`search` switched off) and one in its `.mcp.json` (`linter`), so Connections shows both states |
 | `work/website` | yes | yes, 1 session | an empty but valid move destination |
-| `work/cli` | yes | no | registry-only member: the counts differ because of it, and it is a move destination with no store |
+| `work/cli` | yes | no | registry-only member with a `.claude` store: one of the three members behind the 5-versus-2 counts, and a move destination with no transcripts |
 | `work/removed` | no | no | dead project; Settings leftovers lists its registry entry and the two MCP servers it declares |
 | `work/oldsite` | no | no | dead project with nothing else attached; a registry-entry leftover |
 

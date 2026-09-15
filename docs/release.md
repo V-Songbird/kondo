@@ -119,8 +119,9 @@ claiming them enforced. The owner must approve that remote configuration first.
 - The app must run fully offline; a release build making any network request
   is a release blocker (SECURITY.md).
 - `build.extraResources` ships `THIRD-PARTY-NOTICES.md` and the unchanged
-  IBM Plex OFL at `licenses/IBM-Plex/OFL.txt` inside app resources. After
-  packaging, run `node scripts/verify-packaged-notices.mjs <resources-directory>`:
+  IBM Plex OFL at `licenses/IBM-Plex/OFL.txt` inside app resources. The release
+  workflow does not run the notice verifier; after a local `npm run package`,
+  run `node scripts/verify-packaged-notices.mjs <resources-directory>`:
   use `release/win-unpacked/resources` on Windows,
   `release/mac-arm64/Kondo.app/Contents/Resources` on macOS, or
   `release/linux-unpacked/resources` on Linux. The verifier compares both
@@ -174,8 +175,9 @@ decision.
    stops before building if the tag does not name the version in `package.json`.
 5. Download one artifact per OS, check it against the `SHA256SUMS` asset
    attached to the same draft, and run it against a fixture store
-   (`.claude/skills/run-kondo/fixture.mjs` prints the three env values); a
-   blank window or any network request is a blocker.
+   (`node .claude/skills/run-kondo/fixture.mjs <new-disposable-directory>`
+   recreates that directory and prints the three env values); a blank window
+   or any network request is a blocker.
 6. Publish the draft. `npm run package` builds the same artifacts locally,
    unsigned, when a check is wanted before the tag.
 

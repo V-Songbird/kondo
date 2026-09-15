@@ -169,8 +169,8 @@ flattened transcript names must follow Claude's full non-alphanumeric rule.
    the three Clean up sections answer, and one skill move goes through the bridge and comes back with its
    undo — the journal on disk checked both times. CI is configured to run it on
    all three OSes (`smoke` job, xvfb on Linux) after `npm run build`; the last
-   recorded hosted run passed on 2026-09-07 for `ea99297`
-   ([plan 113](plans/113-hosted-ci-rehearsal.md)). It shares its
+   recorded hosted run passed on 2026-09-15 for `a48ccdf` (CI run 34969346844).
+   It shares its
    protocol client (`.claude/skills/run-kondo/cdp.mjs`) with the `run-kondo`
    skill's `drive.mjs`, the manual UI check, so the two cannot drift apart.
    It is not part of `npm test`: it needs a built app and a display.
@@ -334,7 +334,8 @@ These are fixture and injected-error checks, not a native multi-volume proof.
 
 ## Coverage limits
 
-- Local evidence comes from Windows. macOS and Linux evidence is hosted CI and
+- Local evidence comes from Windows. macOS and Linux evidence is hosted CI,
+  last recorded passing on 2026-09-15 for `a48ccdf` (CI run 34969346844), and
   the release rehearsal, last recorded passing on 2026-09-07 for `ea99297`
   ([plan 113](plans/113-hosted-ci-rehearsal.md)); later commits have no
   hosted evidence until a run passes for them.
@@ -378,7 +379,7 @@ Six invariants are also enforced outside the suite, by checks under
 | `renderer-reaches-past-the-bridge` | `node:` / `electron` imports and `require()` under `src/` | session, pre-commit, CI |
 | `outbound-network-call` | `fetch`, `WebSocket`, `XMLHttpRequest`, `node:http(s)` anywhere shipped | session, pre-commit, CI |
 | `raw-path-across-the-seam` | a path-shaped parameter in `electron/preload/` or `ipc.ts` (ADR-0008) | session, pre-commit, CI |
-| `test-touches-a-real-store` | `homedir()`, home-ish env vars, or a hard-coded store path in `test/` | session, pre-commit, CI |
+| `test-touches-a-real-store` | `homedir()`, home-ish env vars, or a hard-coded store path in `test/**/*.ts` (the `.mjs` and `.tsx` tests are not scanned) | session, pre-commit, CI |
 | `workspace-adapter-outruns-domain-doc` | a commit touching `electron/main/workspace/` without `docs/domain.md` staged | pre-commit only |
 | `seam-contract-outruns-its-adr` | a commit touching `shared/contract.ts` without an ADR staged | pre-commit only |
 

@@ -20,7 +20,8 @@ shared/contract.ts  THE seam contract: types + channel names, imported by all th
 Rules the structure enforces:
 
 - The **composition root** is `whenReady` in `electron/main/index.ts`: it
-  resolves `homedir`, `APPDATA`, platform, and env once and injects them into
+  resolves `homedir`, `APPDATA`, `userData`, platform, and env once, builds
+  the locator from them with `createLocator`, and passes it to
   `createWorkspace`. Nothing under `workspace/` imports `electron`, which is
   what lets the whole domain run under vitest with fixture roots and no
   Electron in sight.
@@ -58,7 +59,7 @@ Asynchronous action failures retain their feature-level handling.
 
 ## The workspace
 
-`createWorkspace(locator)` owns the in-memory scan state and reaches every
+`createWorkspace({ locator, platform })` owns the in-memory scan state and reaches every
 entity through the kind registry. Structure:
 
 - **`locator.ts`** (ADR-0003) — the only path authority. Built from injected
@@ -86,9 +87,12 @@ entity through the kind registry. Structure:
   needs a registry row, a listing row and a matrix row — never a new channel.
   `store` has a matrix row and no entry: nothing lists a store as an entity;
   the row exists so the tidy sweep's journal entry can name what it acted on.
-  No workspace method names an adapter: it validates the id shape it accepts,
-  hands the rest to a kind, and wraps the result in the scan envelope. The two
-  *store reports* stay direct calls — a store is not an entity.
+  An entity listing or mutation never names an adapter: the workspace method
+  validates the id shape it accepts, hands the rest to a kind, and wraps the
+  result in the scan envelope. Inventory, cleanup, project rows and a few
+  projections call their functions directly (`scanSessionInventory`,
+  `scanTidyCandidates`, `countStoreEntries`, `inheritedSkills`, `groupHooks`),
+  as do the two *store reports* — a store is not an entity.
 - **`capabilities.ts`** — the capability matrix. Write permission is a
   lookup on **kind × scope × operation** (`enable`, `disable`, `move`,
   `trash`),
@@ -107,10 +111,13 @@ entity through the kind registry. Structure:
   [decision 109](plans/109-hook-layer-boundary.md) and
   [ADR-0017](adr/0017-hook-layer-boundary.md). Script-file cleanup is separate.
 - **Adapters** — `user-store.ts`, `sessions.ts`, `projects.ts`,
-  `desktop-store.ts`, `tidy.ts`. Every public adapter function returns
-  `Scan<T> = { data, errors, unknown }` (ADR-0005): partial data, itemized
-  typed errors (`{ code, path, message }` — codes, not prose, so the UI can
-  react), and unknown entries for domain.md drift detection. Each one stamps
+  `desktop-store.ts`, `tidy.ts`. An adapter reports into the `Collector` its
+  caller passes and returns plain data; the workspace wraps both into
+  `Scan<T> = { data, errors, unknown }` with `finish` (ADR-0005), and
+  `scanSessionInventory` returns that envelope itself. The envelope carries
+  partial data, itemized typed errors (`{ code, path, message }` — codes, not
+  prose, so the UI can react), and unknown entries for domain.md drift
+  detection. Each adapter stamps
   the entities it builds with their `kind` and their matrix row, so the
   renderer receives capabilities alongside the data and never has to parse
   an id to learn what it may do.
@@ -132,8 +139,9 @@ entity through the kind registry. Structure:
   the pending action. The existing channels return explicit outcomes alongside
   errors; failed legacy Undo without progress evidence requires review.
   `emptyTrash` is the one unlink.
-  Store roots are `user` and `desktop` from the locator, plus any
-  `project:<flat>` root the workspace
+  Store roots are `user` and `desktop` from the locator, `user-config` (the
+  directory holding `~/.claude.json`, whose only allowed member is that file),
+  plus any `project:<flat>` root the workspace
   resolves to a verified project's `.claude` through the `extraRoot`
   callback — never the project itself (ADR-0002).
   `relocation.ts` preserves physical link entries through trash and undo;

@@ -33,6 +33,8 @@ each rule links to the document that carries the detail.
 2. [docs/domain.md](docs/domain.md) — before touching any store adapter.
 3. [docs/foundations.md](docs/foundations.md) — before moving code across the
    process seam.
+4. [docs/adr/README.md](docs/adr/README.md) — the decision index; read the
+   ADRs a change touches before structural work.
 
 ## Hard rules
 

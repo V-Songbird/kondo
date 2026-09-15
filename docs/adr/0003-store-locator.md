@@ -27,3 +27,13 @@ suite off real stores.
   enforced at one seam.
 - All path joining/normalization happens with Node `path` — no hand-built
   separators anywhere else.
+
+## Amendment: project stores and the un-flattening guess
+
+Two kinds of path are built outside the locator. Project stores come from the
+inventory: the workspace, the kind registry and the adapters join a verified
+project's path with `.claude`, because only the inventory knows which projects
+verified (ADR-0002, ADR-0009). The fallback that guesses a project's path from
+its flattened directory name (`candidateOriginalPaths` in `projects.ts`)
+writes the target platform's separator itself, because it reconstructs a path
+for that platform rather than joining parts on this one.
