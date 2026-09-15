@@ -138,6 +138,13 @@ All notable changes to kondo are documented here. The format follows
 
 ### Fixed
 
+- A connection declared for a project folder Kondo cannot check no longer reads
+  as a deleted project. Only a folder that is really absent is reported gone and
+  offered under Settings leftovers. A folder that refuses the check now reads
+  `cannot tell`, names itself in the explanation, and keeps both switch
+  directions refused rather than promising that Leftovers will clear it. The
+  failure is still reported beside the connections that were read.
+
 - Installers now carry attribution for every component they ship. The
   third-party notices add React, React DOM, scheduler and Tailwind CSS beside
   the IBM Plex fonts and Electron, and each release build checks the notices
