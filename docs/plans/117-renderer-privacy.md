@@ -145,8 +145,10 @@ compiler found no other consumer.
 - Focus: the page heading shows its ring in the Library captures at both sizes
   and in the Carbon technical-details captures. The Chalk technical-details
   captures at 1360×860 show no distinguishable ring, although the active
-  element's computed outline check passed. 117 changes no focus styling; this
-  was not investigated further.
+  element's computed outline check passed. Fresh launches of `main` (`33718b7`)
+  and of the rebased branch, driven identically with and without a prior Tab,
+  left focus on the page heading without `:focus-visible` and with no outline
+  in both, and their screenshots match. The missing ring predates 117.
 - Left unchanged: `readPluginInventory` (`user-store.ts:520`) still names an
   invalid `installed_plugins.json` key in its `parse-failed` message. That
   manifest is plugin machinery rather than settings, outside this projection
@@ -157,7 +159,15 @@ compiler found no other consumer.
 ## Owner acceptance
 
 The owner accepted this implementation on 2026-09-15; the reviewed source was
-`8bc3a8b`. The acceptance is conditional on the branch, rebased onto the current
-`main`, passing the full verification again: `npm ci`, `npm test`, typecheck,
-lint, the staged guards and their self-test, `git diff --check`, build and
-`npm run test:e2e`. Nothing was pushed.
+`8bc3a8b`. The acceptance was conditional on the branch, rebased onto the current
+`main`, passing the full verification again.
+
+On the branch rebased onto `33718b7`, `npm ci` installed vitest 5.0.1, Electron
+44.3.0, vite 8.3.0 and React 19.3.0. `npm test` passed (42 files, 731 passed,
+14 skipped), as did typecheck, lint, the guards with the 25 branch files staged,
+their self-test, `git diff --check` and build. The first `npm run test:e2e` run
+failed only in the new privacy case: the settings page did not open after Back
+to Library, most likely because the next Enter reached the row that the Library
+refocuses on the following frame. With the test waiting for that focus,
+`npm run test:e2e` passed 27/27 and the case passed three more isolated runs.
+Nothing was pushed.
