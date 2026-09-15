@@ -258,7 +258,7 @@ confirmation, concurrency, Undo and privacy. Shipped and accepted:
   stay read-only ([ADR-0017](docs/adr/0017-hook-layer-boundary.md)); settings
   files are summarized rather than resolved
   ([ADR-0021](docs/adr/0021-summarize-settings-files.md)); a public-history
-  package with the strategy still to choose
+  package, with strategy A (a new public root) chosen on 2026-09-15
   ([plan 111](docs/plans/111-public-history-decision.md)); and a private
   security contact with a latest-stable-only maintenance policy
   ([plan 112](docs/plans/112-security-reporting-maintenance.md)).
@@ -291,8 +291,9 @@ Open work:
   stopping only the process it launched (124), the Jig edit-guard false
   positive and the repository session lane (125), the pre-commit hook's Unix
   mode (126), and personal context still in the tree (123).
-- The owner chooses the public-history strategy, identity and destination
-  ([plan 111](docs/plans/111-public-history-decision.md)).
+- The owner chose strategy A, a separate public repository with a new root
+  commit, on 2026-09-15; the public identity and destination are still to
+  choose ([plan 111](docs/plans/111-public-history-decision.md)).
 - Finally, 114 revalidates the exact candidate: fresh hosted checks on all
   three platforms, packaged smoke, cleanup and recovery rehearsal, a privacy
   re-audit of the final SHA and the release notes. The release itself is the

@@ -15,7 +15,7 @@ between the two is the part a later reader needs.
 
 - [128 — Documentation and Foreman reconciliation](128-documentation-reconciliation.md) — **done — accepted 2026-09-15**
 - [121 — Framed physical recovery digests](121-physical-recovery-digests.md) — **done — accepted 2026-09-10**
-- [111 — Public Git history decision](111-public-history-decision.md) — **package accepted 2026-09-09; publication choices separate**
+- [111 — Public Git history decision](111-public-history-decision.md) — **package accepted 2026-09-09; strategy A chosen 2026-09-15**
 - [118 — Framed logical tree digests](118-framed-tree-digests.md) — **done — accepted 2026-09-09**
 - [101 — Conservative hook script cleanup](101-conservative-hook-cleanup.md) — **done — accepted 2026-09-09**
 - [112 — Private security reporting and maintenance](112-security-reporting-maintenance.md) — **done — accepted 2026-09-08; integrated into main**

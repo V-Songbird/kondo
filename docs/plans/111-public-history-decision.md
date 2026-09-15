@@ -1,6 +1,6 @@
 # Decision package: Public Git history
 
-Status: **decision package accepted 2026-09-09 — publication choices remain separate**
+Status: **decision package accepted 2026-09-09 — strategy A chosen 2026-09-15; identity and destination open**
 
 Recommend a **separate public repository with a new root commit**, prepared from
 the final reviewed source tree. Keep the existing repository and its complete
@@ -315,3 +315,11 @@ It does not choose an unprovided public identity or destination, authorize histo
 rewriting, or accept a publication candidate. The strategy and publication choices
 listed above remain for the owner's next workflow instruction; task114 retains
 those final gates.
+
+## Owner strategy choice
+
+On 2026-09-15 the owner chose strategy A: a separate public repository whose
+history starts at a new root commit made from the final reviewed tree. The
+private repository and its history stay private and unchanged. The public
+identity, the destination and the export itself remain open and belong to
+task 114; nothing has been exported, pushed or made public.

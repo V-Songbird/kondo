@@ -47,7 +47,8 @@ approval of the exact candidate SHA and selected refs. The preliminary audited
 tree still has two contextual privacy findings, and its ancestors retain private
 working records and messages. Ignore rules do not sanitize that history.
 The decision package recommends a separate public root while preserving the
-private source; the owner has not yet chosen a strategy. Repeat the privacy and
+private source, and the owner chose that strategy (A) on 2026-09-15; the public
+identity and destination remain open. Repeat the privacy and
 secret review on the final publication SHA as required by that package and the
 final publication review (task 114). Passing the release steps below does not
 authorize publishing the existing source ancestry or changing visibility.
