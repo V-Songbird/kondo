@@ -567,7 +567,7 @@ function ProjectPage({
 
               {section === 'skills' && (
                 <>
-                  <p className="mb-5 text-ink-2">Skills teach Claude how to do a task. Move one to another project, and undo the move from History. Switching a skill on or off writes a settings file, so it is unavailable: {SETTINGS_WRITES_SUSPENDED}</p>
+                  <p className="mb-5 text-ink-2">Skills teach Claude how to do a task. Move one to another project, and undo the move from History. Switching a skill on or off writes a settings file, so it is unavailable. {SETTINGS_WRITES_SUSPENDED}</p>
                   <Section
                     title="Skills"
                     count={detail.skills.length}
@@ -1531,8 +1531,8 @@ function SessionTable({
       ) : review !== null ? (
         <div className="band band-pencil flex-col items-start gap-3" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
           <span id={questionId}>
-            Move {formatCount(review.count, 'conversation')} into kondo&rsquo;s trash, with every
-            saved supporting file listed below?
+            Move {formatCount(review.count, 'conversation')} into kondo&rsquo;s trash, together with
+            the session folders and markers that belong to them?
           </span>
           <ul className="space-y-1 text-ink-2">
             {review.sessions.map((session) => (
