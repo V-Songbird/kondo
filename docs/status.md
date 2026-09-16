@@ -6,7 +6,7 @@ Where work stands, for a session that starts without context. Written
 
 ## Main today
 
-`main` is `3e56ba8`. Five entries landed on 2026-09-15 and 2026-09-16, each
+`main` is `6503da3`. Six entries landed on 2026-09-15 and 2026-09-16, each
 squash-merged with `--match-head-commit` and a Foreman trailer. Every run named
 below covered Windows, macOS and Linux:
 
@@ -17,6 +17,7 @@ below covered Windows, macOS and Linux:
 | 129 | Keep non-boolean `enabledPlugins` values from reading as a plugin state | #26 | `269bdc1` | PR run 35038047422 and `main` run 35038315364, green first attempt |
 | 105 | Include all companion files in cleanup size estimates | #27 | `c704b30` | PR run 35046964362 and `main` run 35047126954, green first attempt |
 | 106 | Inventory every plugin installation and component layout | #28 | `3e56ba8` | PR run 35047628542 and `main` run 35047771519, green first attempt |
+| 123 | Replace the remaining personal project context in the published tree | #29 | `6503da3` | PR run 35050599009, all six jobs green first attempt; the `main` run was still running when this was written |
 
 - The first exception: 146's attempt 1 never started, because GitHub Actions
   refused the jobs with a billing block. The owner made the repository public
@@ -30,12 +31,13 @@ below covered Windows, macOS and Linux:
   and [ADR-0015](adr/0015-bind-removal-to-reviewed-state.md) amended by 129 and
   105, [ADR-0023](adr/0023-a-plugin-is-its-installations.md) added by 106.
 - Local checks, reported by each worker from its own worktree through fnm
-  Node 22. On 106's merged tree, which was the last: `npm test` passed 821 and
-  skipped 14 because the host cannot create file symlinks; `npm run typecheck`,
-  `npm run lint`, `npm run guards` and `npm run build` were clean. 105 and 106
-  each drove the built app with `.claude/skills/run-kondo/` against a synthetic
-  fixture outside the OS temp root. Nobody ran `npm run test:e2e` locally in
-  this batch; hosted CI ran the smoke on every pull request.
+  Node 22. On 106's merged tree, the last tree whose local results were
+  reported: `npm test` passed 821 and skipped 14 because the host cannot create
+  file symlinks; `npm run typecheck`, `npm run lint`, `npm run guards` and
+  `npm run build` were clean. 105 and 106 each drove the built app with
+  `.claude/skills/run-kondo/` against a synthetic fixture outside the OS temp
+  root. Nobody ran `npm run test:e2e` locally in this batch; hosted CI ran the
+  smoke on every pull request.
 - Version 0.5.0, pre-release. There are no releases or tags, and the repository
   has been public since 2026-09-15.
 - What the app does is in [README.md](../README.md#what-it-does). Refused or
@@ -52,16 +54,16 @@ Entry 132 is in progress: its [plan](plans/132-sandbox-preload-startup.md) is
 written and no experiment has run. A hosted Linux case on 2026-09-15 showed the
 failure is not Windows-only.
 
-Batch 3 is in flight on worktree branches, both cut from `3e56ba8`:
+Entry 147 is in flight on a worktree branch cut from `3e56ba8` and merged with
+`origin/main`:
 
 | Entry | Branch |
 |---|---|
-| 123 | `worktree-123-personal-context` |
 | 147 | `worktree-147-status-after-batch-2` |
 
 ## Next steps
 
-1. Land batch 3: 123 and 147.
+1. Land 147.
 2. Then 110, 115, 124, 125, 126, 127, 134, 137 to 144 and 148 to 156.
 3. Then 132 and 120, both of which need a quiet machine.
 4. Finally 114.
@@ -132,6 +134,11 @@ an owner decision or a roadmap entry.
    case in [tidy.test.ts](../test/tidy.test.ts), on a docs-only commit (run
    35037504008) — the same kind of timeout workers see locally under load.
    Unassigned.
+9. **CONTRIBUTING explains the missing `main` protection as a consequence of
+   "this private repository"**
+   ([CONTRIBUTING.md:101](../CONTRIBUTING.md)), although the repository has been
+   public since 2026-09-15. The protection is still absent; only the stated
+   reason is wrong. Unassigned.
 
 Leads the reviews raised already have entries and are not repeated above. From
 batch 1: repository checks collecting `.claude/worktrees` (137);

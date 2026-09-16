@@ -127,7 +127,6 @@ In-app wording reconciled with the accepted decisions. Acceptance criteria:
 
 ### Publication
 
-- Personal context still in the tree removed from the publication snapshot (123).
 - A public identity and destination for strategy A, a separate public
   repository with a new root commit
   ([plan 111](docs/plans/111-public-history-decision.md)).
