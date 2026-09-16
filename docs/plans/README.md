@@ -18,9 +18,6 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
-- [123 — Publication context removal](123-publication-context.md) — the two
-  personal disclosures left in the current tree, their neutral replacements
-  and the read-only sweep that looks for others.
 - [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
   — the experiments that separate an Electron, smoke-harness or kondo startup
   cause; none has run yet.
