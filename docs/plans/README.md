@@ -18,9 +18,6 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
-- [110 — In-app product claims](110-product-claims.md) — the inventory of
-  claims that contradict ADR-0010, ADR-0016 and ADR-0017, their replacements,
-  and the disclosure a conversation removal shows before its confirmation.
 - [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
   — the experiments that separate an Electron, smoke-harness or kondo startup
   cause; none has run yet.
