@@ -349,6 +349,16 @@ All notable changes to kondo are documented here. The format follows
 
 ### Security
 
+- Kondo now refuses to keep its own files inside a Claude directory even when
+  the path only leads there through a shortcut. Its journal, trash, appearance
+  preference, scan cache and profile record are each checked against the real
+  location of Claude's directories at the moment they are used, so a data
+  folder that is a shortcut into one, or that sits under a shortcut, or that
+  becomes one while Kondo is running, is refused before anything is read or
+  written. Each refusal names the Kondo file, the Claude directory it lands in
+  and what to change. A data folder reached by a shortcut that leads somewhere
+  else is unaffected.
+
 - The release workflow builds installers and a draft only for a tag on
   `main`'s current tip; any other tag fails before packaging, naming the tag
   commit and the candidate commit. A manual rehearsal never creates a draft,

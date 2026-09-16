@@ -21,6 +21,7 @@ import {
   finish,
   isEnoent,
   inspectTree,
+  overlapRefusal,
   pathWithin,
   realpathWithMissing,
   resolveAllowedPath,
@@ -57,6 +58,11 @@ export type ExtraRoot = (store: string) => Promise<string | null>
  * and nothing else — the home directory is not a store.
  */
 export const USER_CONFIG_STORE = 'user-config'
+
+/** How kondo's own paths read back in a refusal — never the absolute spelling. */
+const DATA_DISPLAY = '<kondo-data>'
+const JOURNAL_DISPLAY = '<kondo-data>/journal.jsonl'
+const TRASH_DISPLAY = '<kondo-data>/trash'
 
 // ---------------------------------------------------------------------------
 // Byte edits (ADR-0010)
@@ -440,10 +446,12 @@ export function createMutations(
   const userConfigName = path.basename(locator.userConfigFile)
 
   // ADR-0001 decision 6: kondo's trash inside a store would show up in
-  // kondo's own scan, and a sweep could trash its own undo history.
-  const nested = [...roots.values()].find(
-    (root) => kondoData === root || pathWithin(kondoData, root)
-  )
+  // kondo's own scan, and a sweep could trash its own undo history. Resolved
+  // at each operation rather than here, because a link into a store can
+  // appear at any time after this workspace was built.
+  const fixedRoots = [...roots.values()]
+  const overlaps = (target: string, display: string): Promise<string | null> =>
+    overlapRefusal(target, display, fixedRoots, locator.home)
 
   // -------------------------------------------------------------------------
   // Paths
@@ -457,13 +465,8 @@ export function createMutations(
       throw new Refused('out-of-store', store, `Unknown store root "${store}".`)
     }
     // ADR-0001 decision 6, for a root the locator did not fix at startup.
-    if (kondoData === dynamic || pathWithin(kondoData, dynamic)) {
-      throw new Refused(
-        'out-of-store',
-        store,
-        `Kondo's data directory sits inside "${store}" — refusing to write (ADR-0001).`
-      )
-    }
+    const refusal = await overlapRefusal(kondoData, '<kondo-data>', [dynamic], locator.home)
+    if (refusal !== null) throw new Refused('out-of-store', store, refusal)
     discoveredRoots.add(dynamic)
     return dynamic
   }
@@ -878,13 +881,17 @@ export function createMutations(
     unknown: []
   })
 
-  const nestedMessage = (): string =>
-    `Kondo's data directory sits inside the store at ${nested} — refusing to write (ADR-0001).`
-
-  const misconfigured = (): Scan<JournalEntryInfo | null> =>
-    refuse('bad-request', kondoData, nestedMessage())
+  const misconfigured = (message: string): Scan<JournalEntryInfo | null> =>
+    refuse('out-of-store', DATA_DISPLAY, message)
 
   const trashDisplay = (): string => tildify(trashRoot, locator.home)
+
+  /** The trash as it reads when kondo's own footprint is refused: untouched. */
+  const refusedTrash = (message: string): Scan<TrashReport> => ({
+    data: { root: trashDisplay(), bytes: 0, entryCount: 0 },
+    errors: [{ code: 'out-of-store', path: TRASH_DISPLAY, message }],
+    unknown: []
+  })
 
   /** What the trash holds right now: its size and how many entries hold it. */
   const readTrash = async (): Promise<Scan<TrashReport>> => {
@@ -1115,7 +1122,8 @@ export function createMutations(
 
   const operations: Mutations = {
     async mutate(plan: MutationPlan): Promise<Scan<JournalEntryInfo | null>> {
-      if (nested) return misconfigured()
+      const refusal = await overlaps(kondoData, DATA_DISPLAY)
+      if (refusal !== null) return misconfigured(refusal)
       // Check the whole plan before preflight, journaling, or an earlier move.
       // A refused mixed operation must never leave a partially applied plan.
       if (includesSettingsWrite(plan.steps)) {
@@ -1158,7 +1166,8 @@ export function createMutations(
     },
 
     async undo(journalId: string): Promise<Scan<JournalEntryInfo | null>> {
-      if (nested) return misconfigured()
+      const refusal = await overlaps(kondoData, DATA_DISPLAY)
+      if (refusal !== null) return misconfigured(refusal)
       if (typeof journalId !== 'string' || !journalId.startsWith(ID_PREFIX)) {
         return refuse('bad-request', String(journalId), 'undo expects a journal: id.')
       }
@@ -1284,6 +1293,10 @@ export function createMutations(
     },
 
     async list(): Promise<Scan<JournalEntryInfo[]>> {
+      const refusal = await overlaps(journalFile, JOURNAL_DISPLAY)
+      if (refusal !== null) {
+        return { data: [], errors: [{ code: 'out-of-store', path: JOURNAL_DISPLAY, message: refusal }], unknown: [] }
+      }
       const { records, blockedUndoIds, scan } = await readJournal()
       const links = undoLinks(records, blockedUndoIds)
       const failed = failedIds(records)
@@ -1319,8 +1332,9 @@ export function createMutations(
       return { data: entries, errors: scan.errors, unknown: scan.unknown }
     },
 
-    trashSize(): Promise<Scan<TrashReport>> {
-      return readTrash()
+    async trashSize(): Promise<Scan<TrashReport>> {
+      const refusal = await overlaps(trashRoot, TRASH_DISPLAY)
+      return refusal === null ? readTrash() : refusedTrash(refusal)
     },
 
     /**
@@ -1333,13 +1347,8 @@ export function createMutations(
      * happen is the one lie the journal must not tell.
      */
     async emptyTrash(): Promise<Scan<TrashReport>> {
-      if (nested) {
-        return {
-          data: { root: trashDisplay(), bytes: 0, entryCount: 0 },
-          errors: [{ code: 'bad-request', path: kondoData, message: nestedMessage() }],
-          unknown: []
-        }
-      }
+      const refusal = await overlaps(trashRoot, TRASH_DISPLAY)
+      if (refusal !== null) return refusedTrash(refusal)
       const before = await readTrash()
       const c = collector()
       try {

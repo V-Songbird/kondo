@@ -247,11 +247,26 @@ serves (`stores.json`), and the scan
 cache (`scan-cache/<namespace>.json`, keyed by `(path, size, mtime)` per
 ADR-0007) live. A launch reading a Claude profile other than the default store
 set keeps all of that in `profiles/<key>` beneath the same directory, so one
-journal never serves two profiles and nothing is copied between them. Two rules: `<kondo-data>` must never be inside a Claude store
-(the locator does not yet refuse a `KONDO_DATA_ROOT` that points inside one;
-entry 115), and no Claude-truth is stored there (ADR-0006) — losing it loses undo
+journal never serves two profiles and nothing is copied between them. Two rules: `<kondo-data>` must never be inside a Claude store,
+and no Claude-truth is stored there (ADR-0006) — losing it loses undo
 history, caches and Kondo's appearance choice, never the user's actual Claude
 configuration.
+
+✅ **The first rule is checked by resolved path, at each operation rather than
+once at startup.** Before reading or writing any of the files above, kondo
+resolves that path and the user and desktop store roots — a directory that does
+not exist yet through its nearest existing ancestor — and refuses equality or
+containment before the read or write happens. A journal step naming a project
+store is checked the same way against that project's resolved `.claude`. So a
+`KONDO_DATA_ROOT` that is a link into a store, one whose ancestor is, and one
+whose link appeared only after the app started are all refused, while a data
+root reached through an alias that resolves outside every store behaves exactly
+as an unlinked one. Each refusal names the Kondo file, the store it resolves
+into and what to change; the claim of the data root at startup refuses the
+launch outright, before `stores.json` could be written into a store. The scan
+cache is the exception that proves ADR-0005: an overlapping cache is not a
+problem to report but a cache that cannot be used, so it reports nothing, reads
+nothing, writes nothing, and every lookup is a miss.
 
 `workspace/appearance.ts` owns validated appearance reads and atomic writes.
 Only one of the identifiers in `shared/themes.ts` crosses `appearanceGet` /

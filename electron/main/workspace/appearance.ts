@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { AppearancePreferences, KondoApi, Scan } from '../../../shared/contract'
 import { DEFAULT_THEME, isThemeId } from '../../../shared/themes'
 import type { StoreLocator } from './locator'
-import { collector, describe, finish, isEnoent, pathWithin } from './scan'
+import { collector, describe, finish, isEnoent, overlapRefusal } from './scan'
 
 const FILE_NAME = 'appearance.json'
 const DISPLAY_PATH = '<kondo-data>/appearance.json'
@@ -28,15 +28,18 @@ function serial<T>(file: string, action: () => Promise<T>): Promise<T> {
 export function createAppearance(locator: StoreLocator): Pick<KondoApi, 'appearanceGet' | 'appearanceSet'> {
   const root = path.resolve(locator.kondoDataRoot)
   const file = path.join(root, FILE_NAME)
-  const overlapsClaude = [locator.userRoot, locator.desktopRoot].some((store) =>
-    store !== null && (path.relative(path.resolve(store), root) === '' || pathWithin(root, path.resolve(store)))
-  )
+  // Resolved at each call rather than here: a link into a Claude store can
+  // appear after this workspace was built (ADR-0001 decision 6). Paths only —
+  // this runs before the first window and opens no Claude document.
+  const overlaps = (): Promise<string | null> =>
+    overlapRefusal(file, DISPLAY_PATH, [locator.userRoot, locator.desktopRoot], locator.home)
 
   const read = async (): Promise<Scan<AppearancePreferences>> => {
     const c = collector()
     const fallback = { theme: DEFAULT_THEME }
-    if (overlapsClaude) {
-      c.fail('out-of-store', DISPLAY_PATH, 'Kondo appearance preferences cannot be stored in a Claude directory. Using Chalk.')
+    const refusal = await overlaps()
+    if (refusal !== null) {
+      c.fail('out-of-store', DISPLAY_PATH, `${refusal} Using Chalk.`)
       return finish(fallback, c)
     }
     let raw: string
@@ -80,7 +83,9 @@ export function createAppearance(locator: StoreLocator): Pick<KondoApi, 'appeara
           }]
         }
       }
-      if (overlapsClaude) return previous
+      // Checked again immediately before the write: `read` above yields, and
+      // its refusal is already the first error in `previous`.
+      if (await overlaps() !== null) return previous
 
       const temporary = path.join(root, `.appearance-${randomUUID()}.tmp`)
       let temporaryCreated = false

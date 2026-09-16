@@ -279,17 +279,17 @@ describe('the scan cache itself (ADR-0007)', () => {
 
   it('survives the process it was written in', async () => {
     const info = await fs.stat(file)
-    const first = await openScanCache<{ prompt: string }>(world.kondoDataRoot, 'probe')
+    const first = await openScanCache<{ prompt: string }>(world.kondoDataRoot, 'probe', [world.userRoot, world.desktopRoot])
     first.set(file, info.size, info.mtimeMs, { prompt: SHARED })
     await first.save()
 
-    const second = await openScanCache<{ prompt: string }>(world.kondoDataRoot, 'probe')
+    const second = await openScanCache<{ prompt: string }>(world.kondoDataRoot, 'probe', [world.userRoot, world.desktopRoot])
     expect(second.get(file, info.size, info.mtimeMs)?.prompt).toBe(SHARED)
   })
 
   it('misses when either half of the key moved', async () => {
     const info = await fs.stat(file)
-    const cache = await openScanCache<{ prompt: string }>(world.kondoDataRoot, 'probe')
+    const cache = await openScanCache<{ prompt: string }>(world.kondoDataRoot, 'probe', [world.userRoot, world.desktopRoot])
     cache.set(file, info.size, info.mtimeMs, { prompt: SHARED })
     expect(cache.get(file, info.size + 1, info.mtimeMs)).toBeNull()
     expect(cache.get(file, info.size, info.mtimeMs + 1)).toBeNull()
@@ -301,12 +301,12 @@ describe('the scan cache itself (ADR-0007)', () => {
     await fs.mkdir(path.dirname(cacheFile), { recursive: true })
     await fs.writeFile(cacheFile, '{ this is not json', 'utf8')
     const info = await fs.stat(file)
-    const cache = await openScanCache<{ prompt: string }>(world.kondoDataRoot, 'probe')
+    const cache = await openScanCache<{ prompt: string }>(world.kondoDataRoot, 'probe', [world.userRoot, world.desktopRoot])
     expect(cache.get(file, info.size, info.mtimeMs)).toBeNull()
   })
 
   it('writes nothing when nothing was cached', async () => {
-    const cache = await openScanCache<{ prompt: string }>(world.kondoDataRoot, 'probe')
+    const cache = await openScanCache<{ prompt: string }>(world.kondoDataRoot, 'probe', [world.userRoot, world.desktopRoot])
     await cache.save()
     expect(await exists(path.join(world.kondoDataRoot, 'scan-cache'))).toBe(false)
   })

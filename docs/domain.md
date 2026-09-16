@@ -85,7 +85,9 @@ Claude's default store set keeps Electron's `userData`, and any other store set
 gets `<userData>/profiles/<key>`, keyed by the user, registry and desktop roots.
 A data root records the set it serves in `stores.json` and refuses a launch that
 brings another one, because a journal step names a store rather than a root
-(ADR-0001, ADR-0004). Windows is the verified platform: the rules above are the
+(ADR-0001, ADR-0004). It also refuses a data root that resolves inside a Claude
+store, checked by resolved path at each operation rather than once at startup,
+so an ancestor link and a link made after the app started are both caught. Windows is the verified platform: the rules above are the
 binary's, which is the same on every OS, while Kondo's own profile launches have
 been exercised on Windows only ◇.
 
@@ -123,7 +125,9 @@ and link metadata.
 
 These limits describe access to Claude's data. Kondo's separate
 [application footprint](foundations.md#kondos-own-footprint) also holds its
-journal, trash, caches and appearance preference. The Themes screen stores
+journal, trash, caches and appearance preference, and every operation on one of
+those refuses before reading or writing when its resolved path lands inside a
+Claude store. The Themes screen stores
 that preference in Kondo's `appearance.json`; it does not read or write
 Claude's own `theme` setting to select Kondo's appearance.
 

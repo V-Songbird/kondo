@@ -274,8 +274,9 @@ describe('ADR-0004 entry-module security and lifecycle (mocked Electron)', () =>
     if (phase !== 'handover') {
       expect(shell.Window.windows).toHaveLength(0)
       release()
-      await Promise.resolve()
-      await Promise.resolve()
+      // Startup awaits a chain of promises before the first window — the data
+      // root claim among them — so drain the queue rather than count ticks.
+      for (let tick = 0; tick < 10; tick++) await Promise.resolve()
     }
     expect(shell.Window.windows[0]!.show).not.toHaveBeenCalled()
     const window = await showMain()

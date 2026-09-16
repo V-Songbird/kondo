@@ -1705,7 +1705,8 @@ export async function sessionNearDuplicates(
   // miss — otherwise every empty transcript is re-streamed forever.
   const cache = await openScanCache<{ prompt: string | null }>(
     context.locator.kondoDataRoot,
-    'first-prompt'
+    'first-prompt',
+    [context.locator.userRoot, context.locator.desktopRoot]
   )
 
   const openings = await mapPool(record.sessions, 8, async (session) => {
