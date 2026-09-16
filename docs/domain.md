@@ -129,7 +129,9 @@ journal, trash, caches and appearance preference, and every operation on one of
 those refuses before reading or writing when its resolved path lands inside a
 Claude store. A Claude root Kondo cannot resolve is compared by its literal
 path instead, so an unreadable store neither blocks Kondo's own work nor
-becomes a way into one. The Themes screen stores
+becomes a way into one. A project store a journal step names is checked once
+per operation rather than once per step, so a link arriving mid-plan meets the
+refusal already taken at the top of it. The Themes screen stores
 that preference in Kondo's `appearance.json`; it does not read or write
 Claude's own `theme` setting to select Kondo's appearance.
 

@@ -453,6 +453,13 @@ export function createMutations(
   const overlaps = (target: string, display: string): Promise<string | null> =>
     overlapRefusal(target, display, fixedRoots, locator.home)
 
+  // `rootOf` runs for every endpoint in a plan, and resolving both sides on
+  // each of them costs a filesystem round trip per step. The check a project
+  // root needs is taken once per operation instead, cleared where `mutate` and
+  // `undo` take their own: within one operation a link would have to beat the
+  // refusal already taken at the top of it.
+  const projectOverlap = new Map<string, string | null>()
+
   // -------------------------------------------------------------------------
   // Paths
 
@@ -465,7 +472,11 @@ export function createMutations(
       throw new Refused('out-of-store', store, `Unknown store root "${store}".`)
     }
     // ADR-0001 decision 6, for a root the locator did not fix at startup.
-    const refusal = await overlapRefusal(kondoData, '<kondo-data>', [dynamic], locator.home)
+    let refusal = projectOverlap.get(dynamic)
+    if (refusal === undefined) {
+      refusal = await overlapRefusal(kondoData, DATA_DISPLAY, [dynamic], locator.home)
+      projectOverlap.set(dynamic, refusal)
+    }
     if (refusal !== null) throw new Refused('out-of-store', store, refusal)
     discoveredRoots.add(dynamic)
     return dynamic
@@ -1122,6 +1133,7 @@ export function createMutations(
 
   const operations: Mutations = {
     async mutate(plan: MutationPlan): Promise<Scan<JournalEntryInfo | null>> {
+      projectOverlap.clear()
       const refusal = await overlaps(kondoData, DATA_DISPLAY)
       if (refusal !== null) return misconfigured(refusal)
       // Check the whole plan before preflight, journaling, or an earlier move.
@@ -1166,6 +1178,7 @@ export function createMutations(
     },
 
     async undo(journalId: string): Promise<Scan<JournalEntryInfo | null>> {
+      projectOverlap.clear()
       const refusal = await overlaps(kondoData, DATA_DISPLAY)
       if (refusal !== null) return misconfigured(refusal)
       if (typeof journalId !== 'string' || !journalId.startsWith(ID_PREFIX)) {

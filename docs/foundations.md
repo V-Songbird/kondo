@@ -252,7 +252,7 @@ and no Claude-truth is stored there (ADR-0006) — losing it loses undo
 history, caches and Kondo's appearance choice, never the user's actual Claude
 configuration.
 
-✅ **The first rule is checked by resolved path, at each operation rather than
+**The first rule is checked by resolved path, at each operation rather than
 once at startup.** Before reading or writing any of the files above, kondo
 resolves that path and the user and desktop store roots — a directory that does
 not exist yet through its nearest existing ancestor — and refuses equality or

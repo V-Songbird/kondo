@@ -1012,6 +1012,29 @@ describe("Kondo's own footprint never resolves into a store (115)", () => {
     expect(await hashTree(project)).toBe(before)
   })
 
+  it('proceeds while a Claude root dangles, and still refuses a real overlap', async (context) => {
+    const target = path.join(world.base, 'no-such-desktop')
+    const dangling = path.join(world.base, 'dangling-desktop')
+    await fsp.mkdir(target, { recursive: true })
+    await fixtureLink(context, target, dangling, true)
+    await fsp.rm(target, { recursive: true, force: true })
+    const locator: StoreLocator = { ...world.locator, desktopRoot: dangling }
+    await fsp.mkdir(world.kondoDataRoot, { recursive: true })
+
+    // A Claude root that resolves to nothing must not refuse kondo's own work.
+    const appearance = await createAppearance(locator).appearanceGet()
+    expect(appearance.errors.map((error) => error.code)).not.toContain('out-of-store')
+    const listed = await createMutations(locator).list()
+    expect(listed.errors.map((error) => error.code)).not.toContain('out-of-store')
+
+    // The store that does resolve is still compared, dangling sibling or not.
+    const linked = path.join(world.base, 'user-alias')
+    await fixtureLink(context, world.userRoot, linked, true)
+    const refused = await createAppearance({ ...locator, kondoDataRoot: linked }).appearanceGet()
+    expect(refused.errors[0]?.code).toBe('out-of-store')
+    expect(refused.errors[0]?.message).toContain(tildify(world.userRoot, world.home))
+  })
+
   it('carries on lexically when a Claude root itself cannot be resolved', async (context) => {
     await fsp.mkdir(path.join(world.desktopRoot, 'nested'), { recursive: true })
     const linked = path.join(world.base, 'desktop-alias')
