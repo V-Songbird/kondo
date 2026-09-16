@@ -18,9 +18,6 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
-- [149 — A jig check for drifting `file:line` anchors](149-status-anchor-check.md)
-  — a third detector kind in the check driver that opens each anchor's target
-  and reports the ones that no longer point at anything.
 - [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
   — the experiments that separate an Electron, smoke-harness or kondo startup
   cause; none has run yet.
