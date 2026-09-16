@@ -81,35 +81,6 @@ Four decisions frame this work and are not up for re-argument here:
   store set (141).
 - Raw filesystem exception text kept out of `Scan.errors` (155).
 
-### Product claims (110)
-
-In-app wording reconciled with the accepted decisions. Acceptance criteria:
-
-1. Projects → Conversations says its rows are Code transcripts. A Desktop
-   filename match reads as a matching ID with unverified contents and a
-   released marker as a marker; a missing match is never shown as proof of
-   absence.
-2. Before removal, disclose the exact candidate transcript, present sidecar and
-   marker, and the records that remain (prompt history, snapshots, file
-   history, backups, Desktop copies, Kondo's trash), with the selected project
-   and session identities in a bounded list.
-3. Keep main-owned opaque ids and review tokens, fresh candidate validation and
-   serialization with mutation and Undo
-   ([ADR-0015](docs/adr/0015-bind-removal-to-reviewed-state.md)). A seam
-   addition for exact file descriptors moves contract, workspace, IPC, preload
-   and renderer together and exposes display-safe descriptors only.
-4. Moved-byte totals are coordinated with 105.
-5. Hooks: describe inventoried declarations, say "Kondo does not support
-   switching individual hooks", show an unrecognized script as "No script
-   recognized", and never describe a retained hook script as one nothing runs.
-6. Signal controls, explicit confirmation, visible focus, accessible names,
-   Escape and focus return; a stale selection requires a new review.
-7. Synthetic fixtures with every residual, a mirrored Desktop record, unknown
-   siblings and a released marker: exact moved paths, byte preservation of
-   residuals, Desktop and mixed-id refusal without journal writes, Undo
-   restoration, and UI checks of disclosure, keyboard cancellation and focus
-   return.
-
 ### Tooling and evidence
 
 - Intermittent focus loss in the Library smoke (120).

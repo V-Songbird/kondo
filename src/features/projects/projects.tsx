@@ -30,6 +30,8 @@ import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { flatKeyParts, formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
 import {
   CODE_TRANSCRIPTS_ONLY,
+  DISCLOSED_CANDIDATE_LIMIT,
+  REMOVAL_LEAVES_BEHIND,
   SETTINGS_SOURCES_READ,
   SETTINGS_WRITES_SUSPENDED
 } from '../../lib/claims'
@@ -1534,13 +1536,7 @@ function SessionTable({
             Move {formatCount(review.count, 'conversation')} into kondo&rsquo;s trash, together with
             the session folders and markers that belong to them?
           </span>
-          <ul className="space-y-1 text-ink-2">
-            {review.sessions.map((session) => (
-              <li key={session.id} className="break-all">
-                {session.uuid} · transcript {formatBytes(session.bytes)} · last activity {formatAgo(session.mtimeMs)}
-              </li>
-            ))}
-          </ul>
+          <RemovalDisclosure review={review} />
           {/* The three figures a move has. The first counts every file that
               moves — each transcript, its sidecar folder and its released
               marker — so the trash grows by exactly that. */}
@@ -1580,6 +1576,94 @@ function SessionTable({
             : `Move ${formatCount(chosen.length, 'conversation')} to trash`}
         </button>
       )}
+    </div>
+  )
+}
+
+/**
+ * What this removal will move, and what it will not (ADR-0016, ROADMAP
+ * criterion 2). Every file is named before the confirmation exists, because
+ * "remove every trace of a conversation" is the one promise this boundary
+ * refuses to make: a transcript is one record among several, and kondo cannot
+ * establish that the rest is gone.
+ *
+ * The descriptors are main's, over the very paths the review token binds
+ * (ADR-0015). Nothing here is derived from an id — the renderer parses no id
+ * and builds no path (ADR-0008).
+ *
+ * Bounded on purpose. A selection of hundreds would otherwise render hundreds
+ * of paths inside a confirmation band, which is unreadable and a rendering
+ * hazard; past the limit the list says how many more there are, and the
+ * figures below still cover the whole selection.
+ */
+function RemovalDisclosure({ review }: { review: SessionTrashPreview }) {
+  const shown = review.candidates.slice(0, DISCLOSED_CANDIDATE_LIMIT)
+  const rest = review.candidates.length - shown.length
+  const summaryOf = (id: string): SessionSummary | undefined =>
+    review.sessions.find((session) => session.id === id)
+  // One store at most today, but the copy reads off the fact rather than
+  // assuming which: a match is an ID match, never a contents match.
+  const mirrors = [...new Set(
+    review.sessions.map((session) => session.mirroredIn).filter((store): store is string => store !== null)
+  )]
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="font-medium">
+          {review.projects.length === 1 ? 'In this project:' : 'In these projects:'}
+        </p>
+        <ul className="space-y-1 text-ink-2">
+          {review.projects.map((project) => (
+            <li key={project.id} className="break-all">{project.label}</li>
+          ))}
+        </ul>
+      </div>
+
+      <div>
+        <p className="font-medium">These files move:</p>
+        <ul className="space-y-2 text-ink-2">
+          {shown.map((candidate) => {
+            const session = summaryOf(candidate.id)
+            return (
+              <li key={candidate.id}>
+                <div className="break-all font-mono text-xs">{candidate.transcript}</div>
+                {candidate.sidecar !== null && (
+                  <div className="break-all font-mono text-xs">{candidate.sidecar} (session folder)</div>
+                )}
+                {candidate.releasedMarker !== null && (
+                  <div className="break-all font-mono text-xs">
+                    {candidate.releasedMarker} (desktop released marker)
+                  </div>
+                )}
+                {session !== undefined && (
+                  <div className="text-xs">
+                    transcript {formatBytes(session.bytes)} · last activity {formatAgo(session.mtimeMs)}
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+        {rest > 0 && (
+          <p className="mt-1 text-ink-2">
+            And {formatCount(rest, 'more conversation')}, with their session folders and markers.
+          </p>
+        )}
+      </div>
+
+      <div>
+        <p className="font-medium">These records stay where they are:</p>
+        <ul className="space-y-1 text-ink-2">
+          {REMOVAL_LEAVES_BEHIND.map((record) => <li key={record}>{record}</li>)}
+          {mirrors.map((store) => (
+            <li key={store}>
+              The {store} store, which holds a file named with the same ID. Kondo did not
+              compare the contents and does not remove it.
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   )
 }

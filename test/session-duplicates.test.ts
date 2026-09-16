@@ -548,6 +548,159 @@ describe('reviewed session removal (102)', () => {
 })
 
 /**
+ * Entry 110: what the confirmation discloses before it exists (ADR-0016).
+ *
+ * The estimate said how many bytes would move; nothing said which files. These
+ * cases hold the descriptors to the plan itself — every path named is a path
+ * that moves, every path that moves is named, and nothing outside the selected
+ * uuid namespace appears in either.
+ */
+describe('the removal disclosure (110)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+  const dir = 'D--Projects-disclosed'
+  const other = 'D--Projects-second'
+  const id = (uuid: string, at = dir): string => `session:code:${at}/${uuid}`
+  const file = (name: string, at = dir): string =>
+    path.join(world.userRoot, 'projects', at, name)
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, {
+      'settings.json': '{}',
+      // Every residual at once: transcript, sidecar directory, released marker.
+      [`projects/${dir}/${UUID_A}.jsonl`]: opening(SHARED),
+      [`projects/${dir}/${UUID_A}/nested/agent.jsonl`]: opening(SHARED),
+      [`projects/${dir}/${UUID_A}.desktop-released.json`]: desktopReleased(),
+      // A bare transcript, so the descriptor's nulls are exercised too.
+      [`projects/${dir}/${UUID_B}.jsonl`]: opening(REWRITTEN),
+      // A second project, so the identity list spans more than one row.
+      [`projects/${other}/${UUID_C}.jsonl`]: opening(SHARED),
+      // Records selected removal never touches (domain.md).
+      'history.jsonl': '{"display":"kept"}\n',
+      [`session-env/${UUID_A}/env.json`]: '{"kept":true}'
+    })
+    // The desktop store holds a file named with UUID_A's id, and nothing else.
+    await writeFileTree(world.desktopRoot, {
+      [`local-agent-mode-sessions/device-1/account-1/local_${UUID_A}.json`]: '{}'
+    })
+    api = createWorkspace({
+      locator: world.locator,
+      platform: process.platform,
+      guessExists: async () => 'absent'
+    })
+  })
+  afterEach(async () => { vi.restoreAllMocks(); await world.cleanup() })
+
+  const preview = async (ids: string[]) => {
+    const scan = await api.sessionTrashPreview(ids)
+    expect(scan.errors).toEqual([])
+    expect(scan.data).not.toBeNull()
+    return scan.data!
+  }
+
+  it('names every residual of a session that has all three', async () => {
+    const found = await preview([id(UUID_A)])
+    expect(found.candidates).toHaveLength(1)
+    const only = found.candidates[0]!
+    expect(only.id).toBe(id(UUID_A))
+    // Display text, tildified outward, never a raw absolute path (ADR-0002).
+    for (const at of [only.transcript, only.sidecar, only.releasedMarker]) {
+      expect(at).toMatch(/^~\//)
+    }
+    expect(only.transcript).toContain(`${UUID_A}.jsonl`)
+    expect(only.sidecar).toContain(`${dir}/${UUID_A}`)
+    expect(only.releasedMarker).toContain(`${UUID_A}.desktop-released.json`)
+  })
+
+  it('leaves the sidecar and marker null for a bare transcript', async () => {
+    const only = (await preview([id(UUID_B)])).candidates[0]!
+    expect(only.transcript).toContain(`${UUID_B}.jsonl`)
+    expect(only.sidecar).toBeNull()
+    expect(only.releasedMarker).toBeNull()
+  })
+
+  it('names exactly the paths the move then takes, and no others', async () => {
+    const ids = [id(UUID_A), id(UUID_B)]
+    const found = await preview(ids)
+    const named = found.candidates.flatMap((candidate) =>
+      [candidate.transcript, candidate.sidecar, candidate.releasedMarker]
+        .filter((at): at is string => at !== null))
+    expect(named).toHaveLength(4)
+    // One step per named path: the disclosure is the plan, spelled out.
+    const done = await api.sessionTrash(ids, found.reviewToken)
+    expect(done.errors).toEqual([])
+    expect(done.data?.stepCount).toBe(named.length)
+    for (const name of [`${UUID_A}.jsonl`, `${UUID_A}.desktop-released.json`, UUID_A, `${UUID_B}.jsonl`]) {
+      expect(await exists(file(name))).toBe(false)
+    }
+  })
+
+  it('lists one identity per project the selection spans', async () => {
+    const found = await preview([id(UUID_A), id(UUID_C, other)])
+    expect(found.projects.map((project) => project.id)).toEqual([
+      `project:code:${dir}`,
+      `project:code:${other}`
+    ])
+    // No path was resolved for either, so the flattened key stands in as the
+    // label rather than a guess at the real directory.
+    expect(found.projects.map((project) => project.label)).toEqual([dir, other])
+  })
+
+  it('says one project once, however many of its conversations are picked', async () => {
+    const found = await preview([id(UUID_A), id(UUID_B)])
+    expect(found.projects).toHaveLength(1)
+    expect(found.count).toBe(2)
+  })
+
+  it('keeps the desktop record, the prompt history and the snapshot (ADR-0016)', async () => {
+    const ids = [id(UUID_A)]
+    const found = await preview(ids)
+    // The disclosure's Desktop line is conditional on this, and it is an ID
+    // match: nothing opened either file to say so.
+    expect(found.sessions[0]?.mirroredIn).toBe('desktop')
+    const mirror = path.join(
+      world.desktopRoot, 'local-agent-mode-sessions', 'device-1', 'account-1', `local_${UUID_A}.json`
+    )
+    const desktopBefore = await hashTree(world.desktopRoot)
+
+    expect((await api.sessionTrash(ids, found.reviewToken)).errors).toEqual([])
+    expect(await exists(mirror)).toBe(true)
+    expect(await hashTree(world.desktopRoot)).toBe(desktopBefore)
+    expect(await exists(path.join(world.userRoot, 'history.jsonl'))).toBe(true)
+    expect(await exists(path.join(world.userRoot, 'session-env', UUID_A, 'env.json'))).toBe(true)
+  })
+
+  it('restores every named path on Undo, byte for byte', async () => {
+    const before = await hashTree(world.userRoot)
+    const ids = [id(UUID_A), id(UUID_B)]
+    const found = await preview(ids)
+    const done = await api.sessionTrash(ids, found.reviewToken)
+    expect(done.errors).toEqual([])
+    expect((await api.journalUndo(done.data!.id)).errors).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('refuses the whole preview when an unknown sibling shares the uuid stem', async () => {
+    await fs.writeFile(file(`${UUID_A}.notes.txt`), 'something kondo does not recognize')
+    const scan = await api.sessionTrashPreview([id(UUID_A)])
+    expect(scan.data).toBeNull()
+    expect(scan.errors[0]?.code).toBe('stale-plan')
+    expect(await exists(path.join(world.kondoDataRoot, 'journal.jsonl'))).toBe(false)
+  })
+
+  it('discloses nothing for a desktop id, or for a selection mixing the two', async () => {
+    const desktop = 'session:desktop:device-1/account-1/x'
+    for (const ids of [[desktop], [id(UUID_A), desktop]]) {
+      const scan = await api.sessionTrashPreview(ids)
+      expect(scan.data).toBeNull()
+      expect(scan.errors[0]?.code).toBe('not-permitted')
+    }
+    expect(await exists(path.join(world.kondoDataRoot, 'journal.jsonl'))).toBe(false)
+  })
+})
+
+/**
  * Entry 105, the selected-removal half of audit finding A10. `sessionTrashPlan`
  * has always moved the sidecar directory and the released marker with the
  * transcript; the confirmation quoted the transcript alone. The estimate is now

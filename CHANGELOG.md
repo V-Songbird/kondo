@@ -8,6 +8,18 @@ All notable changes to kondo are documented here. The format follows
 
 ### Added
 
+- Removing a conversation now names every file it will move before you
+  confirm: the transcript, its session folder and its desktop released marker,
+  each by name, under the project it belongs to. Below them the same band
+  lists what stays where it is — your global prompt history, saved session
+  snapshots, Claude's file history and backups, and Kondo's own trash and
+  journal, which keep the moved bytes. When the desktop app's store holds a
+  file named with the same conversation ID, that is listed too, as an ID Kondo
+  did not open and does not remove. A selection of more than twenty
+  conversations lists the first twenty and then a count; the size figures
+  still cover all of it. Kondo counted conversations and showed three byte
+  figures before, and named none of the files those figures covered.
+
 - A plugin page names every place the plugin is installed, not just the first
   one Claude happened to record. A plugin installed for all projects and again
   inside a project shows both, each with its own version, and a project page

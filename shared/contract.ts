@@ -377,17 +377,58 @@ export interface SessionDuplicateGroup {
   members: SessionSummary[]
 }
 
+/**
+ * One reviewed session's exact candidates, as display text.
+ *
+ * These are the very paths the review token binds (ADR-0015), tildified the
+ * way every other display path in this file is. They travel outward only: no
+ * handler reads one back, and nothing here authorizes a removal — the token
+ * and the ids do (ADR-0008). Their reason for existing is ADR-0016: before a
+ * confirmation, the user is told which files move, by name.
+ */
+export interface SessionRemovalCandidate {
+  /** The session's `session:code:<dirName>/<uuid>` id. */
+  id: string
+  /** The transcript that moves. Always present — it is why the rest moves. */
+  transcript: string
+  /** Its sidecar directory, or null when the session has none. */
+  sidecar: string | null
+  /** Its `.desktop-released.json` marker, or null when there is none. */
+  releasedMarker: string | null
+}
+
 /** Fresh selected metadata and the main-owned removal review it describes. */
 export interface SessionTrashPreview {
   reviewToken: string
   count: number
   sessions: SessionSummary[]
   /**
+   * Every file this removal will move, one entry per selected session, in the
+   * order `sessions` holds them. Disclosed before the confirmation exists
+   * (ADR-0016); a selection whose candidates cannot be resolved has no preview
+   * at all rather than a partial one.
+   */
+  candidates: SessionRemovalCandidate[]
+  /**
+   * The projects the selection spans, so a confirmation can name where the
+   * conversations live without the renderer parsing an id (ADR-0008). One
+   * entry per distinct project, in first-appearance order.
+   */
+  projects: SessionRemovalProject[]
+  /**
    * What this selection costs, over the exact paths the review token binds —
    * every transcript, its sidecar directory and its released marker. The
    * per-session `bytes` above stay what the listing measured: one transcript.
    */
   estimate: RemovalSizeEstimate
+}
+
+/** A project named in a removal disclosure: its row id and its display label. */
+export interface SessionRemovalProject {
+  /** `project:code:<dirName>`, the same id `projectsList` returns. */
+  id: string
+  /** What the Projects list calls it, or the flattened key when it has no path. */
+  label: string
 }
 
 export interface SessionDetail {

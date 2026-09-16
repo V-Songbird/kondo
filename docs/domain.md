@@ -685,8 +685,15 @@ entries in the selected UUID namespace rather than silently expanding that set.
 Desktop IDs are refused. `test/session-duplicates.test.ts` and
 `test/tidy.test.ts` cover selected displacement, review changes and Undo.
 
+✅ **Kondo implementation:** `workspace.ts`'s `removalCandidates` reads those
+same records and returns them as display text on `SessionTrashPreview`
+(`candidates`, `projects`), so the confirmation names each file before it
+exists. Paths travel outward only and authorize nothing
+([ADR-0015](adr/0015-bind-removal-to-reviewed-state.md)).
+
 Selected removal leaves `session-env/`, `history.jsonl`, `file-history/`,
-`backups/` and Desktop records untouched. `orphan-session-env` is a separate
+`backups/` and Desktop records untouched, and the confirmation says so in
+those words rather than leaving the omission to be inferred. `orphan-session-env` is a separate
 category: a fresh inventory must no longer contain a transcript for that UUID.
 Even if a sweep removes a transcript, that sweep does not also treat its
 previously live snapshot as orphaned. Whole-project tidy categories instead
