@@ -11,7 +11,9 @@ import type {
   PlacedEntryInfo,
   PlacedKind,
   PluginInfo,
+  PluginLayerState,
   PluginScopeState,
+  ProjectPluginPosition,
   ProjectPluginState,
   SessionDetail,
   SessionDuplicateGroup,
@@ -1948,6 +1950,13 @@ const SCOPE_ORDER: Record<PluginScopeState['layer'], number> = {
   user: 2
 }
 
+/** Where one layer's reading puts the control; never on or off for a value
+ *  kondo could not read (ADR-0021). */
+function positionOf(enabled: PluginLayerState): ProjectPluginPosition {
+  if (enabled === 'unknown') return 'unknown'
+  return enabled ? 'on' : 'off'
+}
+
 /**
  * Every installed plugin as one scope sees it: which position the control is
  * in, what actually stands, and which file a change would land in.
@@ -1987,7 +1996,9 @@ export function projectPluginStates(
       pluginId: plugin.id,
       name: plugin.name,
       marketplace: plugin.marketplace,
-      choice: stated === undefined ? 'inherit' : stated.enabled ? 'on' : 'off',
+      // `stated.enabled` is a tri-state, so it is matched rather than tested:
+      // an unreadable member is truthy and would otherwise read as "on".
+      choice: stated === undefined ? 'inherit' : positionOf(stated.enabled),
       effective: effective?.enabled ?? null,
       effectiveLayerId: effective?.layerId ?? null,
       targetLayerId: target.layerId,

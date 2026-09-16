@@ -491,7 +491,11 @@ function PluginPage({ object, input, management }: ObjectPageProps) {
             <tbody>{stated.map((scope) => <tr key={scope.layerId} data-force={scope.enabled ? undefined : 'off'}>
               <td>{scope.projectLabel ?? scopeLabel(scope.projectId, input.projects)}
                 <p>{scope.projectId === null ? 'All projects' : 'This project'}</p></td>
-              <td><span className={scope.enabled ? 'stamp-ok' : 'stamp-off'}>{scope.enabled ? 'Enabled' : 'Disabled'}</span></td>
+              {/* Three readings, not two: a member that is neither true nor
+                  false is a value kondo could not read, never an Enabled. */}
+              <td>{scope.enabled === 'unknown'
+                ? <span className="stamp">Unrecognized value</span>
+                : <span className={scope.enabled ? 'stamp-ok' : 'stamp-off'}>{scope.enabled ? 'Enabled' : 'Disabled'}</span>}</td>
               <td><details className="technical-details"><summary>Technical details</summary>
                 <p>Settings layer: {scope.layer}</p><p className="break-all">File: {scope.path}{scope.exists ? '' : ' (not created yet)'}</p>
               </details></td>

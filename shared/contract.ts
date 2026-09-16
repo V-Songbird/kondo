@@ -547,6 +547,18 @@ export interface PlacedEntryInfo extends EntityIdentity {
  * it there. A plugin's enabled state is a key in a settings file rather than
  * a property of the plugin (ADR-0006), so the toggle is per layer.
  */
+/**
+ * What one settings layer says about one plugin. `true` and `false` are the
+ * only statements Claude's own convention admits (ADR-0006); `'unknown'` is a
+ * member that is present but neither, which kondo cannot read as on or off and
+ * never resolves precedence with; `null` is a layer that says nothing at all.
+ *
+ * Silence and an unrecognized value stay distinct values rather than one
+ * collapsed `null`, for the reason ADR-0005 gives: where a type could say
+ * "not there" or "could not read it", it says both.
+ */
+export type PluginLayerState = boolean | 'unknown' | null
+
 export interface PluginScopeState {
   /** `settings:<layer>:<key>` — the layer a toggle would write. */
   layerId: string
@@ -565,8 +577,8 @@ export interface PluginScopeState {
   /** Display path of the settings file (tildified). */
   path: string
   exists: boolean
-  /** true, false, or null when this layer says nothing about the plugin. */
-  enabled: boolean | null
+  /** What this layer says, including that it holds something unreadable. */
+  enabled: PluginLayerState
   /** The matrix row for writing a plugin in this layer. */
   capabilities: Capabilities
 }
@@ -1184,6 +1196,13 @@ export interface ProjectRow {
 export type ProjectPluginChoice = 'on' | 'off' | 'inherit'
 
 /**
+ * Where the control actually sits, which has one position no click can ask
+ * for: this scope's own layer holds a value that is neither `true` nor
+ * `false`, so none of the three is pressed and the reason is printed instead.
+ */
+export type ProjectPluginPosition = ProjectPluginChoice | 'unknown'
+
+/**
  * One installed plugin as one scope sees it, and where a click would land. A
  * ghost row never reaches here: a key with no plugin behind it has nothing to
  * turn on, and `configOrphansPreview` is where it is acted on.
@@ -1194,7 +1213,7 @@ export interface ProjectPluginState {
   name: string
   marketplace: string
   /** Which position this scope's own layers put the control in. */
-  choice: ProjectPluginChoice
+  choice: ProjectPluginPosition
   /** What Claude honours here; null when no layer in the chain speaks. */
   effective: boolean | null
   /** The `settings:` id of the layer whose value stands, or null. */
