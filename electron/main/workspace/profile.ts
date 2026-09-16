@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { ClaudeProfile, Scan } from '../../../shared/contract'
 import { tildify } from './display'
 import { storeSetIdentity, type StoreLocator } from './locator'
-import { isEnoent } from './scan'
+import { isEnoent, overlapRefusal } from './scan'
 
 /**
  * The Claude profile this process reads, and the record that keeps one data
@@ -52,13 +52,22 @@ export function describeProfile(locator: StoreLocator): Scan<ClaudeProfile> {
  * records the set; a launch with another set is refused before a workspace
  * exists, and nothing is migrated (ADR-0004).
  *
- * Synchronous on purpose: it runs once at startup, between the single-instance
- * lock and the workspace, where there is no other Kondo process to race.
+ * This is the earliest write kondo itself makes into `<kondo-data>` — before
+ * the workspace and before any window — so it is also where a data root that
+ * resolves inside a Claude store is refused, before `stores.json` could be
+ * written into one (ADR-0001 decision 6).
+ *
+ * The record itself is read and written synchronously on purpose: it runs once
+ * at startup, where there is no other Kondo process to race.
  */
-export function claimDataRoot(locator: StoreLocator, platform: NodeJS.Platform): string | null {
+export async function claimDataRoot(locator: StoreLocator, platform: NodeJS.Platform): Promise<string | null> {
   const root = locator.kondoDataRoot
   const file = path.join(root, RECORD_FILE)
   const display = tildify(file, locator.home)
+  const overlap = await overlapRefusal(
+    file, '<kondo-data>/stores.json', [locator.userRoot, locator.desktopRoot], locator.home
+  )
+  if (overlap !== null) return overlap
   const identity = JSON.stringify(storeSetIdentity(locator, platform))
 
   let text: string

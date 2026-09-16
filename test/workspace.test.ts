@@ -256,9 +256,9 @@ describe('Claude profiles (ADR-0003)', () => {
 
   it('binds Kondo’s data root to one store set and refuses another', async () => {
     const record = path.join(world.kondoDataRoot, 'stores.json')
-    expect(claimDataRoot(world.locator, process.platform)).toBeNull()
+    expect(await claimDataRoot(world.locator, process.platform)).toBeNull()
     const written = await fs.readFile(record, 'utf8')
-    expect(claimDataRoot(world.locator, process.platform)).toBeNull()
+    expect(await claimDataRoot(world.locator, process.platform)).toBeNull()
 
     const otherProfile = createLocator({
       home: world.home,
@@ -268,11 +268,11 @@ describe('Claude profiles (ADR-0003)', () => {
       platform: process.platform,
       env: { CLAUDE_CONFIG_DIR: profileRoot, KONDO_DESKTOP_STORE_ROOT: world.desktopRoot }
     })
-    expect(claimDataRoot(otherProfile, process.platform)).toMatch(/another Claude profile/)
+    expect(await claimDataRoot(otherProfile, process.platform)).toMatch(/another Claude profile/)
     expect(await fs.readFile(record, 'utf8')).toBe(written)
 
     await fs.writeFile(record, '{"stores":', 'utf8')
-    expect(claimDataRoot(world.locator, process.platform)).toMatch(/damaged/)
+    expect(await claimDataRoot(world.locator, process.platform)).toMatch(/damaged/)
   })
 })
 

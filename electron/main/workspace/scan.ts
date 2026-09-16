@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Dirent, Stats } from 'node:fs'
 import type { Scan, ScanError, ScanErrorCode } from '../../../shared/contract'
+import { slashed, tildify } from './display'
 
 /** Scan plumbing: failures are itemized so healthy siblings remain available. */
 export interface Collector {
@@ -84,6 +85,50 @@ export async function realpathWithMissing(target: string): Promise<string> {
     if (parent === target) throw cause
     return path.join(await realpathWithMissing(parent), path.basename(target))
   }
+}
+
+const OVERLAP_FIX =
+  'Choose another KONDO_DATA_ROOT, or remove the link that points into the store.'
+
+/**
+ * ADR-0001 decision 6, by resolved path: kondo's own footprint must never sit
+ * inside a Claude store, or its trash would show up in kondo's own scan and a
+ * sweep could trash its own undo history. Returns the refusal to report, or
+ * null when `kondoPath` stays outside every root.
+ *
+ * Both sides are resolved and a missing `<kondo-data>` tail resolves through
+ * its nearest existing ancestor, so a link anywhere along either path is seen
+ * — and seen at the moment of the call, because one can appear at any time.
+ * The roots are the locator's (ADR-0003); nothing here derives one. A kondo
+ * path that cannot be resolved is refused: an unverifiable footprint is not a
+ * proven-safe one. A store root that cannot be resolved is not, because a
+ * Claude directory kondo cannot read must never stop kondo's own work — that
+ * root is compared lexically and the check goes on, the way the locator keeps
+ * lexical matching when a realpath fails (`locator.ts`, ADR-0005).
+ */
+export async function overlapRefusal(
+  kondoPath: string,
+  display: string,
+  roots: ReadonlyArray<string | null>,
+  home: string | null = null
+): Promise<string | null> {
+  let resolved: string
+  try {
+    resolved = await realpathWithMissing(path.resolve(kondoPath))
+  } catch (cause) {
+    return `Kondo could not check whether ${display} sits outside Claude's stores, ` +
+      `so nothing was read or changed. ${describe(cause)} ${OVERLAP_FIX}`
+  }
+  for (const root of roots) {
+    if (root === null) continue
+    const absolute = path.resolve(root)
+    const store = await realpathWithMissing(absolute).catch(() => absolute)
+    if (!samePath(resolved, store) && !pathWithin(resolved, store)) continue
+    return `${display} resolves inside the Claude store at ${home === null ? slashed(root) : tildify(root, home)}. ` +
+      'Kondo keeps its journal, trash, preferences and caches outside every Claude store (ADR-0001), ' +
+      `so nothing was read or changed. ${OVERLAP_FIX}`
+  }
+  return null
 }
 
 /**

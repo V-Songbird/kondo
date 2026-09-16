@@ -217,7 +217,7 @@ async function startPrimaryInstance(): Promise<void> {
   // already serves another profile refuses the launch here — before the
   // workspace, any window and any store read — rather than letting an Undo
   // restore into a store it never came from.
-  const refusal = claimDataRoot(locator, process.platform)
+  const refusal = await claimDataRoot(locator, process.platform)
   if (refusal !== null) {
     dialog.showErrorBox('Kondo cannot open this Claude profile', refusal)
     app.quit()

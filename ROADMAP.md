@@ -76,7 +76,6 @@ Four decisions frame this work and are not up for re-argument here:
 
 ### Privacy and safety
 
-- Kondo's data directory never resolving inside a Claude store (115).
 - A profile data root keyed by its resolved path, and a refusal that names the
   store set (141).
 - Raw filesystem exception text kept out of `Scan.errors` (155).

@@ -3,17 +3,24 @@ import fsp from 'node:fs/promises'
 import fs, { createReadStream } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { KondoApi } from '../shared/contract'
+import type { KondoApi, ScanError } from '../shared/contract'
 import { collector, digestTree, directorySize, safeReadJson } from '../electron/main/workspace/scan'
+import { createAppearance } from '../electron/main/workspace/appearance'
+import { openScanCache } from '../electron/main/workspace/scan-cache'
+import { claimDataRoot } from '../electron/main/workspace/profile'
+import { tildify } from '../electron/main/workspace/display'
+import type { StoreLocator } from '../electron/main/workspace/locator'
 import { readFirstUserPrompt, summarizeTranscript } from '../electron/main/workspace/jsonl'
 import { scanSessionInventory } from '../electron/main/workspace/sessions'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import { createMutations, digestSource, type MutationPlan } from '../electron/main/workspace/mutations'
 import {
+  exists,
   healthyTranscript,
   hashTree,
   flattenPath,
   makeWorld,
+  recordWrites,
   mcpServer,
   placedManifest,
   READ_NEVER_FILES,
@@ -832,5 +839,287 @@ describe('resolved read boundaries', () => {
     expect(await fsp.readFile(path.join(world.userRoot, 'source', 'healthy.txt'), 'utf8')).toBe('healthy')
     expect(await fsp.readdir(outside)).toEqual(['sentinel.txt'])
     expect(await fsp.readFile(path.join(outside, 'sentinel.txt'), 'utf8')).toBe('unchanged')
+  })
+})
+
+/**
+ * ADR-0001 decision 6 by resolved path, at each operation: `<kondo-data>` must
+ * never resolve inside a Claude store. Every overlap below is built with a link
+ * the lexical, construction-time comparisons cannot see, and each case proves
+ * the refusal came before any read or write by hashing both stores across it.
+ */
+describe("Kondo's own footprint never resolves into a store (115)", () => {
+  let world: FixtureWorld
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, {
+      'settings.json': writeJson({ outputStyle: 'quiet' }),
+      'skills/beta/SKILL.md': skillManifest('beta', 'Synthetic skill')
+    })
+    await writeFileTree(world.desktopRoot, { 'settings.json': writeJson({ theme: 'dark' }) })
+  })
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await world.cleanup()
+  })
+
+  const at = (kondoDataRoot: string): StoreLocator => ({ ...world.locator, kondoDataRoot })
+
+  const userSkillPlan: MutationPlan = {
+    op: 'move',
+    kind: 'skill',
+    entityId: 'skill:user:beta',
+    summary: 'Trash a skill from an overlapping data root',
+    steps: [{ type: 'trash', store: 'user', from: 'skills/beta' }]
+  }
+
+  /** Every operation that reads or writes one of kondo's own files. */
+  const operations: Array<{
+    name: string
+    display: string
+    run: (locator: StoreLocator) => Promise<{ errors: ScanError[] }>
+  }> = [
+    { name: 'appearanceGet', display: '<kondo-data>/appearance.json',
+      run: (locator) => createAppearance(locator).appearanceGet() },
+    { name: 'appearanceSet', display: '<kondo-data>/appearance.json',
+      run: (locator) => createAppearance(locator).appearanceSet('slate') },
+    { name: 'journal list', display: '<kondo-data>/journal.jsonl',
+      run: (locator) => createMutations(locator).list() },
+    { name: 'trash size', display: '<kondo-data>/trash',
+      run: (locator) => createMutations(locator).trashSize() },
+    { name: 'mutate', display: '<kondo-data>',
+      run: (locator) => createMutations(locator).mutate(userSkillPlan) },
+    { name: 'undo', display: '<kondo-data>',
+      run: (locator) => createMutations(locator).undo('journal:000000000-deadbeef') },
+    { name: 'empty trash', display: '<kondo-data>/trash',
+      run: (locator) => createMutations(locator).emptyTrash() }
+  ]
+
+  /** Three ways a data root outside both stores lexically still lands inside one. */
+  const shapes: Array<{
+    name: string
+    store: () => string
+    build: (context: TestContext) => Promise<string>
+  }> = [
+    {
+      name: 'the data root is itself a link into the user store',
+      store: () => world.userRoot,
+      build: async (context) => {
+        const link = path.join(world.base, 'linked-data')
+        await fixtureLink(context, world.userRoot, link, true)
+        return link
+      }
+    },
+    {
+      name: 'an ancestor of the data root is a link into the desktop store',
+      store: () => world.desktopRoot,
+      build: async (context) => {
+        await fsp.mkdir(path.join(world.desktopRoot, 'nested'), { recursive: true })
+        const ancestor = path.join(world.base, 'ancestor')
+        await fixtureLink(context, world.desktopRoot, ancestor, true)
+        return path.join(ancestor, 'nested')
+      }
+    },
+    {
+      name: 'the data root is absent and its nearest ancestor resolves into the user store',
+      store: () => world.userRoot,
+      build: async (context) => {
+        const link = path.join(world.base, 'missing-tail')
+        await fixtureLink(context, world.userRoot, link, true)
+        return path.join(link, 'not', 'there')
+      }
+    }
+  ]
+
+  for (const shape of shapes) {
+    for (const operation of operations) {
+      it(`refuses ${operation.name} when ${shape.name}`, async (context) => {
+        const locator = at(await shape.build(context))
+        const store = shape.store()
+        const before = { user: await hashTree(world.userRoot), desktop: await hashTree(world.desktopRoot) }
+        const writes: string[] = []
+        const restores = recordWrites(writes)
+        let result: { errors: ScanError[] }
+        try {
+          result = await operation.run(locator)
+        } finally {
+          for (const restore of restores) restore()
+        }
+        const refusal = result.errors[0]
+        expect(refusal?.code, operation.name).toBe('out-of-store')
+        expect(refusal?.path).toContain(operation.display)
+        expect(refusal?.message).toContain(operation.display)
+        expect(refusal?.message).toContain(tildify(store, world.home))
+        expect(writes).toEqual([])
+        expect(await hashTree(world.userRoot)).toBe(before.user)
+        expect(await hashTree(world.desktopRoot)).toBe(before.desktop)
+      })
+    }
+  }
+
+  it('refuses after a link appears under a data root that was outside at construction', async (context) => {
+    const later = path.join(world.base, 'later')
+    const locator = at(path.join(later, 'data'))
+    // Built while nothing of `later` exists: a construction-time check has
+    // nothing to see, and the link arrives only afterwards.
+    const appearance = createAppearance(locator)
+    const mutations = createMutations(locator)
+    await fixtureLink(context, world.userRoot, later, true)
+    const before = await hashTree(world.userRoot)
+    const writes: string[] = []
+    const restores = recordWrites(writes)
+    try {
+      expect((await appearance.appearanceGet()).errors[0]?.code).toBe('out-of-store')
+      expect((await appearance.appearanceSet('slate')).errors[0]?.code).toBe('out-of-store')
+      expect((await mutations.list()).errors[0]?.code).toBe('out-of-store')
+      expect((await mutations.trashSize()).errors[0]?.code).toBe('out-of-store')
+      expect((await mutations.mutate(userSkillPlan)).errors[0]?.code).toBe('out-of-store')
+      expect((await mutations.undo('journal:000000000-deadbeef')).errors[0]?.code).toBe('out-of-store')
+      expect((await mutations.emptyTrash()).errors[0]?.code).toBe('out-of-store')
+    } finally {
+      for (const restore of restores) restore()
+    }
+    expect(writes).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('refuses a step whose project store contains the resolved data root', async (context) => {
+    const project = path.join(world.base, 'work', 'proj')
+    const projectClaude = path.join(project, '.claude')
+    await writeFileTree(projectClaude, { 'skills/gamma/SKILL.md': skillManifest('gamma', 'Project skill') })
+    // The data root reaches the project store through a link, so the lexical
+    // comparison in `rootOf` cannot see the containment.
+    const alias = path.join(world.base, 'project-alias')
+    await fixtureLink(context, projectClaude, alias, true)
+    const mutations = createMutations(
+      at(path.join(alias, 'kondo-data')),
+      Date.now,
+      (store) => Promise.resolve(store === 'proj' ? projectClaude : null)
+    )
+    const before = await hashTree(project)
+    const result = await mutations.mutate({
+      op: 'move',
+      kind: 'skill',
+      entityId: 'skill:proj:gamma',
+      summary: 'Trash a project skill',
+      steps: [{ type: 'trash', store: 'proj', from: 'skills/gamma' }]
+    })
+    expect(result.data).toBeNull()
+    expect(result.errors[0]?.code).toBe('out-of-store')
+    expect(result.errors[0]?.path).toBe('proj')
+    expect(result.errors[0]?.message).toContain(tildify(projectClaude, world.home))
+    expect(await hashTree(project)).toBe(before)
+  })
+
+  it('proceeds while a Claude root dangles, and still refuses a real overlap', async (context) => {
+    const target = path.join(world.base, 'no-such-desktop')
+    const dangling = path.join(world.base, 'dangling-desktop')
+    await fsp.mkdir(target, { recursive: true })
+    await fixtureLink(context, target, dangling, true)
+    await fsp.rm(target, { recursive: true, force: true })
+    const locator: StoreLocator = { ...world.locator, desktopRoot: dangling }
+    await fsp.mkdir(world.kondoDataRoot, { recursive: true })
+
+    // A Claude root that resolves to nothing must not refuse kondo's own work.
+    const appearance = await createAppearance(locator).appearanceGet()
+    expect(appearance.errors.map((error) => error.code)).not.toContain('out-of-store')
+    const listed = await createMutations(locator).list()
+    expect(listed.errors.map((error) => error.code)).not.toContain('out-of-store')
+
+    // The store that does resolve is still compared, dangling sibling or not.
+    const linked = path.join(world.base, 'user-alias')
+    await fixtureLink(context, world.userRoot, linked, true)
+    const refused = await createAppearance({ ...locator, kondoDataRoot: linked }).appearanceGet()
+    expect(refused.errors[0]?.code).toBe('out-of-store')
+    expect(refused.errors[0]?.message).toContain(tildify(world.userRoot, world.home))
+  })
+
+  it('carries on lexically when a Claude root itself cannot be resolved', async (context) => {
+    await fsp.mkdir(path.join(world.desktopRoot, 'nested'), { recursive: true })
+    const linked = path.join(world.base, 'desktop-alias')
+    await fixtureLink(context, path.join(world.desktopRoot, 'nested'), linked, true)
+    await fsp.mkdir(world.kondoDataRoot, { recursive: true })
+    const realpath = fsp.realpath
+    vi.spyOn(fsp, 'realpath').mockImplementation((async (target: Parameters<typeof realpath>[0]) => {
+      if (path.resolve(String(target)) === world.desktopRoot) {
+        throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+      }
+      return realpath(target)
+    }) as typeof fsp.realpath)
+
+    // A Claude directory kondo cannot read is not a reason to refuse kondo's
+    // own work: the check compares that root lexically and goes on (ADR-0005).
+    const outside = createAppearance(at(world.kondoDataRoot))
+    expect(await outside.appearanceSet('slate')).toEqual({ data: { theme: 'slate' }, errors: [], unknown: [] })
+
+    // And it is never a way in: the lexical comparison still refuses a data
+    // root whose resolved path lands under that same unreadable root.
+    const before = await hashTree(world.desktopRoot)
+    const refused = await createAppearance(at(linked)).appearanceSet('carbon')
+    expect(refused.errors[0]?.code).toBe('out-of-store')
+    expect(refused.errors[0]?.message).toContain('resolves inside the Claude store at')
+    expect(refused.errors[0]?.message).toContain(tildify(world.desktopRoot, world.home))
+    expect(await hashTree(world.desktopRoot)).toBe(before)
+  })
+
+  it('caches nothing through a cache directory that resolves into a store', async (context) => {
+    const link = path.join(world.base, 'cache-link')
+    await fixtureLink(context, world.userRoot, link, true)
+    const probe = path.join(world.userRoot, 'settings.json')
+    const info = await fsp.stat(probe)
+    // A readable cache file whose key matches exactly: a miss here can only
+    // mean the overlapping directory was never opened.
+    await writeFileTree(world.userRoot, {
+      'scan-cache/probe.json': writeJson({
+        version: 1,
+        entries: { [probe]: { size: info.size, mtimeMs: info.mtimeMs, value: { prompt: 'seeded' } } }
+      })
+    })
+    const before = await hashTree(world.userRoot)
+    const writes: string[] = []
+    const restores = recordWrites(writes)
+    try {
+      const cache = await openScanCache<{ prompt: string }>(link, 'probe', [world.userRoot, world.desktopRoot])
+      expect(cache.get(probe, info.size, info.mtimeMs)).toBeNull()
+      cache.set(probe, info.size, info.mtimeMs, { prompt: 'fresh' })
+      await cache.save()
+    } finally {
+      for (const restore of restores) restore()
+    }
+    expect(writes).toEqual([])
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('refuses to claim a data root that resolves into a store', async (context) => {
+    const link = path.join(world.base, 'claim-link')
+    await fixtureLink(context, world.userRoot, link, true)
+    const before = await hashTree(world.userRoot)
+    const refusal = await claimDataRoot(at(link), process.platform)
+    expect(refusal).toContain('<kondo-data>/stores.json')
+    expect(refusal).toContain(tildify(world.userRoot, world.home))
+    expect(await exists(path.join(world.userRoot, 'stores.json'))).toBe(false)
+    expect(await hashTree(world.userRoot)).toBe(before)
+  })
+
+  it('keeps a data root reached through an alias outside every store working', async (context) => {
+    await fsp.mkdir(world.kondoDataRoot, { recursive: true })
+    const alias = path.join(world.base, 'outside-alias')
+    await fixtureLink(context, world.kondoDataRoot, alias, true)
+    const locator = at(alias)
+    expect(await claimDataRoot(locator, process.platform)).toBeNull()
+    const appearance = createAppearance(locator)
+    expect(await appearance.appearanceSet('slate')).toEqual({ data: { theme: 'slate' }, errors: [], unknown: [] })
+    expect((await appearance.appearanceGet()).data.theme).toBe('slate')
+    const mutations = createMutations(locator)
+    expect((await mutations.list()).errors).toEqual([])
+    expect((await mutations.trashSize()).errors).toEqual([])
+    const probe = path.join(world.userRoot, 'settings.json')
+    const info = await fsp.stat(probe)
+    const cache = await openScanCache<{ prompt: string }>(alias, 'probe', [world.userRoot, world.desktopRoot])
+    cache.set(probe, info.size, info.mtimeMs, { prompt: 'kept' })
+    await cache.save()
+    const reopened = await openScanCache<{ prompt: string }>(alias, 'probe', [world.userRoot, world.desktopRoot])
+    expect(reopened.get(probe, info.size, info.mtimeMs)).toEqual({ prompt: 'kept' })
   })
 })

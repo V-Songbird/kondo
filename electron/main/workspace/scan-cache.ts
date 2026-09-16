@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { resolveAllowedPath } from './scan'
+import { overlapRefusal, resolveAllowedPath } from './scan'
 
 /**
  * The tier-2 scan cache ADR-0007 decided on: what a transcript read cost is
@@ -50,10 +50,17 @@ export interface ScanCache<T> {
  */
 export async function openScanCache<T>(
   kondoDataRoot: string,
-  name: string
+  name: string,
+  claudeRoots: ReadonlyArray<string | null>
 ): Promise<ScanCache<T>> {
   const dir = path.join(kondoDataRoot, 'scan-cache')
   const file = path.join(dir, `${name}.json`)
+  // A cache directory that resolves into a Claude store is not a problem to
+  // report — it is a cache that cannot be used (ADR-0001 decision 6,
+  // ADR-0005). Nothing is read, nothing is written, every answer is a miss.
+  if (await overlapRefusal(dir, '<kondo-data>/scan-cache', claudeRoots) !== null) {
+    return { get: () => null, set: () => undefined, save: () => Promise.resolve() }
+  }
   const entries = await read(file, kondoDataRoot)
   let dirty = false
 
