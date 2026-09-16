@@ -12,6 +12,7 @@ import {
   countByKind,
   filterCatalog,
   findings,
+  mcpStatusFlag,
   objectKey,
   managementProjects,
   scopeLabel
@@ -49,7 +50,7 @@ const empty: CatalogInput = {
 }
 
 const project = (id: string, global = false): ProjectRow => ({
-  id, name: global ? 'Global' : 'app', label: global ? 'Global' : `Fixture ${id}`,
+  id, name: global ? 'All projects' : 'app', label: global ? 'All projects' : `Fixture ${id}`,
   parent: null, path: null, global, location: 'here', throwaway: false,
   hasStore: true, sessionCount: 0, lastActivityMs: 0,
   counts: { skills: 0, agents: 0, commands: 0, rules: 0, settings: 0, hooks: null, mcpServers: null }
@@ -72,7 +73,7 @@ describe('the Library catalog', () => {
     expect(managementProjects(object, input)).toEqual([second])
   })
 
-  it('offers Global and explicit plugin locations without listing silent projects', () => {
+  it('offers All projects and explicit plugin locations without listing silent projects', () => {
     const global = project('global-id', true)
     const configured = project('configured-id')
     const silent = project('silent-id')
@@ -157,7 +158,7 @@ describe('the Library catalog', () => {
     const groups: HookGroup[] = [
       {
         projectId: null,
-        label: 'Global',
+        label: 'All projects',
         hooks: [
           {
             id: 'hook:user:0',
@@ -203,7 +204,7 @@ describe('the Library catalog', () => {
       hookGroups: [
         {
           projectId: null,
-          label: 'Global',
+          label: 'All projects',
           hooks: [
             {
               id: 'hook:user:0',
@@ -253,6 +254,28 @@ describe('the Library catalog', () => {
     expect(found[0]?.chip.text).toBe('project is gone')
   })
 
+  it('says "cannot tell" for an MCP state in both the list and the row (entry 110)', () => {
+    const server: McpServerInfo = {
+      id: 'mcp:user:ctx',
+      kind: 'mcp',
+      capabilities: caps,
+      name: 'ctx',
+      scope: 'user',
+      transport: 'stdio',
+      source: '~/.claude.json',
+      project: null,
+      status: 'unknown',
+      statusReason: null,
+      orphan: false
+    }
+    // One concept, one word: the object list called this `unknown` while the
+    // per-row chip called it `cannot tell`, so one declaration read as two
+    // different states depending on where it was looked at.
+    const object = buildCatalog({ ...empty, mcp: [server] })[0]!
+    expect(object.flags[0]?.text).toBe('cannot tell')
+    expect(object.flags[0]?.text).toBe(mcpStatusFlag('unknown').text)
+  })
+
   it('flags a plugin switch with no plugin behind it', () => {
     const plugin = {
       id: 'plugin:ghost@acme',
@@ -285,8 +308,8 @@ describe('the Library catalog', () => {
     expect(filterCatalog(catalog, '', 'plugin')).toHaveLength(0)
   })
 
-  it('names the user store Global and prints an id it cannot resolve', () => {
-    expect(scopeLabel(null, [])).toBe('Global')
+  it('names the user store All projects and prints an id it cannot resolve', () => {
+    expect(scopeLabel(null, [])).toBe('All projects')
     expect(scopeLabel('project:code:x', [])).toBe('project:code:x')
   })
 

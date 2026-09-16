@@ -366,6 +366,30 @@ function benchTarget(entity: SkillInfo, operation: ToggleOperation): string | nu
 }
 
 /**
+ * A skill scope in the words the screens use, for the History row this plan
+ * writes. The scope id is an ADR-0008 id segment; printing it put `user` and
+ * `project-disabled` in front of someone who never chose either word
+ * (docs/glossary.md). An id kondo has not learned prints as itself, since a
+ * guess is worse than a raw value here.
+ */
+function scopeWord(scope: string): string {
+  switch (scope) {
+    case 'user':
+      return 'All projects'
+    case 'user-disabled':
+      return 'All projects, disabled'
+    case 'project':
+      return 'this project'
+    case 'project-disabled':
+      return 'this project, disabled'
+    case 'plugin':
+      return 'from a plugin'
+    default:
+      return scope
+  }
+}
+
+/**
  * Leaving the bench. `skills.disabled/` is kondo's own parking spot, not a
  * convention Claude reads (ADR-0006, settled 2026-09-03), so nothing new is
  * ever put there — but a skill already sitting in it stays readable as the
@@ -384,7 +408,7 @@ function benchReturnPlan(entity: SkillInfo): PlanResult {
       op: 'move',
       kind: 'skill',
       entityId: entity.id,
-      summary: `Enable skill ${entity.name} (${entity.scope}): back into skills/`,
+      summary: `Enable skill ${entity.name} (${scopeWord(entity.scope)}): back into skills/`,
       steps: [{ type: 'move', store: placement.store, from: placement.at, to }]
     }
   }
@@ -583,7 +607,7 @@ async function inheritedSkillTogglePlan(
   if (steps.length === 0) return refused('not-permitted', `This project does not switch ${entity.name} off.`)
   return settingsEdit(
     entity,
-    `Let skill ${entity.name} follow Global again: stop switching it off in ${cleared.join(', ')}`,
+    `Let skill ${entity.name} follow All projects again: stop switching it off in ${cleared.join(', ')}`,
     steps
   )
 }
@@ -630,7 +654,7 @@ function skillTrashPlan(entity: SkillInfo): PlanResult {
       op: 'trash',
       kind: 'skill',
       entityId: entity.id,
-      summary: `Move skill ${entity.name} (${entity.scope}) to kondo's trash`,
+      summary: `Move skill ${entity.name} (${scopeWord(entity.scope)}) to kondo's trash`,
       steps: [{ type: 'trash', store: placement.store, from: placement.at }]
     }
   }

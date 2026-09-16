@@ -486,7 +486,7 @@ test('Library lists the machine by object, and finds what needs a look', async (
     `[...document.querySelectorAll('.row-item')].find((b) => b.textContent.includes('api-notes')).click()`
   )
   await client.waitFor(`document.querySelector('.library-workspace h1')?.textContent === 'api-notes'`)
-  assert.equal(await client.evaluate(`${button('Manage in Global')} !== undefined`), true)
+  assert.equal(await client.evaluate(`${button('Manage in All projects')} !== undefined`), true)
   assert.equal(await client.evaluate(`${button('Manage in apiserver')} !== undefined`), true)
   await browseLibrary()
   await client.evaluate(`[...document.querySelectorAll('.row-item')].find((b) => b.textContent.startsWith('ghost')).click()`)
@@ -500,7 +500,7 @@ test('Library lists the machine by object, and finds what needs a look', async (
   await client.waitFor(`document.querySelectorAll('li button').length > 0`)
 })
 
-test('the projects list is the fixture union: Global plus the five registry members', async () => {
+test('the projects list is the fixture union: All projects plus the five registry members', async () => {
   const rows = await call(`(await window.kondo.projectsList()).data`)
   assert.equal(rows.length, 6)
   assert.equal(rows[0].global, true)
@@ -512,7 +512,7 @@ test('the projects list is the fixture union: Global plus the five registry memb
   assert.equal(rows.filter((row) => row.location === 'gone').length, 2)
 })
 
-test('the Global page lists the fixture skills and the two plugins', async () => {
+test('the All projects page lists the fixture skills and the two plugins', async () => {
   const detail = await call(`(await window.kondo.projectDetail('store:user:user')).data`)
   assert.deepEqual(
     detail.skills.map((skill) => skill.name).sort(),
@@ -793,7 +793,7 @@ test('hook cleanup stays blocked for a HOME reference at both supported window s
       await navigate('Library')
       await navigate('Clean up')
       await section('Cleanup sections', 'Files and caches')
-      const checkbox = `document.querySelector('input[aria-label="Select Hook scripts nothing runs"]')`
+      const checkbox = `document.querySelector('input[aria-label="Select Hook scripts kondo keeps"]')`
       await client.waitFor(`${checkbox}?.disabled === true`)
       assert.ok((await client.evaluate(`${checkbox}.closest('tr').textContent`)).includes('cannot establish that they are unused'))
       assert.equal(await client.evaluate(`${checkbox}.checked`), false)
@@ -929,10 +929,10 @@ test('settings-derived secrets stay out of pages, tooltips and bridge responses 
         assert.deepEqual(await leaks(), [])
 
         await backToLibrary()
-        const layer = `[...document.querySelectorAll('[data-library-key]')].find((item) => item.textContent.includes('Global · user'))`
+        const layer = `[...document.querySelectorAll('[data-library-key]')].find((item) => item.textContent.includes('All projects · user'))`
         await client.waitFor(`${layer} !== undefined`)
         await keyboardActivate(layer)
-        await client.waitFor(`document.querySelector('.workspace-detail h1')?.textContent === 'Global · user'`)
+        await client.waitFor(`document.querySelector('.workspace-detail h1')?.textContent === 'All projects · user'`)
         await client.waitFor(`document.querySelector('.workspace-detail details') !== null`)
         await client.evaluate(`document.querySelector('.workspace-detail details').open = true`)
         await client.waitFor(`document.body.innerText.includes('Other top-level settings are not shown')`)
@@ -1067,28 +1067,29 @@ test('Library keeps healthy items visible when the MCP read is malformed', async
   }
 })
 
-test('settings toggle refusal stays visible and retry preserves fixture bytes and history', async () => {
+test('a settings toggle states its refusal before the press and writes nothing', async () => {
   await openGlobalSkills()
   const toggle = `document.querySelector('button[aria-label="Disable commit-writer"]')`
-  const message = 'Settings changes are temporarily unavailable because Kondo cannot safely exclude concurrent Claude writes. No files were changed.'
-  const alert = `[...document.querySelectorAll('main [role="alert"]')].find((element) => element.textContent === ${JSON.stringify(message)})`
-  await client.waitFor(`${toggle} !== null && !${toggle}.disabled`)
+  // Entry 110 and ADR-0010: a control that cannot write is dark with its
+  // reason printed, not live and refused after the click. The refusal the
+  // user reads is the renderer's; main keeps its own on the bridge.
+  const printed = 'Kondo does not change settings files yet'
+  await client.waitFor(`${toggle} !== null && ${toggle}.disabled === true`)
+  assert.ok((await client.evaluate(`${toggle}.closest('td').textContent`)).includes(printed))
+  // The reason is read, not hovered for, so it has to be reachable on screen.
+  await client.evaluate(`${toggle}.closest('tr').scrollIntoView({ block: 'center' })`)
+  await assertInViewport(`${toggle}.closest('tr')`)
   const settings = path.join(base, 'home', '.claude', 'settings.json')
   const beforeSettings = await fs.readFile(settings, 'utf8')
   const beforeFiles = await fixtureSnapshot()
   const beforeJournal = await journalBytes()
-  for (let attempt = 0; attempt < 2; attempt++) {
-    await keyboardActivate(toggle)
-    await client.waitFor(`${alert} !== undefined && document.activeElement === ${alert}`)
-    await client.waitFor(`${toggle} !== null && !${toggle}.disabled`)
-    assert.equal(await fs.readFile(settings, 'utf8'), beforeSettings)
-    assert.deepEqual(await fixtureSnapshot(), beforeFiles)
-    assert.equal(await journalBytes(), beforeJournal)
-    assert.equal(await client.evaluate(`document.querySelector('.band-stamp button[aria-label^="Undo "]') === null`), true)
-    assert.equal(await client.evaluate(`document.querySelector('.band-stamp [role="status"]') === null`), true)
-    await assertNoHorizontalOverflow()
-    await assertInViewport(alert)
-  }
+  const refused = await call(`await window.kondo.entityMutate('skill:user:commit-writer', { op: 'disable' })`)
+  assert.equal(refused.data, null)
+  assert.ok(refused.errors.some((error) => error.message.includes('Settings changes are temporarily unavailable')))
+  assert.equal(await fs.readFile(settings, 'utf8'), beforeSettings)
+  assert.deepEqual(await fixtureSnapshot(), beforeFiles)
+  assert.equal(await journalBytes(), beforeJournal)
+  await assertNoHorizontalOverflow()
   await capture('settings-toggle-refused')
 })
 
@@ -1528,14 +1529,29 @@ test('settings cleanup preserves uncertain preferences and rechecks degraded inv
     await press(' ')
     await keyboardActivate(button('Review selected settings'))
     await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel'`)
+    // Entry 110: the refusal is on screen before the press, and the control
+    // that would write is dark. There is no click path left to refuse.
+    const removal = button('Removal unavailable')
+    await client.waitFor(`${removal} !== undefined && ${removal}.disabled === true`)
+    assert.equal(await client.evaluate(`${button('Remove selected settings')} === undefined`), true)
+    assert.ok((await client.evaluate(`${removal}.closest('.band').textContent`))
+      .includes('Kondo does not change settings files yet'))
+    // The bridge still refuses on its own account, which is what keeps the
+    // dark button honest rather than merely quiet (ADR-0010).
+    const candidates = await call(`(await window.kondo.configOrphansPreview()).data.map((row) => row.id)`)
+    const refused = await call(`await window.kondo.configOrphansRemove(${JSON.stringify(candidates.slice(0, 1))})`)
+    assert.equal(refused.data, null)
+    assert.ok(refused.errors.length > 0)
     await fs.writeFile(manifest, '{broken')
-    await keyboardActivate(button('Remove selected settings'))
-    await client.waitFor(`document.querySelector('[role="alert"]')?.textContent.includes('No configuration orphan')`)
-    await client.waitFor(ghost + ' === null')
-    assert.equal(await client.evaluate(`document.activeElement?.getAttribute('aria-label')`), 'Settings cleanup result')
     const result = await call(`await window.kondo.configOrphansPreview()`)
     assert.ok(result.errors.some((error) => error.code === 'parse-failed'))
     assert.deepEqual([...new Set(result.data.map((row) => row.kind))].sort(), ['mcp-declaration', 'project-entry'])
+    // The removal that used to force this re-read is gone, so the screen is
+    // remounted the way a user would reach it again (ADR-0006: the store is
+    // the state, and a fresh read is what shows the degraded inventory).
+    await section('Cleanup sections', 'Files and caches')
+    await section('Cleanup sections', 'Settings leftovers')
+    await client.waitFor(ghost + ' === null')
     const problems = `[...document.querySelectorAll('button')].find((b) => /^\\d+ problems?$/.test(b.textContent.trim()))`
     await keyboardActivate(problems)
     await client.waitFor(`document.body.textContent.includes('installed_plugins.json')`)

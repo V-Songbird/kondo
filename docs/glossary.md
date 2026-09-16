@@ -9,10 +9,14 @@ The definitions below are kondo's internal vocabulary. A first-time user did
 not choose any of them, so the screen shows the right-hand column and the
 code keeps the left. This table is the mapping layer between the two: types,
 IPC channel names and `shared/contract.ts` fields never move to the right-hand
-spelling, and a string a user can read should use the right-hand one. Some
-screens still show internal terms, such as Library's `Scope` and `Location`
-columns, `Global` for the user scope in Library, and the scope id in a skill's
-trash summary; entry 110 reconciles them.
+spelling, and a string a user can read should use the right-hand one.
+
+Two words the screens agreed on. Every scope column in Library is headed
+**Location**, and the user store is called **All projects** wherever a user
+reads it: the Projects list row, the Library heading and detail rows, the
+"Manage in" button, a hook group, a destination in a move picker, and the
+History row a skill's removal writes. `Global` survives only as an internal
+name — `ProjectRow.global`, the `GLOBAL_ROW` id, code comments.
 
 | Internal term | What the UI shows |
 | --- | --- |
@@ -23,15 +27,21 @@ trash summary; entry 110 reconciles them.
 | Sidecar | Session folder |
 | Stale session | Untouched N+ days (N from `staleAfterDays` on the seam) |
 | Orphan | Leftover |
-| Desktop-released session | Conversation deleted in the desktop app |
+| Desktop-released session | Conversation with a desktop released marker |
+| Desktop id match (`SessionSummary.mirroredIn`) | Matching ID in the desktop app |
+| Unarmed hook scripts (`unarmed-hook-scripts`) | Hook scripts kondo keeps |
+| Hook command naming no recognized script | No script recognized |
+| MCP status kondo could not establish | Cannot tell |
+| Output style | Output styles (never "response styles") |
 | Desktop caches (`desktop-caches`) | Caches the desktop app rebuilds |
 | Skill duplicate group | Duplicate skills |
 | Trash a duplicate copy | Move this copy to trash |
 | Settings layer | Settings file |
-| Scope | Where it applies |
+| Scope (the column) | Location |
 | Winning / effective layer | In effect |
 | Unknown entries | Files kondo did not recognize |
 | Global / user scope | All projects |
+| Skill scope id in a History row (`user-disabled`) | All projects, disabled |
 | Inherited from Global | Shared from All projects |
 | Inherit / follows global | Follow shared setting |
 | MCP server | Connections (MCP) |
@@ -43,6 +53,18 @@ trash summary; entry 110 reconciles them.
 runtime connection check. Technical details retain the actual settings file
 names and storage identifiers. Conversation numbers label rows within the
 current list; the saved ID is available in Conversation details.
+
+Three phrases are refusals, and every one of them is about kondo rather than
+about Claude, because kondo cannot verify a claim about what Claude can do:
+"Kondo does not support switching individual hooks"
+([ADR-0017](adr/0017-hook-layer-boundary.md)), "Kondo does not move a hook
+between settings files" (same), and the settings-suspension sentence in
+`src/lib/claims.ts`
+([ADR-0010](adr/0010-splice-config-files-never-whole-file-writes.md)). A
+control that sentence covers is disabled before the press, never refused after
+it. Where a screen describes Claude's own convention rather than refusing
+something — the per-project MCP switch, for instance — it still says so about
+Claude, because that is the convention kondo is being faithful to (ADR-0006).
 
 - **Store** — a root directory where a Claude product keeps its state. Kondo
   knows three kinds: the *user store* (`~/.claude`, or the Claude profile a

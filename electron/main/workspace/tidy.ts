@@ -551,8 +551,8 @@ const LABEL: Record<TidyCategory, readonly [one: string, many: string]> = {
   'stale-sessions': ['untouched session', 'untouched sessions'],
   'empty-transcripts': ['empty transcript', 'empty transcripts'],
   'desktop-released-sessions': [
-    'conversation deleted in the desktop app',
-    'conversations deleted in the desktop app'
+    'conversation with a desktop released marker',
+    'conversations with a desktop released marker'
   ],
   'orphan-sidecars': ['leftover session folder', 'leftover session folders'],
   'orphan-session-env': ['leftover session snapshot', 'leftover session snapshots'],
@@ -560,7 +560,7 @@ const LABEL: Record<TidyCategory, readonly [one: string, many: string]> = {
   'desktop-caches': ['desktop app cache', 'desktop app caches'],
   'superseded-plugin-versions': ['superseded plugin version', 'superseded plugin versions'],
   'orphan-plugin-residue': ['leftover plugin file', 'leftover plugin files'],
-  'unarmed-hook-scripts': ['hook script nothing runs', 'hook scripts nothing runs']
+  'unarmed-hook-scripts': ['kept hook script', 'kept hook scripts']
 }
 
 /**

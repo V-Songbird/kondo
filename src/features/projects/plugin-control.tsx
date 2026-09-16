@@ -7,6 +7,7 @@ import type {
 import type { Destination } from './projects'
 import { MovePicker } from '../../ui/move-picker'
 import { Refusal } from '../../ui/refusal'
+import { SETTINGS_WRITES_SUSPENDED } from '../../lib/claims'
 
 /**
  * One plugin's three-way control for one scope, plus the layer strip behind a
@@ -45,30 +46,36 @@ function stateLabel(scope: PluginScopeState): string {
 }
 
 /**
- * Why the picker is dark unless this scope says "on": a move is a `false`
- * here and a `true` there (ADR-0006), so a scope that never turned the plugin
- * on has nothing to hand over. Main refuses the same case by name.
+ * Why the picker is dark. A move is a `false` here and a `true` there
+ * (ADR-0006) — two settings edits, and ADR-0010 refuses every plan that
+ * writes one, so the suspension is the first answer and the only one a user
+ * can act on. The narrower reasons still rank behind it: a scope that never
+ * turned the plugin on would have nothing to hand over even if writes were
+ * available, and main refuses that case by name.
  */
-function moveRefusal(state: ProjectPluginState): string | null {
+function moveRefusal(state: ProjectPluginState): string {
   if (!state.capabilities.move.allowed) {
     return state.capabilities.move.reason ?? 'kondo cannot move this plugin.'
   }
   return state.choice === 'on'
-    ? null
+    ? SETTINGS_WRITES_SUSPENDED
     : 'Turn this plugin on here before moving its activation to another project.'
 }
 
+/**
+ * No `busy` prop: every control here is disabled while settings writes are
+ * refused, so there is no in-flight state for it to reflect. It comes back
+ * with the writes.
+ */
 export function PluginControl({
   state,
   global,
-  busy,
   destinations,
   onChoose,
   onMove
 }: {
   state: ProjectPluginState
   global: boolean
-  busy: boolean
   /** Every scope but this one; ids, never paths (ADR-0008). */
   destinations: Destination[]
   onChoose: (choice: ProjectPluginChoice) => void
@@ -101,10 +108,13 @@ export function PluginControl({
                 data-state={
                   position.choice === 'inherit' ? 'unset' : position.choice
                 }
-                disabled={here || busy || !decision.allowed}
+                disabled
+                // No promise of a write: ADR-0010 refuses the plan that would
+                // make one. The file this would land in is still named, since
+                // that is where the user goes to make the change by hand.
                 title={
                   decision.allowed
-                    ? `Writes ${target?.path ?? state.targetLayerId}`
+                    ? `Would be set in ${target?.path ?? state.targetLayerId}`
                     : undefined
                 }
                 className="btn btn-quiet btn-sm"
@@ -121,12 +131,7 @@ export function PluginControl({
         <MovePicker
           name={state.name}
           destinations={destinations}
-          disabled={busy || refusal !== null || destinations.length === 0}
-          title={
-            refusal === null
-              ? 'Turns this plugin off here and on at the destination. It stays installed.'
-              : undefined
-          }
+          disabled
           onMove={onMove}
         />
         {/* What Claude actually honours here, which is not always what this
@@ -149,8 +154,10 @@ export function PluginControl({
         </p>
       )}
       {/* Both refusals, read rather than hovered for. The toggle's answer and
-          the move's answer are different questions, so both get printed. */}
-      <Refusal reason={decision.allowed ? null : decision.reason} />
+          the move's answer are different questions, so both get printed. The
+          toggle's own answer is the suspension when the matrix allows it,
+          because a control that cannot act must say so before it is pressed. */}
+      <Refusal reason={decision.allowed ? SETTINGS_WRITES_SUSPENDED : decision.reason} />
       <Refusal reason={refusal} />
       <button
         type="button"

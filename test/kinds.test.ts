@@ -178,21 +178,25 @@ describe('kind registry and capability matrix', () => {
   })
 
   it('gives a hook move its own reason, apart from the toggle refusal', () => {
-    // The old row called a two-layer settings edit impossible. Both toggles
-    // are refused because Claude has no convention (ADR-0006); the move is
-    // refused because kondo has not built it, and the two must not read the
-    // same or the UI states a falsehood about what Claude allows.
+    // Two questions, two answers (ADR-0017): switching one hook off is
+    // unsupported, and a move is refused because the same bytes in another
+    // layer are not the same hook. Neither is a promise to build it later.
     const row = capabilitiesFor('hook', 'user')
     expect(row.move.allowed).toBe(false)
     expect(row.move.reason).not.toBe(row.enable.reason)
     expect(row.move.reason).not.toBe(row.disable.reason)
-    expect(row.move.reason).toMatch(/not built yet/)
+    expect(row.move.reason).toContain('does not move a hook between settings files')
+    expect(row.move.reason).not.toMatch(/not built yet|by hand/)
   })
 
-  it('refuses both hook operations because Claude has no convention (ADR-0006)', () => {
+  it('refuses both hook operations in kondo’s own terms (ADR-0017)', () => {
     const row = capabilitiesFor('hook', 'user')
     expect(row.enable.allowed).toBe(false)
-    expect(row.disable.reason).toContain('no way to switch off one hook')
+    expect(row.disable.reason).toContain('Kondo does not support switching individual hooks')
+    // A refusal states what kondo does, never what Claude can or cannot do.
+    for (const decision of Object.values(row)) {
+      expect(decision.reason ?? '').not.toMatch(/^Claude /)
+    }
   })
 
   it('degrades to read-only on a scope it has not learned (ADR-0005)', () => {

@@ -434,7 +434,7 @@ export async function hooksFromLayers(
 }
 
 /** The label the user layer's group carries; a project's is its folder name. */
-const GLOBAL_GROUP = 'Global'
+const GLOBAL_GROUP = 'All projects'
 
 /**
  * The listing, under the project whose layer arms each hook. Insertion order

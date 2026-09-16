@@ -208,7 +208,9 @@ export function Journal() {
         <h1>History</h1>
         <p className="mt-2 max-w-2xl">
           Review what kondo changed and restore a change with Undo. Files in the trash
-          remain available to restore until you permanently empty it.
+          remain available to restore until you permanently empty it. Emptying the trash
+          cannot be undone, and undoing a settings change kondo made earlier is
+          unavailable while settings changes are.
         </p>
       </div>
       <div ref={resultRef} tabIndex={-1} aria-label="History result">
@@ -222,7 +224,7 @@ export function Journal() {
         </div>
         <AsyncView
           state={journal}
-          empty="No changes yet. After you move, disable or remove something in kondo, its history and Undo action appear here."
+          empty="No changes yet. After kondo moves something or cleans something up, its history and Undo action appear here."
         >
           {(scan) => (
             <table className="ledger">

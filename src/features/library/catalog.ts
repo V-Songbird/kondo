@@ -112,12 +112,12 @@ export function objectKey(kind: LibraryKind, name: string): string {
 }
 
 /**
- * A scope's name on screen. The user store is `Global`; a project is whatever
+ * A scope's name on screen. The user store is `All projects`; a project is whatever
  * its row is called, and an id with no row is printed as the id rather than
  * guessed at — an honest null beats a plausible label.
  */
 export function scopeLabel(projectId: string | null, projects: ProjectRow[]): string {
-  if (projectId === null) return 'Global'
+  if (projectId === null) return 'All projects'
   const row = projects.find((project) => project.id === projectId)
   return row?.name ?? projectId
 }
@@ -321,7 +321,7 @@ function hookObjects(input: CatalogInput): LibraryObject[] {
   return allHooks(input.hookGroups).map((hook) => {
     const flags: Flag[] = []
     if (hook.script === null) {
-      flags.push({ text: 'no script named', tone: 'fact' })
+      flags.push({ text: 'no script recognized', tone: 'fact' })
     } else if (hook.script === 'missing') {
       flags.push({ text: 'not found', tone: 'bad' })
     } else if (hook.script === 'unverifiable') {
@@ -358,7 +358,9 @@ function mcpObjects(input: CatalogInput): LibraryObject[] {
     if (members.some((member) => member.orphan)) {
       flags.push({ text: 'project is gone', tone: 'bad' })
     } else if (members.some((member) => member.status === 'unknown')) {
-      flags.push({ text: 'unknown', tone: 'unknown' })
+      // The same word the per-row chip uses (`mcpStatusFlag`): one concept,
+      // one spelling, or the list and the row read as two different states.
+      flags.push({ text: 'cannot tell', tone: 'unknown' })
     } else if (members.some((member) => member.status === 'pending')) {
       flags.push({ text: 'waiting for approval', tone: 'unknown' })
     } else if (members.every((member) => !inUse(member))) {

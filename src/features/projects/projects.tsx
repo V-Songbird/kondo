@@ -28,6 +28,11 @@ import { MovePicker } from '../../ui/move-picker'
 import { Refusal } from '../../ui/refusal'
 import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { flatKeyParts, formatAgo, formatBytes, formatCount, joinErrors } from '../../lib/format'
+import {
+  CODE_TRANSCRIPTS_ONLY,
+  SETTINGS_SOURCES_READ,
+  SETTINGS_WRITES_SUSPENDED
+} from '../../lib/claims'
 import { ReviewRefusal } from '../tidy/review-refusal'
 import { installationSummary, mcpStatusFlag } from '../library/catalog'
 import { PluginControl } from './plugin-control'
@@ -562,7 +567,7 @@ function ProjectPage({
 
               {section === 'skills' && (
                 <>
-                  <p className="mb-5 text-ink-2">Skills teach Claude how to do a task. Turn one on or off, or move it to another project. Changes can be undone from History.</p>
+                  <p className="mb-5 text-ink-2">Skills teach Claude how to do a task. Move one to another project, and undo the move from History. Switching a skill on or off writes a settings file, so it is unavailable. {SETTINGS_WRITES_SUSPENDED}</p>
                   <Section
                     title="Skills"
                     count={detail.skills.length}
@@ -619,7 +624,6 @@ function ProjectPage({
                           <PluginControl
                             state={plugin}
                             global={row.global}
-                            busy={busy}
                             destinations={elsewhere}
                             onChoose={(choice) => choose(plugin, choice)}
                             onMove={(destinationId) => move(plugin, destinationId)}
@@ -636,7 +640,7 @@ function ProjectPage({
                   title="Hooks"
                   tone="mustard"
                   count={detail.hooks.length}
-                  empty="Nothing here runs a command on a Claude event. A hook only exists once a settings file names it."
+                  empty="No hook is declared in the settings files kondo reads here. A hook only exists once a settings file names it, and kondo does not read every source Claude Code can load one from."
                 >
                   {/* Five columns outgrow the sheet on a narrow window, so the
                       table scrolls inside it rather than the page. */}
@@ -677,12 +681,16 @@ function ProjectPage({
                     Commands, matcher patterns and names Kondo does not recognize can hold private
                     values, so they are not shown. Open the settings file to read them.
                   </p>
+                  <p className="mt-3 text-xs text-ink-2">
+                    This list covers the settings files Kondo reads. Kondo does not support
+                    switching individual hooks and does not move a hook between settings files.
+                  </p>
                 </Section>
               )}
 
               {section === 'tools' && (
                 <>
-                  <p className="mb-5 text-ink-2">Other ways to customize Claude: specialist agents, reusable commands, instructions and response styles.</p>
+                  <p className="mb-5 text-ink-2">Other ways to customize Claude: specialist agents, reusable commands, instructions and output styles.</p>
                   <Section
                     title="Agents"
                     tone="teal"
@@ -712,7 +720,7 @@ function ProjectPage({
                       title="Output styles"
                     tone="orchid"
                       count={detail.outputStyles.length}
-                      empty="No response styles have been added here."
+                      empty="No output styles have been added here."
                     >
                       {/* ADR-0006: Claude reads output styles from the user store
                           only, so there is no scope to offer. Said in the column
@@ -720,7 +728,7 @@ function ProjectPage({
                       <PlacedList
                         entries={detail.outputStyles}
                         destinations={[]}
-                        nowhere="Response styles apply to all projects, so they cannot be moved to one project."
+                        nowhere="Output styles apply to all projects, so they cannot be moved to one project."
                         busy={busy}
                         run={run}
                       />
@@ -731,8 +739,8 @@ function ProjectPage({
 
               {section === 'connections' && (
                 <>
-                  <p className="mb-5 text-ink-2">Connections let Claude use external tools through MCP. This list shows the saved configuration and what Claude Code does with it here, not whether a server is running or connected.</p>
-                  <p className="mb-5 text-ink-2">Turning one on or off for a project edits Claude’s settings, which Kondo cannot do safely yet. Claude Code’s own <code>/mcp</code> panel switches a connection for the project you are in.</p>
+                  <p className="mb-5 text-ink-2">Connections let Claude use external tools through MCP. This list shows the saved configuration and what Claude Code does with it here, not whether a server is running or connected. {SETTINGS_SOURCES_READ}</p>
+                  <p className="mb-5 text-ink-2">Turning one on or off for a project writes a settings file. {SETTINGS_WRITES_SUSPENDED} Claude Code’s own <code>/mcp</code> panel switches a connection for the project you are in.</p>
                   <Section
                     title="Connections (MCP)"
                     tone="teal"
@@ -850,7 +858,7 @@ function ProjectOverview({ detail, onSection }: {
     {
       section: 'tools', title: 'Other tools',
       amount: formatCount(detail.agents.length + detail.commands.length + detail.rules.length + detail.outputStyles.length, 'item'),
-      description: 'Specialist agents, commands, instructions and response styles.'
+      description: 'Specialist agents, commands, instructions and output styles.'
     }
   ]
   if (!row.global) choices.push({
@@ -963,7 +971,7 @@ const SCRIPT_TONE: Record<HookScriptStatus, { label: string; tone: string }> = {
  * kondo may read (ADR-0002). The path itself stays in main (ADR-0022).
  */
 function HookScriptCell({ script }: { script: HookScriptStatus | null }) {
-  if (script === null) return <span className="text-ink-2">—</span>
+  if (script === null) return <span className="text-ink-2">No script recognized</span>
   const { label, tone } = SCRIPT_TONE[script]
   return <span className={tone}>{label}</span>
 }
@@ -1217,9 +1225,13 @@ function SkillTable({
   ) => Promise<void>
 }) {
   /**
-   * A toggle is a settings edit (ADR-0006), and the layer it lands in may not
-   * exist yet: main asks first, and the retry is the same request with the
-   * user's yes on it — the file is created only then.
+   * A toggle is a settings edit (ADR-0006), and ADR-0010 refuses every plan
+   * that writes one. The control is therefore dark with its reason printed
+   * beside it, rather than live and refused after the press. The call itself
+   * stays — main is the authority on the refusal, and the day settings writes
+   * return this button turns back on without a second implementation. The
+   * layer it would land in may not exist: main asks first, and the retry is
+   * the same request with the user's yes on it.
    */
   const toggle = (skill: SkillInfo, operation: ToggleOperation, confirm = false): void => {
     void run(
@@ -1270,7 +1282,7 @@ function SkillTable({
               <td className="text-right">
                 <button
                   type="button"
-                  disabled={reason !== null || busy}
+                  disabled
                   aria-label={`${operation === 'disable' ? 'Disable' : 'Enable'} ${skill.name}`}
                   className="btn btn-quiet btn-sm"
                   onClick={() => toggle(skill, operation)}
@@ -1278,7 +1290,7 @@ function SkillTable({
                   {operation === 'disable' ? 'Disable' : 'Enable'}
                 </button>
                 <div className="text-left">
-                  <Refusal reason={reason} />
+                  <Refusal reason={reason ?? SETTINGS_WRITES_SUSPENDED} />
                 </div>
               </td>
             </tr>
@@ -1402,6 +1414,7 @@ function SessionTable({
 
   return (
     <div className="space-y-3">
+      <p className="text-ink-2">{CODE_TRANSCRIPTS_ONLY}</p>
       <p className="text-ink-2">Open a conversation to read its first message. Select only the copies you want to move to trash; you can undo the change from History.</p>
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -1467,22 +1480,27 @@ function SessionTable({
                         untouched {staleAfterDays}+ days
                       </span>
                     )}
+                    {/* A marker is a filename the scanner recognizes, never
+                        proof the desktop app removed its own records
+                        (ADR-0016), so the stamp names the marker. */}
                     {session.releasedByDesktop && (
                       <span
                         className="stamp-off"
                         data-sigil="undone"
-                        title="The desktop app left a released marker beside this transcript."
+                        title="The desktop app left a released marker beside this transcript. Kondo did not check what the desktop app still holds."
                       >
-                        deleted in desktop app
+                        desktop released marker
                       </span>
                     )}
                     {session.hasSidecar && <span className="stamp">session folder</span>}
+                    {/* An ID match, not a contents match: `desktopSessionStems`
+                        joins filenames and opens nothing (ADR-0016). */}
                     {session.mirroredIn !== null && (
                       <span
                         className="stamp"
-                        title={`The ${session.mirroredIn} store holds a session with this id — the same work recorded twice.`}
+                        title={`The ${session.mirroredIn} store holds a file named with this ID. Kondo did not compare the contents.`}
                       >
-                        also in {session.mirroredIn}
+                        matching ID in {session.mirroredIn}
                       </span>
                     )}
                     {group && (
@@ -1513,8 +1531,8 @@ function SessionTable({
       ) : review !== null ? (
         <div className="band band-pencil flex-col items-start gap-3" role="group" aria-labelledby={questionId} onKeyDown={confirmation.onKeyDown}>
           <span id={questionId}>
-            Move {formatCount(review.count, 'conversation')} and their saved supporting files
-            into kondo&rsquo;s trash?
+            Move {formatCount(review.count, 'conversation')} into kondo&rsquo;s trash, together with
+            the session folders and markers that belong to them?
           </span>
           <ul className="space-y-1 text-ink-2">
             {review.sessions.map((session) => (

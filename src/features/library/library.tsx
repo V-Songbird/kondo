@@ -10,6 +10,7 @@ import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { Problems } from '../../ui/problems'
 import { formatAgo, formatBytes } from '../../lib/format'
+import { SETTINGS_SOURCES_READ } from '../../lib/claims'
 import {
   KIND_LABEL,
   allHooks,
@@ -281,7 +282,7 @@ export function Library({
             : <>
               <ObjectPage object={open} input={input} management={<Section title="Manage this item">
                 {management.length > 0 ? <>
-                  <p className="mb-2">Choose where to manage this {KIND_LABEL[open.kind]}. Global means all projects.</p>
+                  <p className="mb-2">Choose where to manage this {KIND_LABEL[open.kind]}. All projects holds your shared configuration.</p>
                   <div className="flex flex-wrap gap-3">
                     {management.map((project) => <button key={project.id} type="button" className="btn"
                       title={project.label} onClick={() => onOpenProject(project.id, open.kind)}>
@@ -431,7 +432,7 @@ function SkillPage({ object, input, management }: ObjectPageProps) {
       {management}
 
       <Section title="Where it lives" count={members.length}>
-        <p className="mb-3">Global is available across projects. A copy in a project belongs to that project.</p>
+        <p className="mb-3">A copy in All projects is available across projects. A copy in a project belongs to that project.</p>
         <table className="ledger">
           <thead><tr><th>Location</th><th>Availability</th><th>Details</th></tr></thead>
           <tbody>{members.map((skill) => <tr key={skill.id} data-force={skill.enabled ? undefined : 'off'}>
@@ -491,7 +492,7 @@ function PluginPage({ object, input, management }: ObjectPageProps) {
             ? 'This plugin is a folder in a skills directory, so Claude loads it without an installation record.'
             : 'No installation record names this plugin.'}</p>
           : <table className="ledger">
-            <thead><tr><th>Where it applies</th><th>Version</th><th>Details</th></tr></thead>
+            <thead><tr><th>Location</th><th>Version</th><th>Details</th></tr></thead>
             <tbody>{plugin.installations.map((place) => (
               <tr key={`${place.scope}:${place.installPath}`} data-force={place.followed ? undefined : 'off'}>
                 <td>{installScopeWord(place.scope)}
@@ -508,7 +509,7 @@ function PluginPage({ object, input, management }: ObjectPageProps) {
       </Section>
 
       <Section title="Where it is configured" count={stated.length}>
-        <p className="mb-3">These are explicit settings. A project's own setting can override the shared one.</p>
+        <p className="mb-3">These are explicit settings. A project's own setting can override the shared one. {SETTINGS_SOURCES_READ}</p>
         {stated.length === 0 ? <p>No explicit on/off setting was found. Kondo cannot determine availability from this alone.</p>
           : <table className="ledger">
             <thead><tr><th>Location</th><th>Setting</th><th>Details</th></tr></thead>
@@ -573,7 +574,7 @@ function HookPage({ object, input, management }: ObjectPageProps) {
     <div>
       <Head
         object={object}
-        facts={`${hook.layer} · ${hook.projectLabel ?? 'Global'}`}
+        facts={`${hook.layer} · ${hook.projectLabel ?? 'All projects'}`}
       />
       {management}
       <Section title="What it runs">
@@ -586,7 +587,7 @@ function HookPage({ object, input, management }: ObjectPageProps) {
         </Row>
         <Row label="Script">
           {hook.script === null ? (
-            <span className="null">— no script file named</span>
+            <span className="null">No script recognized</span>
           ) : (
             <ScriptCell script={hook.script} />
           )}
@@ -599,7 +600,8 @@ function HookPage({ object, input, management }: ObjectPageProps) {
           values, so they are not shown. Open the settings file to read them.
         </p>
         <p className="mt-3 text-xs">
-          Claude has no way to switch off one hook. Edit the settings file that runs it.
+          Kondo does not support switching individual hooks. Edit the settings file that
+          runs it. Kondo does not move a hook between settings files either.
         </p>
       </Section>
       <Changes ids={new Set([hook.id])} noun="hook" />
@@ -629,7 +631,7 @@ function McpPage({ object, input, management }: ObjectPageProps) {
         <table className="ledger">
           <thead><tr><th>Location</th><th>In Claude Code</th><th>Details</th></tr></thead>
           <tbody>{members.map((server) => <tr key={server.id}>
-            <td>{server.project ?? (server.scope === 'user' ? 'Global' : server.scope)}</td>
+            <td>{server.project ?? (server.scope === 'user' ? 'All projects' : server.scope)}</td>
             <td>{server.orphan ? <span className="stamp-bad">project is gone</span>
               : <Chip flag={mcpStatusFlag(server.status)} />}
               {server.statusReason !== null && <p className="mt-1 text-xs text-ink-2">{server.statusReason}</p>}</td>
@@ -639,7 +641,7 @@ function McpPage({ object, input, management }: ObjectPageProps) {
           </tr>)}</tbody>
         </table>
         <p className="mt-3 text-xs">
-          These states come from the files Kondo reads: Claude’s registry, a project’s <code>.mcp.json</code> and its settings files. Kondo does not read managed policy and does not test whether a connection is running. Private connection values are hidden.
+          These states come from the files Kondo reads: Claude’s registry, a project’s <code>.mcp.json</code> and its settings files. Kondo does not read managed policy or command-line settings and does not test whether a connection is running, so a state it cannot establish reads “cannot tell”. Private connection values are hidden.
         </p>
       </Section>
     </div>
@@ -672,8 +674,7 @@ function SettingsPage({ object, input, management }: ObjectPageProps) {
           )}
         </Row>
         <p className="mt-3 text-xs">
-          The highest layer that states a value wins: local over project over user. A
-          settings file is a file, not a toggle.
+          {SETTINGS_SOURCES_READ} A settings file is a file, not a toggle.
         </p>
       </Section></details>
     </div>
@@ -697,7 +698,7 @@ function PlacedPage({ object, input, management }: ObjectPageProps) {
           <table className="ledger">
             <thead>
               <tr>
-                <th>Scope</th>
+                <th>Location</th>
                 <th>Details</th>
               </tr>
             </thead>
