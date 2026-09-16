@@ -609,10 +609,10 @@ scan and a mutation can never disagree about where an entry lives.
   - `.benchmarks/<name>/runs/<stamp>/` ◇ — benchmark runs written by
     `claude plugin eval`; one project directory held one. Known, never
     offered.
-  - `memory/` — the project's persistent memory files. 17 directories held
-    only `memory/` and 23 held no transcript at all ✅ (24 of 8,641 on
-    2026-09-05, two of them live projects — `D:\Projects\Knowledge\GRFEditor`
-    among them — whose memory is the only thing Claude has recorded there).
+  - `memory/` — the project's persistent memory files. Directories that hold
+    only `memory/`, and directories that hold no transcript at all, both
+    occur ✅, and some of them are live projects — `D:\Code\example-app`, say
+    — whose memory is the only thing Claude has recorded there.
     So "no transcript" is not "scratch": the tidy sweep offers a
     transcript-less directory whole only when it holds no `memory/`, shows no
     recent activity, and either carries a throwaway name (a worktree or job
