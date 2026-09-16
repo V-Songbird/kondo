@@ -636,7 +636,7 @@ function ProjectPage({
                   title="Hooks"
                   tone="mustard"
                   count={detail.hooks.length}
-                  empty="Nothing here runs a command on a Claude event. A hook only exists once a settings file names it."
+                  empty="No hook is declared in the settings files kondo reads here. A hook only exists once a settings file names it, and kondo does not read every source Claude Code can load one from."
                 >
                   {/* Five columns outgrow the sheet on a narrow window, so the
                       table scrolls inside it rather than the page. */}
@@ -676,6 +676,10 @@ function ProjectPage({
                   <p className="mt-3 text-xs text-ink-2">
                     Commands, matcher patterns and names Kondo does not recognize can hold private
                     values, so they are not shown. Open the settings file to read them.
+                  </p>
+                  <p className="mt-3 text-xs text-ink-2">
+                    This list covers the settings files Kondo reads. Kondo does not support
+                    switching individual hooks and does not move a hook between settings files.
                   </p>
                 </Section>
               )}
@@ -963,7 +967,7 @@ const SCRIPT_TONE: Record<HookScriptStatus, { label: string; tone: string }> = {
  * kondo may read (ADR-0002). The path itself stays in main (ADR-0022).
  */
 function HookScriptCell({ script }: { script: HookScriptStatus | null }) {
-  if (script === null) return <span className="text-ink-2">—</span>
+  if (script === null) return <span className="text-ink-2">No script recognized</span>
   const { label, tone } = SCRIPT_TONE[script]
   return <span className={tone}>{label}</span>
 }

@@ -321,7 +321,7 @@ function hookObjects(input: CatalogInput): LibraryObject[] {
   return allHooks(input.hookGroups).map((hook) => {
     const flags: Flag[] = []
     if (hook.script === null) {
-      flags.push({ text: 'no script named', tone: 'fact' })
+      flags.push({ text: 'no script recognized', tone: 'fact' })
     } else if (hook.script === 'missing') {
       flags.push({ text: 'not found', tone: 'bad' })
     } else if (hook.script === 'unverifiable') {

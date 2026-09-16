@@ -793,7 +793,7 @@ test('hook cleanup stays blocked for a HOME reference at both supported window s
       await navigate('Library')
       await navigate('Clean up')
       await section('Cleanup sections', 'Files and caches')
-      const checkbox = `document.querySelector('input[aria-label="Select Hook scripts nothing runs"]')`
+      const checkbox = `document.querySelector('input[aria-label="Select Hook scripts kondo keeps"]')`
       await client.waitFor(`${checkbox}?.disabled === true`)
       assert.ok((await client.evaluate(`${checkbox}.closest('tr').textContent`)).includes('cannot establish that they are unused'))
       assert.equal(await client.evaluate(`${checkbox}.checked`), false)

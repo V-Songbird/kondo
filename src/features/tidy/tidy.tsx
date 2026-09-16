@@ -84,7 +84,7 @@ const LABEL: Record<TidyCategory, string> = {
   'desktop-caches': 'Caches the desktop app rebuilds',
   'superseded-plugin-versions': 'Old plugin versions',
   'orphan-plugin-residue': 'Leftovers from removed plugins',
-  'unarmed-hook-scripts': 'Hook scripts nothing runs'
+  'unarmed-hook-scripts': 'Hook scripts kondo keeps'
 }
 
 function hintFor(category: TidyCategory, staleAfterDays: number): string {
@@ -112,7 +112,7 @@ function hintFor(category: TidyCategory, staleAfterDays: number): string {
     case 'orphan-plugin-residue':
       return 'Data and install records for plugins that are no longer installed.'
     case 'unarmed-hook-scripts':
-      return 'Scripts in your hooks folder that no settings file actually runs.'
+      return 'Kondo keeps every hook script. It cannot establish that one is unused, so it offers none here.'
   }
 }
 

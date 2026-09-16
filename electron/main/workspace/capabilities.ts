@@ -67,34 +67,29 @@ const ALREADY_ENABLED = 'Already enabled.'
 const ALREADY_DISABLED = 'Already disabled.'
 const PLUGIN_OWNED =
   'Plugin-shipped skills follow their plugin — toggle the plugin instead.'
-// ADR-0006: Claude has no per-hook disable convention, so kondo invents none.
-// This row changes the day a faithful mechanism exists, and not before.
-const HOOK_HAS_NO_CONVENTION =
-  'Claude has no way to switch off one hook; edit the settings file that runs it.'
+// ADR-0006 found no per-hook disable convention to be faithful to, and
+// ADR-0017 settled the question for kondo: hook declarations stay read-only
+// until the semantics are proven. The refusal is kondo's to make, so it says
+// so about kondo rather than about what Claude can do.
+const HOOK_SWITCH_NOT_SUPPORTED =
+  'Kondo does not support switching individual hooks; edit the settings file that runs it.'
 /**
- * Moving a hook is a different question from disabling one, and it gets a
- * different answer. A hook lives in the `hooks` object of one settings
- * layer, and Claude reads that object in every layer, so handing one to
- * another layer invents nothing: it is remove-the-group here, insert-the-
- * group there — two `SpliceEdit`s (entry 031) inside one journal entry, so
- * a single undo puts both files back or neither.
- *
- * What is missing is the plan, not the mechanism, so the row says "not
- * yet" rather than "never" — the old text called a two-layer settings edit
- * impossible, which it is not. When the plan lands it refuses a command
- * naming `$CLAUDE_PROJECT_DIR` or a `.claude/hooks` relative path: both
- * resolve against the layer they sit in, so moving the group would silently
- * re-point the script at a different file.
+ * Moving a hook is a different question from switching one off, and ADR-0017
+ * answers it separately. Preserving the bytes of a group in another layer
+ * does not preserve what they refer to: kondo expands no scope variable, is
+ * not a shell parser, and a stable path fixes neither the working directory
+ * nor the contexts the hook applies to. So the refusal is about the hook, not
+ * about a plan kondo has yet to write — the reopening bar is in ADR-0017.
  */
-const HOOK_MOVE_NOT_BUILT =
-  'Moving a hook between settings files is two edits kondo has not built yet; edit both files by hand for now.'
+const HOOK_STAYS_READ_ONLY =
+  'Kondo does not move a hook between settings files: the same bytes in another layer are not the same hook.'
 
 /** The row every hook gets, in every layer that can hold one. */
 function hook(): Capabilities {
   return {
-    enable: deny(HOOK_HAS_NO_CONVENTION),
-    disable: deny(HOOK_HAS_NO_CONVENTION),
-    move: deny(HOOK_MOVE_NOT_BUILT),
+    enable: deny(HOOK_SWITCH_NOT_SUPPORTED),
+    disable: deny(HOOK_SWITCH_NOT_SUPPORTED),
+    move: deny(HOOK_STAYS_READ_ONLY),
     trash: deny(NOT_KONDOS_TO_REMOVE)
   }
 }

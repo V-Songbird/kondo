@@ -560,7 +560,7 @@ const LABEL: Record<TidyCategory, readonly [one: string, many: string]> = {
   'desktop-caches': ['desktop app cache', 'desktop app caches'],
   'superseded-plugin-versions': ['superseded plugin version', 'superseded plugin versions'],
   'orphan-plugin-residue': ['leftover plugin file', 'leftover plugin files'],
-  'unarmed-hook-scripts': ['hook script nothing runs', 'hook scripts nothing runs']
+  'unarmed-hook-scripts': ['kept hook script', 'kept hook scripts']
 }
 
 /**

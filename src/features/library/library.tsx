@@ -586,7 +586,7 @@ function HookPage({ object, input, management }: ObjectPageProps) {
         </Row>
         <Row label="Script">
           {hook.script === null ? (
-            <span className="null">— no script file named</span>
+            <span className="null">No script recognized</span>
           ) : (
             <ScriptCell script={hook.script} />
           )}
@@ -599,7 +599,8 @@ function HookPage({ object, input, management }: ObjectPageProps) {
           values, so they are not shown. Open the settings file to read them.
         </p>
         <p className="mt-3 text-xs">
-          Claude has no way to switch off one hook. Edit the settings file that runs it.
+          Kondo does not support switching individual hooks. Edit the settings file that
+          runs it. Kondo does not move a hook between settings files either.
         </p>
       </Section>
       <Changes ids={new Set([hook.id])} noun="hook" />
