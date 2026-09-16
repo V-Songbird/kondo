@@ -8,6 +8,26 @@ All notable changes to kondo are documented here. The format follows
 
 ### Added
 
+- A plugin page names every place the plugin is installed, not just the first
+  one Claude happened to record. A plugin installed for all projects and again
+  inside a project shows both, each with its own version, and a project page
+  describes it the same way. Kondo previously showed one of them with no sign
+  the others existed.
+
+- A plugin's skills list now covers the folders Claude actually loads: the
+  plugin's own skills folder, any extra skills folder its manifest names, and
+  its commands. Where a skill comes from is a column, so one name shipped from
+  two places is no longer ambiguous.
+
+- Plugins that live as a folder in a skills directory appear as plugins, with
+  the same on/off control as any other, instead of being missing from the
+  Plugins list. Their folders no longer appear in Skills, where they offered a
+  move that belongs to the plugin.
+
+- A plugin manifest Kondo cannot read, a manifest entry in a shape it does not
+  read, and a component folder outside the plugin are each reported beside the
+  skills it could list, rather than showing an empty list.
+
 - Kondo reads the Claude profile Claude Code uses. An absolute
   `CLAUDE_CONFIG_DIR` selects the configuration directory, with its
   `.claude.json` registry inside it, and a launch that inherits no terminal

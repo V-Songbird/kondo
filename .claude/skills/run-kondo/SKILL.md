@@ -173,19 +173,20 @@ node .claude/skills/run-kondo/drive.mjs press "Move to trash"
 
 `eval` can call the preload bridge, which shows the raw `Scan` a view is built
 from. `window.kondo.pluginSkills` backs the `Skills it ships` table on a
-Library plugin page; across the seam it also shows that an absent `skills/`
-directory is an empty list with no error:
+Library plugin page, across every layout a plugin ships components through —
+its own `skills/`, a folder its manifest adds, and its `commands/` (entry 106,
+domain.md):
 
 ```bash
 node .claude/skills/run-kondo/drive.mjs eval "window.kondo.pluginSkills('plugin:hush@acme')"
-#   {"data":[],"errors":[],"unknown":[]}      — no skills/ directory at all
+#   one row, hush — from commands/, which Claude loads as a skill
 node .claude/skills/run-kondo/drive.mjs eval "window.kondo.pluginSkills('plugin:foreman@acme')"
-#   two rows, roadmap and survey
+#   two rows, roadmap and survey — both from the plugin's own skills/
 ```
 
 The id shape is `plugin:<name>@<marketplace>` (ADR-0008). With no argument it
 answers `bad-request`, not an empty list — an empty `data` really does mean
-the plugin ships none.
+the plugin ships none, which no plugin in this fixture does.
 
 Set `KONDO_SHOTS` to choose where screenshots land. Unset, every command
 writes under the OS temp directory (`kondo-shots/`), never into the working
@@ -261,11 +262,11 @@ launched desktop root, so a Claude desktop app running on the same machine does
 not change the row; an empty `SingletonLock` file in `<fixture>/desktop` shows
 the blocked state, "The Claude desktop app is running…" with its checkbox dark.
 
-`hush@acme` is there for that empty case alone. Its install root at
+`hush@acme` is there for the commands layout. Its install root at
 `plugins/cache/acme/hush/1.0.0` holds a `commands/` file and **no `skills/`
-directory at all** — an absent directory is a different case from an empty
-one, and the absent one is what `pluginSkills` must answer with an empty
-list and no error. Do not add `skills/` there to tidy the tree up.
+directory at all**, which is how the fixture covers a plugin whose components
+arrive as commands rather than as skill directories. Do not add `skills/`
+there to tidy the tree up.
 
 The fixture also writes Claude's registry, `home/.claude.json` (a sibling of
 the store, ADR-0009), with five keys, so the project set is the union the

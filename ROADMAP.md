@@ -60,8 +60,6 @@ Four decisions frame this work and are not up for re-argument here:
 
 ### Accuracy and compatibility
 
-- **Every plugin installation and component layout (106):** inventory across
-  scopes, and one fixture per supported layout.
 - **Unreadable hook scripts reported as unverifiable rather than missing (127).**
 - **A `CLAUDE_CONFIG_DIR` set in a Claude settings `env` block followed (138).**
 - **A legacy `.config.json` registry in a configuration home read (139).**

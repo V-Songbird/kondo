@@ -183,7 +183,7 @@ describe('user store adapter', () => {
   it('joins installed plugins with the settings layers that enable them', async () => {
     const c = collector()
     const layers = await readSettingsLayers(world.locator, verified, c)
-    const plugins = await scanPlugins(world.locator, layers, c)
+    const plugins = await scanPlugins(world.locator, layers, verified, c)
     // The fixture plants one plugin whose installPath escapes the store; it
     // is still listed, with its pointer refused. Everything else is clean.
     expect(c.errors.map((error) => error.code)).toEqual(['out-of-store'])
@@ -202,7 +202,7 @@ describe('user store adapter', () => {
   it('reports a corrupt plugin registry as an error, not a crash (ADR-0005)', async () => {
     await writeFileTree(world.userRoot, { 'plugins/installed_plugins.json': '{not json' })
     const c = collector()
-    const plugins = await scanPlugins(world.locator, [], c)
+    const plugins = await scanPlugins(world.locator, [], [], c)
     expect(plugins).toEqual([])
     expect(c.errors.some((error) => error.code === 'parse-failed')).toBe(true)
   })
@@ -288,7 +288,7 @@ describe('user store adapter', () => {
     })
     const c = collector()
     const layers = await readSettingsLayers(world.locator, verified, c)
-    const plugins = await scanPlugins(world.locator, layers, c)
+    const plugins = await scanPlugins(world.locator, layers, verified, c)
 
     // Claude's convention is a boolean (ADR-0006). Kondo cannot know what
     // Claude makes of anything else, so it says so rather than coercing.
@@ -315,7 +315,7 @@ describe('user store adapter', () => {
     })
     const c = collector()
     const layers = await readSettingsLayers(world.locator, verified, c)
-    const plugins = await scanPlugins(world.locator, layers, c)
+    const plugins = await scanPlugins(world.locator, layers, verified, c)
     const owner = 'project:code:X--work-proj'
 
     expect(layerState(plugins, 'beta@acme', 'project')).toBe('unknown')
@@ -347,7 +347,7 @@ describe('user store adapter', () => {
     })
     const c = collector()
     const layers = await readSettingsLayers(world.locator, verified, c)
-    await scanPlugins(world.locator, layers, c)
+    await scanPlugins(world.locator, layers, verified, c)
 
     // A key outside the `<name>@<marketplace>` grammar is file text, so it is
     // never named — the same rule the installation records follow. The layers
@@ -383,12 +383,14 @@ describe('user store adapter', () => {
   it('refuses to follow a plugin installPath outside the user store', async () => {
     const c = collector()
     const layers = await readSettingsLayers(world.locator, [], c)
-    const plugins = await scanPlugins(world.locator, layers, c)
+    const plugins = await scanPlugins(world.locator, layers, verified, c)
 
     // The check lives where the untrusted path is resolved, so the escaping
     // path is nulled for every consumer rather than at one call site.
     const rogue = plugins.find((plugin) => plugin.info.id === 'plugin:omega@acme')!
-    expect(rogue.installAbs).toBeNull()
+    expect(rogue.roots).toEqual([])
+    // The record itself survives the refusal: it is a fact of the manifest.
+    expect(rogue.info.installations.map((install) => install.followed)).toEqual([false])
     const refusal = c.errors.find((error) => error.code === 'out-of-store')
     expect(refusal?.message).toContain('plugin:omega@acme')
   })

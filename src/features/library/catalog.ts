@@ -5,6 +5,9 @@ import type {
   McpServerStatus,
   PlacedEntryInfo,
   PluginInfo,
+  PluginInstallation,
+  PluginInstallScope,
+  PluginSource,
   ProjectRow,
   SettingsLayerInfo,
   SkillDuplicateGroup,
@@ -233,6 +236,46 @@ function skillObjects(input: CatalogInput): LibraryObject[] {
   })
 }
 
+/** Claude's install scopes, in the words the rest of the app already uses. */
+const INSTALL_SCOPE_WORDS: Record<PluginInstallScope, string> = {
+  managed: 'Managed by your organization',
+  user: 'All projects',
+  project: 'A project',
+  local: 'This machine only'
+}
+
+export function installScopeWord(scope: PluginInstallScope): string {
+  return INSTALL_SCOPE_WORDS[scope]
+}
+
+/** What a plugin is installed as: the scope in words, then its own details. */
+export function installationLine(place: PluginInstallation): string {
+  return [
+    installScopeWord(place.scope),
+    place.projectPath,
+    place.version,
+    place.followed ? null : 'not readable by Kondo'
+  ]
+    .filter((part): part is string => part !== null)
+    .join(' · ')
+}
+
+/**
+ * Where a plugin is installed, in one line. Exported because the Library and a
+ * project page both answer this question, and answering it twice in different
+ * words is how one plugin comes to look like two things.
+ */
+export function installationSummary(plugin: {
+  source: PluginSource
+  installations: PluginInstallation[]
+}): string {
+  if (plugin.source === 'skills-dir') return 'Loaded from a skills folder'
+  const places = plugin.installations
+  if (places.length === 0) return 'No installation recorded'
+  if (places.length === 1) return installationLine(places[0]!)
+  return `Installed in ${places.length} places`
+}
+
 function pluginObjects(input: CatalogInput): LibraryObject[] {
   return input.plugins.map((plugin) => {
     // Only a boolean is a statement, so a member kondo could not read never
@@ -254,13 +297,20 @@ function pluginObjects(input: CatalogInput): LibraryObject[] {
     } else {
       flags.push({ text: `on in ${on} of ${stated.length}`, tone: 'ok' })
     }
-    if (plugin.version !== null) flags.push({ text: plugin.version, tone: 'fact' })
+    // One plugin can be installed in several places at once; the row says so
+    // rather than showing one of them and reading as the whole truth.
+    if (plugin.installations.length > 1) {
+      flags.push({ text: `${plugin.installations.length} installs`, tone: 'fact' })
+    } else if (plugin.version !== null) {
+      flags.push({ text: plugin.version, tone: 'fact' })
+    }
+    if (plugin.source === 'skills-dir') flags.push({ text: 'skills folder', tone: 'fact' })
     return {
       key: objectKey('plugin', plugin.name),
       kind: 'plugin' as const,
       name: plugin.name,
       places: stated.length,
-      copies: 1,
+      copies: Math.max(plugin.installations.length, 1),
       flags
     }
   })

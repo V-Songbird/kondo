@@ -203,7 +203,13 @@ export function createKindContext(sources: KindContextSources): KindContext {
     pluginInventory: () => (pluginInventory ??= readPluginInventory(sources.locator, sources.c)),
     plugins: () =>
       (plugins ??= (async () =>
-        scanPlugins(sources.locator, await context.layers(), sources.c, await context.pluginInventory()))()),
+        scanPlugins(
+          sources.locator,
+          await context.layers(),
+          await sources.projects(),
+          sources.c,
+          await context.pluginInventory()
+        ))()),
     // The settings layers come first: a skill's effective state is the
     // directory it sits in *and* what `skillOverrides` says about it
     // (ADR-0006), so the listing cannot be built without them. They are the
@@ -1996,6 +2002,10 @@ export function projectPluginStates(
       pluginId: plugin.id,
       name: plugin.name,
       marketplace: plugin.marketplace,
+      // Carried straight off the Library's own row, so the two pages cannot
+      // describe one plugin's installations differently.
+      source: plugin.source,
+      installations: plugin.installations,
       // `stated.enabled` is a tri-state, so it is matched rather than tested:
       // an unreadable member is truthy and would otherwise read as "on".
       choice: stated === undefined ? 'inherit' : positionOf(stated.enabled),

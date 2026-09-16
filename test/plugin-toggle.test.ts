@@ -30,6 +30,9 @@ import {
 
 const SETTINGS_REFUSAL = 'Settings changes are temporarily unavailable because Kondo cannot safely exclude concurrent Claude writes. No files were changed.'
 
+/** Claude's own manifest inside a plugin, relative to the plugin's folder. */
+const PLUGIN_MANIFEST = '.claude-plugin/plugin.json'
+
 const ALPHA = 'plugin:alpha@acme'
 const GAMMA = 'plugin:gamma@acme'
 const USER_LAYER = 'settings:user:user'
@@ -390,5 +393,26 @@ describe('plugin enable/disable per settings layer (ADR-0006)', () => {
     expect(result.data).toBeNull()
     expect(result.errors.map((error) => error.code)).toContain('parse-failed')
     expect(await readUserSettings()).toBe('{ this is not json')
+  })
+
+  it('gives a skills-directory plugin the same per-layer control as an installed one', async () => {
+    // It loads with no installation record at all (domain.md), so its control
+    // has to come from the settings layers alone, exactly as alpha's does.
+    const folder = path.join(world.userRoot, 'skills', 'handy')
+    await writeFileTree(folder, { [PLUGIN_MANIFEST]: writeJson({ name: 'handy' }) })
+    const handy = await plugin('plugin:handy@skills-dir')
+
+    expect(handy.source).toBe('skills-dir')
+    expect(handy.installations).toEqual([])
+    expect(handy.installed).toBe(true)
+    expect(handy.scopes.map((scope) => scope.layer)).toEqual(
+      (await plugin(ALPHA)).scopes.map((scope) => scope.layer)
+    )
+
+    const detail = await api.projectDetail(`project:code:${dirName}`)
+    const here = detail.data?.plugins.find((state) => state.pluginId === handy.id)
+    expect(here?.source).toBe('skills-dir')
+    expect(here?.choice).toBe('inherit')
+    expect(here?.capabilities.disable.allowed).toBe(true)
   })
 })

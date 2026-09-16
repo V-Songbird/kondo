@@ -79,6 +79,11 @@ describe('the Library catalog', () => {
     const plugin: PluginInfo = {
       id: 'plugin:fixture@local', kind: 'plugin', capabilities: caps,
       name: 'fixture', marketplace: 'local', installed: true, version: '1',
+      source: 'record',
+      installations: [{
+        scope: 'user', projectPath: null, version: '1', installedAt: null,
+        lastUpdated: null, installPath: 'fixture', followed: true
+      }],
       installScope: 'user', installedAt: null, lastUpdated: null, installPath: 'fixture',
       enabledIn: [], effectiveIn: [],
       scopes: [configured, silent].map((place) => ({
@@ -256,6 +261,8 @@ describe('the Library catalog', () => {
       name: 'ghost@acme',
       marketplace: 'acme',
       installed: false,
+      source: 'record',
+      installations: [],
       version: null,
       installScope: 'user',
       installedAt: null,

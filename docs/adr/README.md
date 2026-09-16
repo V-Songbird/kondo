@@ -34,6 +34,7 @@ code comments cite ADRs by number, so a rewrite keeps its file.
 - [0020 — Frame physical recovery digests and identify move fingerprints](0020-frame-physical-recovery-digests.md)
 - [0021 — Summarize settings files instead of promising an effective-settings viewer](0021-summarize-settings-files.md)
 - [0022 — Project settings-derived data deny-by-default](0022-project-settings-data-deny-by-default.md)
+- [0023 — A plugin is its installations, not its first record](0023-a-plugin-is-its-installations.md)
 
 ## Template
 
