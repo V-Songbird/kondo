@@ -374,7 +374,7 @@ npm run guards       # the jig checks (stdlib node only)
 
 ## The guards
 
-Six invariants are also enforced outside the suite, by checks under
+Seven invariants are also enforced outside the suite, by checks under
 `.jig/checks/`:
 
 | Guard | Refuses | Lanes |
@@ -385,6 +385,7 @@ Six invariants are also enforced outside the suite, by checks under
 | `test-touches-a-real-store` | `homedir()`, home-ish env vars, or a hard-coded store path in `test/**/*.ts` (the `.mjs` and `.tsx` tests are not scanned) | session, pre-commit, CI |
 | `workspace-adapter-outruns-domain-doc` | a commit touching `electron/main/workspace/` without `docs/domain.md` staged | pre-commit only |
 | `seam-contract-outruns-its-adr` | a commit touching `shared/contract.ts` without an ADR staged | pre-commit only |
+| `doc-anchor-outruns-its-target` | a `file:line` anchor in tracked markdown whose target is missing, whose line is past the end of that file, whose link text names another file, or whose adjacent backticked identifier is not within two lines of the cited line; a heading fragment no heading answers; and a `finding N` past the doc's own Open findings list | pre-commit, CI |
 
 In a Claude Code session the four edit guards are armed in jig's
 `PreToolUse` lane (`.jig/config.json`) and refuse an edit before it lands.
@@ -398,7 +399,14 @@ of them. The session evaluator honours each guard's `paths` but not
 paired-change guards read the git index, so they run at pre-commit
 (`core.hooksPath=.jig/hooks`, per clone; the tracked hook is not executable
 for Unix Git) and
-report themselves skipped in CI. Each check carries a violation/near-miss
+report themselves skipped in CI. The anchor guard has no session detector
+either: an anchor goes stale because the code under it moved, not because
+somebody typed the doc, so there is no edit for `PreToolUse` to refuse. It is
+the driver's third detector kind and the only one that opens a file the
+scanned file merely names — a pattern cannot know how long another file is.
+Each check carries a violation/near-miss
 fixture pair inline and proves itself with `node .jig/checks/run.mjs
---selftest`. The driver is standard-library node, so it runs with nothing
+--selftest`; the anchor fixture carries the doc and the files it points at as
+two halves of one string, and the selftest writes both to a throwaway tree.
+The driver is standard-library node, so it runs with nothing
 installed. `/jig:review` shows what they have caught.

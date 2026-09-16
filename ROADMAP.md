@@ -90,8 +90,6 @@ Four decisions frame this work and are not up for re-argument here:
 - Repository checks that never collect `.claude/worktrees` (137).
 - The bundle inventory diffed against the notice table in CI (142).
 - The run-kondo fixture location and screenshot traps recorded in the skill (148).
-- Drifting `file:line` anchors in [docs/status.md](docs/status.md) caught by a
-  jig check (149).
 - The seam-contract check reworded for amended ADRs (150).
 - The JetBrains MCP rule scoped to the checkout WebStorm has open (156).
 
