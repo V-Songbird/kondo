@@ -95,6 +95,52 @@ All notable changes to kondo are documented here. The format follows
 
 ### Changed
 
+- Hooks read as read-only throughout. Where Kondo used to say Claude had no
+  way to switch off one hook, it now says Kondo does not support switching
+  individual hooks, and a hook move is refused because the same bytes in
+  another settings file are not the same hook — not because Kondo has yet to
+  build it. A hooks list says it covers the settings files Kondo reads, and a
+  command naming nothing Kondo recognizes reads "No script recognized".
+
+- The cleanup category that keeps every hook script is named for what it does.
+  It was "Hook scripts nothing runs", which Kondo cannot establish; it is now
+  "Hook scripts kondo keeps", and the History row says "kept hook scripts".
+
+- Controls that would write a settings file are switched off with their reason
+  printed beside them, rather than looking available and refusing after the
+  press. This covers the skill on/off buttons, a plugin's three-way control
+  and its move picker, and Settings leftovers' removal button. Settings
+  changes have been suspended since Kondo could not rule out discarding a
+  change Claude saves at the same moment; only the screens had not said so.
+
+- Desktop evidence is described as the evidence it is. A file named with the
+  same conversation ID in the desktop app's store now reads "matching ID in
+  desktop", with a note that Kondo did not compare the contents, and a
+  released marker reads as a marker rather than as proof the desktop app
+  deleted anything. The cleanup category and its History row follow.
+
+- Projects → Conversations says its rows are Claude Code conversations saved
+  on this machine, and that Kondo neither lists nor removes Claude desktop app
+  conversations.
+
+- One word per state. An MCP connection Kondo cannot establish reads "cannot
+  tell" in the item list as well as on the row, where the list used to say
+  "unknown". Every scope column in Library is headed "Location", body copy
+  says "Output styles" where it used to say "response styles", and a History
+  row for a skill says "Global" or "this project" instead of an internal
+  scope id.
+
+- Settings and connection screens say which sources Kondo reads: local, then
+  project, then user, and not managed policy or command-line settings, so a
+  source Kondo cannot see may still decide the answer.
+
+- History states its limits where they are read. Its empty state no longer
+  mentions disabling something, and the page says that emptying the trash
+  cannot be undone and that undoing an earlier settings change is unavailable.
+
+- Cleanup hints say what age and a name do not prove: old does not mean
+  useless, and a throwaway name alone never makes a folder removable.
+
 - Each Claude profile keeps its own Kondo history, trash, caches and window
   state in `profiles/<key>` inside Kondo's data directory, and holds its own
   single-instance lock, so two profiles can be open at once. The default

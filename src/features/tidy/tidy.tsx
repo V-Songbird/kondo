@@ -77,7 +77,7 @@ const LABEL: Record<TidyCategory, string> = {
   'dead-projects': 'Projects that are gone',
   'stale-sessions': 'Old conversations',
   'empty-transcripts': 'Empty conversations',
-  'desktop-released-sessions': 'Conversations deleted in the desktop app',
+  'desktop-released-sessions': 'Conversations with a desktop released marker',
   'orphan-sidecars': 'Leftover session folders',
   'orphan-session-env': 'Leftover session snapshots',
   'reclaimable-caches': 'Caches Claude rebuilds',
@@ -90,15 +90,15 @@ const LABEL: Record<TidyCategory, string> = {
 function hintFor(category: TidyCategory, staleAfterDays: number): string {
   switch (category) {
     case 'scratch-projects':
-      return 'Saved Claude data for temporary folders, worktrees or jobs with no memory and no recent activity. The project’s own files stay.'
+      return 'Saved Claude data for temporary folders, worktrees or jobs with no memory and no recent activity. A throwaway name alone never makes a folder removable. The project’s own files stay.'
     case 'dead-projects':
       return 'Saved Claude data for project folders that are no longer on disk.'
     case 'stale-sessions':
-      return `Untouched for over ${staleAfterDays} days. Their session folders go too.`
+      return `Untouched for over ${staleAfterDays} days. Old does not mean useless — kondo measures the last activity, not the worth. Their session folders go too.`
     case 'empty-transcripts':
       return 'Conversations that recorded nothing at all.'
     case 'desktop-released-sessions':
-      return 'The desktop app deleted these on its side; the transcript is still here. Their session folders go too.'
+      return 'The desktop app left a marker beside these transcripts. The marker is a filename kondo recognizes, not proof the app removed its own records. Their session folders go too.'
     case 'orphan-sidecars':
       return 'Session folders left behind after their conversation was removed.'
     case 'orphan-session-env':

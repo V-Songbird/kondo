@@ -10,6 +10,7 @@ import { useScan } from '../../lib/use-scan'
 import { AsyncView } from '../../ui/async-view'
 import { Problems } from '../../ui/problems'
 import { formatAgo, formatBytes } from '../../lib/format'
+import { SETTINGS_SOURCES_READ } from '../../lib/claims'
 import {
   KIND_LABEL,
   allHooks,
@@ -491,7 +492,7 @@ function PluginPage({ object, input, management }: ObjectPageProps) {
             ? 'This plugin is a folder in a skills directory, so Claude loads it without an installation record.'
             : 'No installation record names this plugin.'}</p>
           : <table className="ledger">
-            <thead><tr><th>Where it applies</th><th>Version</th><th>Details</th></tr></thead>
+            <thead><tr><th>Location</th><th>Version</th><th>Details</th></tr></thead>
             <tbody>{plugin.installations.map((place) => (
               <tr key={`${place.scope}:${place.installPath}`} data-force={place.followed ? undefined : 'off'}>
                 <td>{installScopeWord(place.scope)}
@@ -508,7 +509,7 @@ function PluginPage({ object, input, management }: ObjectPageProps) {
       </Section>
 
       <Section title="Where it is configured" count={stated.length}>
-        <p className="mb-3">These are explicit settings. A project's own setting can override the shared one.</p>
+        <p className="mb-3">These are explicit settings. A project's own setting can override the shared one. {SETTINGS_SOURCES_READ}</p>
         {stated.length === 0 ? <p>No explicit on/off setting was found. Kondo cannot determine availability from this alone.</p>
           : <table className="ledger">
             <thead><tr><th>Location</th><th>Setting</th><th>Details</th></tr></thead>
@@ -640,7 +641,7 @@ function McpPage({ object, input, management }: ObjectPageProps) {
           </tr>)}</tbody>
         </table>
         <p className="mt-3 text-xs">
-          These states come from the files Kondo reads: Claude’s registry, a project’s <code>.mcp.json</code> and its settings files. Kondo does not read managed policy and does not test whether a connection is running. Private connection values are hidden.
+          These states come from the files Kondo reads: Claude’s registry, a project’s <code>.mcp.json</code> and its settings files. Kondo does not read managed policy or command-line settings and does not test whether a connection is running, so a state it cannot establish reads “cannot tell”. Private connection values are hidden.
         </p>
       </Section>
     </div>
@@ -673,8 +674,7 @@ function SettingsPage({ object, input, management }: ObjectPageProps) {
           )}
         </Row>
         <p className="mt-3 text-xs">
-          The highest layer that states a value wins: local over project over user. A
-          settings file is a file, not a toggle.
+          {SETTINGS_SOURCES_READ} A settings file is a file, not a toggle.
         </p>
       </Section></details>
     </div>
@@ -698,7 +698,7 @@ function PlacedPage({ object, input, management }: ObjectPageProps) {
           <table className="ledger">
             <thead>
               <tr>
-                <th>Scope</th>
+                <th>Location</th>
                 <th>Details</th>
               </tr>
             </thead>

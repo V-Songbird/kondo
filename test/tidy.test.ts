@@ -741,7 +741,10 @@ describe('desktop-released sessions (entry 059)', () => {
     const before = await hashTree(world.userRoot)
     const done = await reviewedSweep(api, ['desktop-released-sessions'])
     expect(done.errors).toEqual([])
-    expect(done.data?.summary).toContain('2 conversations deleted in the desktop app')
+    // A marker is a marker, never a claim about what the desktop app deleted
+    // (ADR-0016), and the History row is read by someone who was not here.
+    expect(done.data?.summary).toContain('2 conversations with a desktop released marker')
+    expect(done.data?.summary).not.toContain('deleted in the desktop app')
     for (const relative of [
       `projects/${DIR}/${UUID_A}.jsonl`,
       `projects/${DIR}/${UUID_A}`,

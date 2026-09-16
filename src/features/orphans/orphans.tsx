@@ -5,6 +5,7 @@ import { AsyncView } from '../../ui/async-view'
 import { LastChange } from '../../ui/last-change'
 import { useConfirmationFocus } from '../../ui/use-confirmation-focus'
 import { formatCount } from '../../lib/format'
+import { SETTINGS_WRITES_SUSPENDED } from '../../lib/claims'
 import { chosenFrom, groupByKind, refusalFrom } from './orphan-rows'
 
 /**
@@ -93,8 +94,8 @@ export function Orphans() {
         of this list. A missing result does not mean those preferences are unused.
       </p>
       <p className="mb-5 max-w-2xl">
-        Settings changes are temporarily unavailable. You can review these entries;
-        removal and Undo of settings changes remain unavailable.
+        {SETTINGS_WRITES_SUSPENDED} You can review these entries here. Removing one, and
+        undoing a settings change kondo made earlier, are both unavailable.
       </p>
       <div ref={resultRef} tabIndex={-1} aria-label="Settings cleanup result">
         {problem !== null && <div role="alert" className="band band-pencil text-pencil">{problem}</div>}
@@ -173,7 +174,7 @@ export function Orphans() {
                   {chosen.some((orphan) => orphan.kind === 'project-entry') && (
                     <p>Removing a project entry also removes the connections saved inside it.</p>
                   )}
-                  <p>Settings removal is temporarily unavailable. No settings will be changed.</p>
+                  <p>{SETTINGS_WRITES_SUSPENDED} No settings will be changed.</p>
                   <div className="flex flex-wrap gap-3">
                     <button
                       ref={confirmation.cancelRef}
@@ -183,13 +184,16 @@ export function Orphans() {
                     >
                       Cancel
                     </button>
+                    {/* Dark before the press, not refused after it: ADR-0010
+                        refuses the plan this would send. The call stays wired
+                        for the day settings writes return. */}
                     <button
                       type="button"
-                      disabled={busy || chosen.length === 0 || state.loading}
+                      disabled
                       className="btn btn-pencil btn-sm"
                       onClick={() => void remove(chosen.map((orphan) => orphan.id))}
                     >
-                      Remove selected settings
+                      Removal unavailable
                     </button>
                   </div>
                 </div>

@@ -358,7 +358,9 @@ function mcpObjects(input: CatalogInput): LibraryObject[] {
     if (members.some((member) => member.orphan)) {
       flags.push({ text: 'project is gone', tone: 'bad' })
     } else if (members.some((member) => member.status === 'unknown')) {
-      flags.push({ text: 'unknown', tone: 'unknown' })
+      // The same word the per-row chip uses (`mcpStatusFlag`): one concept,
+      // one spelling, or the list and the row read as two different states.
+      flags.push({ text: 'cannot tell', tone: 'unknown' })
     } else if (members.some((member) => member.status === 'pending')) {
       flags.push({ text: 'waiting for approval', tone: 'unknown' })
     } else if (members.every((member) => !inUse(member))) {

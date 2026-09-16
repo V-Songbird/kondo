@@ -12,6 +12,7 @@ import {
   countByKind,
   filterCatalog,
   findings,
+  mcpStatusFlag,
   objectKey,
   managementProjects,
   scopeLabel
@@ -251,6 +252,28 @@ describe('the Library catalog', () => {
     }
     const found = findings({ ...empty, mcp: [server] })
     expect(found[0]?.chip.text).toBe('project is gone')
+  })
+
+  it('says "cannot tell" for an MCP state in both the list and the row (entry 110)', () => {
+    const server: McpServerInfo = {
+      id: 'mcp:user:ctx',
+      kind: 'mcp',
+      capabilities: caps,
+      name: 'ctx',
+      scope: 'user',
+      transport: 'stdio',
+      source: '~/.claude.json',
+      project: null,
+      status: 'unknown',
+      statusReason: null,
+      orphan: false
+    }
+    // One concept, one word: the object list called this `unknown` while the
+    // per-row chip called it `cannot tell`, so one declaration read as two
+    // different states depending on where it was looked at.
+    const object = buildCatalog({ ...empty, mcp: [server] })[0]!
+    expect(object.flags[0]?.text).toBe('cannot tell')
+    expect(object.flags[0]?.text).toBe(mcpStatusFlag('unknown').text)
   })
 
   it('flags a plugin switch with no plugin behind it', () => {
