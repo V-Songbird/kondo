@@ -52,6 +52,37 @@ review into a partial success. Unselected categories do not expand the selected
 scope. Reads use the existing owning-root boundary helpers. Preview bookkeeping
 is disposable and never writes Claude truth into a persistent approval store.
 
+## What a review discloses
+
+A token binds a set of trash steps, and until entry 110 nothing said which
+files those were. The confirmation counted conversations and gave three byte
+figures; the transcript, its sidecar directory and its released marker were in
+the figures and named nowhere. [ADR-0016](0016-desktop-session-boundary.md)
+requires the opposite: name the exact candidates and the data that remains,
+before the confirmation exists.
+
+`SessionTrashPreview` therefore carries `candidates` — one
+`SessionRemovalCandidate` per selected session, holding the transcript and, when
+present, the sidecar and the marker — and `projects`, the rows the selection
+spans. Both are display text, tildified outward like every other display path
+in the contract. They travel one way: no handler reads one back, and they
+authorize nothing. The token and the previously emitted ids remain the only
+things that do, and revalidation is unchanged.
+
+They are built from the same inventory records `sessionTrashPlan` walks, after
+`snapshotSessions` has already refused a uuid namespace holding anything the
+plan did not claim. A disclosure and a plan describing two different sets is
+therefore not a state this code can reach; a session the inventory no longer
+holds refuses the whole preview rather than producing one row short.
+
+The renderer prints at most 20 candidates and then a count. The figures below
+them still cover the whole selection, and what a review is worth in bytes is
+unchanged by the disclosure. The list of records that remain — prompt history,
+snapshots, file history, backups, kondo's own trash and journal — is renderer
+copy, true of every removal; only the Desktop line is conditional, on
+`SessionSummary.mirroredIn`, and it says the other store holds a file named
+with the same ID rather than a copy of this conversation.
+
 ## Journal and Undo
 
 The serial queue inside `createMutations` serializes mutation, Undo and

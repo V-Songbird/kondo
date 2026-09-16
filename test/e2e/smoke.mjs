@@ -1351,6 +1351,26 @@ test('conversation review refuses a resumed transcript, clears selection, and al
   const stat = await fs.stat(transcript)
   const checkbox = `document.querySelector('input[aria-label="Select session ${uuid}"]')`
   const review = button('Move 1 conversation to trash')
+  // Entry 110 and ADR-0016: the band names every file it will move and the
+  // records it will not, and it does so before the confirming button can be
+  // pressed — the disclosure and the button arrive together, disclosure first.
+  const assertDisclosure = async () => {
+    const band = `${button('Move to trash')}.closest('.band')`
+    const text = await client.evaluate(`${band}.innerText`)
+    assert.ok(text.includes('These files move:'), text)
+    assert.ok(text.includes(uuid + '.jsonl'), text)
+    assert.ok(text.includes('These records stay where they are:'), text)
+    assert.ok(text.includes('Your global prompt history.'), text)
+    assert.ok(text.includes('In this project:'), text)
+    // The disclosure sits above the button, so it is read before it is pressed.
+    assert.equal(await client.evaluate(`(() => {
+      const band = ${band}
+      const files = [...band.querySelectorAll('p')].find((p) => p.textContent === 'These files move:')
+      return band.compareDocumentPosition(files) !== 0 &&
+        (files.compareDocumentPosition(${button('Move to trash')}) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+    })()`), true)
+    await assertNoHorizontalOverflow()
+  }
   const selectAndReview = async () => {
     await client.waitFor(`${checkbox} !== null && !${checkbox}.disabled`)
     assert.equal(await client.evaluate(`${checkbox}.checked`), false)
@@ -1358,6 +1378,7 @@ test('conversation review refuses a resumed transcript, clears selection, and al
     await press(' ')
     await keyboardActivate(review)
     await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel' && ${button('Move to trash')} !== undefined`)
+    await assertDisclosure()
   }
   try {
     for (const theme of ['chalk', 'carbon']) {
@@ -1367,11 +1388,16 @@ test('conversation review refuses a resumed transcript, clears selection, and al
       await section('Project sections', 'Conversations')
       await selectAndReview()
       const beforeJournal = await journalBytes()
+      await capture(`110-removal-disclosure-${theme}`)
+      // Escape cancels from anywhere in the band and hands focus back to the
+      // control that opened it, with the disclosure gone and nothing written.
       await press('Escape')
       await client.waitFor(`document.activeElement === ${review} && ${button('Move to trash')} === undefined`)
+      assert.equal(await client.evaluate(`document.body.innerText.includes('These files move:')`), false)
       assert.equal(await journalBytes(), beforeJournal)
       await keyboardActivate(review)
       await client.waitFor(`document.activeElement?.textContent.trim() === 'Cancel' && ${button('Move to trash')} !== undefined`)
+      await assertDisclosure()
       await fs.appendFile(transcript, '\n' + JSON.stringify({ type: 'user', timestamp: new Date().toISOString(),
         message: { role: 'user', content: 'Resumed fixture conversation after its removal was reviewed' } }) + '\n')
       const changedFiles = await fixtureSnapshot()

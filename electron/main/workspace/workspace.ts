@@ -20,6 +20,8 @@ import type {
   SessionDetail,
   SessionDuplicateGroup,
   SessionProject,
+  SessionRemovalCandidate,
+  SessionRemovalProject,
   SessionSummary,
   SessionTrashPreview,
   SettingsLayerInfo,
@@ -104,6 +106,7 @@ const PROJECT_STORE = 'project:'
 
 /** The id prefixes the shipped channels check before they alias (ADR-0008). */
 const PROJECT_ID_PREFIX = 'project:code:'
+const SESSION_ID_PREFIX = 'session:code:'
 const SKILL_ID_PREFIX = 'skill:'
 const PLUGIN_ID_PREFIX = 'plugin:'
 
@@ -321,6 +324,60 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
       }
     }
     return snapshotPlan(plan)
+  }
+
+  /**
+   * What a removal will actually move, named file by file, and the projects
+   * those files sit in (ADR-0016: the candidates are disclosed before the
+   * confirmation exists). Built from the same inventory records
+   * `sessionTrashPlan` walks, so the disclosure and the plan cannot describe
+   * two different sets — `snapshotSessions` has already refused the selection
+   * if the uuid namespace holds anything the plan did not claim.
+   *
+   * Display paths, tildified outward (ADR-0002, ADR-0008). Nothing reads one
+   * back, and the removal is still authorized by the token and the ids alone.
+   * A session the inventory no longer holds throws, which the caller turns
+   * into a stale refusal rather than a preview missing a row.
+   */
+  const removalCandidates = async (
+    ids: readonly string[],
+    shared: KindContext
+  ): Promise<{
+    candidates: SessionRemovalCandidate[]
+    projects: SessionRemovalProject[]
+  }> => {
+    const inventory = await shared.inventory()
+    const candidates: SessionRemovalCandidate[] = []
+    const projects: SessionRemovalProject[] = []
+    const seen = new Set<string>()
+    const display = (at: string): string => tildify(at, locator.home)
+    for (const id of ids) {
+      const key = id.slice(SESSION_ID_PREFIX.length)
+      const slash = key.lastIndexOf('/')
+      const dirName = key.slice(0, slash)
+      const project = inventory.byDirName.get(dirName)
+      if (!project) throw Error('The selected project disappeared.')
+      const session = project.sessions.find(
+        (record) => record.uuid === key.slice(slash + 1).toLowerCase()
+      )
+      if (!session) throw Error('The selected transcript disappeared.')
+      candidates.push({
+        id,
+        transcript: display(session.file),
+        sidecar: session.sidecar === null
+          ? null
+          : display(path.join(project.absPath, session.sidecar)),
+        releasedMarker: session.released === null
+          ? null
+          : display(path.join(project.absPath, session.released))
+      })
+      const projectId = PROJECT_ID_PREFIX + dirName
+      if (!seen.has(projectId)) {
+        seen.add(projectId)
+        projects.push({ id: projectId, label: naming(project).label })
+      }
+    }
+    return { candidates, projects }
   }
 
   const badRequest = <T>(data: T, message: string): Scan<T> => ({
@@ -782,10 +839,15 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
         // Over the plan's own steps, so the transcript's sidecar directory and
         // released marker are in the figure the confirmation shows.
         const estimate = await estimateFor(planned.plan, c)
+        // Same records the plan walked, named for the disclosure (ADR-0016).
+        const { candidates, projects } = await removalCandidates(chosen, shared)
         if (c.errors.length > 0) return finish(null, c)
         const reviewToken = reviews.issue({ kind: 'sessions', ids: chosen, signature })
         if (reviewToken === null) return stale('(sessions)', 'This selection is too large to retain safely.')
-        return finish({ reviewToken, count: chosen.length, sessions, estimate }, c)
+        return finish(
+          { reviewToken, count: chosen.length, sessions, candidates, projects, estimate },
+          c
+        )
       } catch {
         c.errors.push(staleRemoval('(sessions)', 'The selected sessions could not be safely reviewed.'))
         return finish(null, c)

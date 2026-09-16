@@ -35,3 +35,24 @@ export const SETTINGS_SOURCES_READ =
  */
 export const CODE_TRANSCRIPTS_ONLY =
   'These are Claude Code conversations saved on this machine. Kondo does not list or remove Claude desktop app conversations.'
+
+/**
+ * What a conversation removal leaves behind, in the order domain.md's
+ * session-removal scope lists it. ADR-0016 refused "remove every trace of a
+ * conversation": a transcript is one record, and kondo's no-network and
+ * approved-root boundaries cannot establish that the rest is gone. So the
+ * confirmation names them rather than implying completeness by silence.
+ *
+ * The Desktop line is not here. Whether another store holds a file with the
+ * same ID is a fact about this selection, so the disclosure adds it only when
+ * `SessionSummary.mirroredIn` says so.
+ */
+export const REMOVAL_LEAVES_BEHIND = [
+  'Your global prompt history.',
+  'Saved session snapshots.',
+  'Claude’s file history and backups.',
+  'Kondo’s own trash, journal and scan cache, which keep the moved bytes and what kondo read.'
+] as const
+
+/** How many candidates the disclosure prints before it switches to a count. */
+export const DISCLOSED_CANDIDATE_LIMIT = 20
