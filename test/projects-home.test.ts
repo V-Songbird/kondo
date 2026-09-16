@@ -361,6 +361,30 @@ describe('the projects home', () => {
     expect(there?.targetLayerId).toBe('settings:user:user')
   })
 
+  it('presses no position when this scope states a value kondo cannot read', async () => {
+    await fs.writeFile(
+      path.join(workdir, '.claude', 'settings.local.json'),
+      writeJson({ enabledPlugins: { 'alpha@acme': 'false' }, outputStyle: 'loud' })
+    )
+    const detail = await api.projectDetail(projectId)
+    const alpha = detail.data?.plugins.find((entry) => entry.name === 'alpha')
+
+    // Coercing the string would have put the control on "on". There is no
+    // evidence for either position, so it sits in neither.
+    expect(alpha?.choice).toBe('unknown')
+    // The unreadable layer ends nothing, so the user layer's true still
+    // stands as what Claude honours here (ADR-0021).
+    expect(alpha?.effective).toBe(true)
+    expect(alpha?.effectiveLayerId).toBe('settings:user:user')
+    // The member is in that file all the same, so that is still where a
+    // change would land rather than a file the user never opened.
+    expect(alpha?.targetLayerId).toBe(`settings:local:${flattened}`)
+    expect(detail.errors.some((error) =>
+      error.code === 'parse-failed' &&
+      error.message === 'alpha@acme in enabledPlugins is neither true nor false; kondo cannot tell whether it is on or off here.'
+    )).toBe(true)
+  })
+
   it('refuses clearing a plugin statement without changing settings or history', async () => {
     const file = path.join(workdir, '.claude', 'settings.local.json')
     const before = await hashTree(world.base)

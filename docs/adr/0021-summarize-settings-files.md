@@ -36,3 +36,11 @@ allowlist, a source-completeness model and fixture evidence.
 - Future resolution work keeps unknown states distinct: an unreadable or
   invalid higher layer never becomes a definitive answer from a lower one, and
   unknown is never shown as off or as the default.
+- The two fields that resolve precedence say so in their own types.
+  `PluginScopeState.enabled` is `PluginLayerState` — `true`, `false`,
+  `'unknown'` for an `enabledPlugins` member that is present but neither, and
+  `null` for a layer that says nothing. `ProjectPluginState.choice` is
+  `ProjectPluginPosition`, the three writable choices plus that same
+  `'unknown'`, which no click can ask for. `'unknown'` is skipped in the
+  per-project chain exactly as silence is, so `PluginEffectiveState.enabled`
+  stays a boolean and a lower layer's real statement still stands.

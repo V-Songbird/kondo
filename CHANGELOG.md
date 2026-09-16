@@ -145,6 +145,12 @@ All notable changes to kondo are documented here. The format follows
   directions refused rather than promising that Leftovers will clear it. The
   failure is still reported beside the connections that were read.
 
+- A plugin whose settings file holds something other than `true` or `false` no
+  longer reads as switched on. Kondo now shows that layer as an unrecognized
+  value, lists the file and the plugin among the scan's problems, and lets
+  whichever layer does state a real setting be the one in effect. The plugin
+  control presses none of its three positions for such a layer and says why.
+
 - Clean up and the conversation-removal confirmation now count every file that
   moves. A conversation's saved supporting folder and its desktop-released
   marker travel with its transcript, and their bytes were missing from the size

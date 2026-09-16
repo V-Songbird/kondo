@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import type { PluginScopeState } from '../shared/contract'
 import { collector } from '../electron/main/workspace/scan'
 import {
   hooksFromLayers,
@@ -255,6 +256,128 @@ describe('user store adapter', () => {
     expect(skills.some((skill) => skill.scope === 'plugin')).toBe(false)
     expect(skills.some((skill) => skill.name === 'gamma-skill')).toBe(false)
     expect(skills.some((skill) => skill.name === 'epsilon-skill')).toBe(false)
+  })
+
+  // -------------------------------------------------------------------------
+  // enabledPlugins members that are neither true nor false (ADR-0005, ADR-0021)
+
+  /** One member per JSON shape a hand-edited settings file can hold. */
+  const UNRECOGNIZED = {
+    'str@acme': 'false',
+    'num@acme': 0,
+    'nul@acme': null,
+    'arr@acme': ['alpha@acme'],
+    'obj@acme': { enabled: true }
+  }
+
+  const layerState = (
+    plugins: Awaited<ReturnType<typeof scanPlugins>>,
+    key: string,
+    layer: string
+  ): PluginScopeState['enabled'] => {
+    const found = plugins.find((plugin) => plugin.info.id === `plugin:${key}`)
+    if (!found) throw new Error(`the scan has no row for ${key}`)
+    const scope = found.info.scopes.find((candidate) => candidate.layer === layer)
+    if (!scope) throw new Error(`${key} has no ${layer} layer`)
+    return scope.enabled
+  }
+
+  it('reads an enabledPlugins member that is neither true nor false as unknown', async () => {
+    await writeFileTree(world.userRoot, {
+      'settings.json': writeJson({ enabledPlugins: { 'alpha@acme': true, ...UNRECOGNIZED } })
+    })
+    const c = collector()
+    const layers = await readSettingsLayers(world.locator, verified, c)
+    const plugins = await scanPlugins(world.locator, layers, c)
+
+    // Claude's convention is a boolean (ADR-0006). Kondo cannot know what
+    // Claude makes of anything else, so it says so rather than coercing.
+    for (const key of Object.keys(UNRECOGNIZED)) {
+      expect(layerState(plugins, key, 'user')).toBe('unknown')
+      expect(
+        plugins.find((plugin) => plugin.info.id === `plugin:${key}`)?.info.enabledIn
+      ).toEqual([])
+    }
+    // The healthy sibling in the same file keeps its state and its listing.
+    expect(layerState(plugins, 'alpha@acme', 'user')).toBe(true)
+    expect(
+      plugins.find((plugin) => plugin.info.id === 'plugin:alpha@acme')?.info.enabledIn
+    ).toEqual(['~/.claude/settings.json'])
+  })
+
+  it('never lets an unrecognized member win precedence over a layer that speaks', async () => {
+    await writeFileTree(world.userRoot, {
+      'settings.json': writeJson({ enabledPlugins: { 'beta@acme': false, ...UNRECOGNIZED } })
+    })
+    await writeFileTree(workdir, {
+      '.claude/settings.json': writeJson({ enabledPlugins: { 'beta@acme': 'true' } }),
+      '.claude/settings.local.json': writeJson({ enabledPlugins: { 'beta@acme': 3 } })
+    })
+    const c = collector()
+    const layers = await readSettingsLayers(world.locator, verified, c)
+    const plugins = await scanPlugins(world.locator, layers, c)
+    const owner = 'project:code:X--work-proj'
+
+    expect(layerState(plugins, 'beta@acme', 'project')).toBe('unknown')
+    expect(layerState(plugins, 'beta@acme', 'local')).toBe('unknown')
+    // Two unrecognized layers sit above the only one that states anything, so
+    // the user layer's `false` is still what Claude honours here (ADR-0021).
+    const beta = plugins.find((plugin) => plugin.info.id === 'plugin:beta@acme')
+    expect(beta?.info.effectiveIn.find((state) => state.projectId === owner)).toEqual({
+      projectId: owner, layerId: 'settings:user:user', enabled: false
+    })
+    // A plugin no layer states at all stays absent rather than resolving.
+    expect(
+      plugins.find((plugin) => plugin.info.id === 'plugin:str@acme')?.info.effectiveIn
+    ).toEqual([])
+  })
+
+  it('itemizes one unrecognized member per layer without quoting its value (ADR-0022)', async () => {
+    await writeFileTree(world.userRoot, {
+      'settings.json': writeJson({
+        enabledPlugins: {
+          'alpha@acme': true,
+          'str@acme': 'S129 value text',
+          'S129 key text': 'S129 value text'
+        }
+      })
+    })
+    await writeFileTree(workdir, {
+      '.claude/settings.json': writeJson({ enabledPlugins: { 'num@acme': 1 } })
+    })
+    const c = collector()
+    const layers = await readSettingsLayers(world.locator, verified, c)
+    await scanPlugins(world.locator, layers, c)
+
+    // A key outside the `<name>@<marketplace>` grammar is file text, so it is
+    // never named — the same rule the installation records follow. The layers
+    // are walked highest precedence first, so the project file reports before
+    // the user one.
+    const pathOf = (id: string): string => {
+      const layer = layers.find((candidate) => candidate.info.id === id)
+      if (!layer) throw new Error(`the scan has no ${id} layer`)
+      return layer.info.path
+    }
+    const reported = c.errors.filter((error) => error.message.includes('enabledPlugins'))
+    expect(reported).toEqual([
+      {
+        code: 'parse-failed',
+        path: pathOf('settings:project:X--work-proj'),
+        message: 'num@acme in enabledPlugins is neither true nor false; kondo cannot tell whether it is on or off here.'
+      },
+      {
+        code: 'parse-failed',
+        path: '~/.claude/settings.json',
+        message: 'str@acme in enabledPlugins is neither true nor false; kondo cannot tell whether it is on or off here.'
+      },
+      {
+        code: 'parse-failed',
+        path: '~/.claude/settings.json',
+        message: 'An enabledPlugins entry with an unrecognized id is neither true nor false; kondo cannot tell whether it is on or off here.'
+      }
+    ])
+    expect(c.errors.some((error) => error.message.includes('S129 value text'))).toBe(false)
+    expect(c.errors.some((error) => error.message.includes('S129 key text'))).toBe(false)
   })
 
   it('refuses to follow a plugin installPath outside the user store', async () => {
