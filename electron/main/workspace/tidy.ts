@@ -10,15 +10,14 @@ import type { StoreLocator } from './locator'
 import type { MutationPlan, PlannedStep } from './mutations'
 import { isScratchProjectName, isStale, STALE_AFTER_DAYS } from './analysis'
 import { tildify } from './display'
+import { reviewedBytes } from './reviewed-removals'
 import {
   directorySize,
   inspectTree,
   isEnoent,
-  mapPool,
   relativeTo,
   resolveAllowedPath,
   safeReaddir,
-  safeStat,
   type Collector
 } from './scan'
 import type { SessionInventory } from './sessions'
@@ -45,11 +44,16 @@ import {
  * entry (ADR-0001 decision 2) — undo restores a sweep whole or not at all.
  */
 
-/** One thing the sweep displaces; a session carries its sidecar with it. */
+/**
+ * One thing the sweep displaces; a session carries its sidecar with it.
+ *
+ * No size here on purpose: what a candidate costs is measured from the trash
+ * steps `tidyPlan` builds out of `paths`, not carried beside them, so the
+ * figure on screen and the bytes that move cannot drift apart (ADR-0015).
+ */
 interface Candidate {
   /** Store-relative and `/`-separated, the way a mutation step wants it. */
   paths: string[]
-  bytes: number
   /** Tildified, for the preview's examples. */
   display: string
   /** The mutation store the paths are relative to; the user store unless said. */
@@ -156,12 +160,12 @@ async function scanDesktopCaches(
     for (const name of CHROMIUM_CACHES) {
       if (!present.has(name)) continue
       const display = `${home.display}/${name}`
-      const bytes = await directorySize(path.join(dir, name), display, c, root)
-      if (bytes === 0) continue
+      // Measured here only to skip a cache that reclaims nothing; the
+      // preview's figure comes from the trash steps, not from this.
+      if (await directorySize(path.join(dir, name), display, c, root) === 0) continue
       candidates['desktop-caches'].push({
         store: 'desktop',
         paths: [home.relative === '' ? name : `${home.relative}/${name}`],
-        bytes,
         display
       })
     }
@@ -286,11 +290,7 @@ export async function scanTidyCandidates(
       if (session.released !== null) {
         paths.push(relativeTo(root, path.join(project.absPath, session.released)))
       }
-      const item: Candidate = {
-        paths,
-        bytes: session.bytes,
-        display: tildify(session.file, locator.home)
-      }
+      const item: Candidate = { paths, display: tildify(session.file, locator.home) }
       // A zero-byte transcript is empty whatever its age, so that category
       // claims it — no path is ever queued under two categories, which is
       // what would make the second trash step of a pair fail. A released one
@@ -302,49 +302,32 @@ export async function scanTidyCandidates(
     }
     for (const name of project.orphanDirs) orphans.push(path.join(project.absPath, name))
     for (const name of project.orphanMarkers) {
-      // A marker with no transcript is an orphan like a sidecar directory is,
-      // and one file — its size is the stat the inventory did not keep.
+      // A marker with no transcript is an orphan like a sidecar directory is.
       const absPath = path.join(project.absPath, name)
-      const display = tildify(absPath, locator.home)
-      const info = await safeStat(absPath, display, c, locator.userRoot)
       candidates['orphan-sidecars'].push({
         paths: [relativeTo(root, absPath)],
-        bytes: info?.size ?? 0,
-        display
+        display: tildify(absPath, locator.home)
       })
     }
   }
 
-  // An orphan's whole value is its directory, so unlike a transcript it has
-  // to be measured. Bounded, and only over the directories the inventory
-  // already proved orphaned — never the projects tree at large.
   candidates['orphan-sidecars'].push(
-    ...(await mapPool(orphans, 16, async (absPath) => {
-      const display = tildify(absPath, locator.home)
-      return {
-        paths: [relativeTo(root, absPath)],
-        bytes: await directorySize(absPath, display, c, locator.userRoot),
-        display
-      }
+    ...orphans.map((absPath) => ({
+      paths: [relativeTo(root, absPath)],
+      display: tildify(absPath, locator.home)
     }))
   )
 
-  // A project directory is offered whole, as one path — its size is the
-  // point of offering it, and one trash step over the tree is what makes the
-  // undo put it back in one (ADR-0001 decision 2).
-  const claimed = inventory.projects.filter((project) => trees.has(project.dirName))
-  const measured = await mapPool(claimed, 16, async (project) => {
-    const display = tildify(project.absPath, locator.home)
-    return {
-      category: trees.get(project.dirName) as TidyCategory,
-      candidate: {
-        paths: [relativeTo(root, project.absPath)],
-        bytes: await directorySize(project.absPath, display, c, locator.userRoot),
-        display
-      }
-    }
-  })
-  for (const entry of measured) candidates[entry.category].push(entry.candidate)
+  // A project directory is offered whole, as one path — one trash step over
+  // the tree is what makes the undo put it back in one (ADR-0001 decision 2).
+  for (const project of inventory.projects) {
+    const category = trees.get(project.dirName)
+    if (category === undefined) continue
+    candidates[category].push({
+      paths: [relativeTo(root, project.absPath)],
+      display: tildify(project.absPath, locator.home)
+    })
+  }
 
   const rootDisplay = tildify(root, locator.home)
   const present = new Set(
@@ -355,10 +338,12 @@ export async function scanTidyCandidates(
   for (const name of RECLAIMABLE) {
     if (!present.has(name)) continue
     const display = `${rootDisplay}/${name}`
-    const bytes = await directorySize(path.join(root, name), display, c, locator.userRoot)
     // An empty cache directory reclaims nothing, and moving one would be
-    // journal noise for a directory Claude recreates on its next run.
-    if (bytes > 0) candidates['reclaimable-caches'].push({ paths: [name], bytes, display })
+    // journal noise for a directory Claude recreates on its next run. Sized
+    // for that test alone; the preview's figure comes from the trash steps.
+    if (await directorySize(path.join(root, name), display, c, locator.userRoot) > 0) {
+      candidates['reclaimable-caches'].push({ paths: [name], display })
+    }
   }
 
   await scanSessionEnv(locator, inventory, candidates, c)
@@ -420,14 +405,10 @@ async function scanSessionEnv(
       !transcripts.has(entry.name.toLowerCase())
   )
 
-  candidates['orphan-session-env'] = await mapPool(orphans, 16, async (entry) => {
-    const display = `${rootDisplay}/${entry.name}`
-    return {
-      paths: [`${SESSION_ENV}/${entry.name}`],
-      bytes: await directorySize(path.join(root, entry.name), display, c, locator.userRoot),
-      display
-    }
-  })
+  candidates['orphan-session-env'] = orphans.map((entry) => ({
+    paths: [`${SESSION_ENV}/${entry.name}`],
+    display: `${rootDisplay}/${entry.name}`
+  }))
 }
 
 /**
@@ -453,14 +434,10 @@ async function scanPluginResidue(
   const rootRelative = PLUGINS_DIR
   const rootDisplay = tildify(root, locator.home)
 
-  const measure = async (relative: string, absPath: string): Promise<Candidate> => {
-    const display = `${rootDisplay}/${relative}`
-    return {
-      paths: [`${rootRelative}/${relative}`],
-      bytes: await directorySize(absPath, display, c, locator.userRoot),
-      display
-    }
-  }
+  const residue = (relative: string): Candidate => ({
+    paths: [`${rootRelative}/${relative}`],
+    display: `${rootDisplay}/${relative}`
+  })
 
   // Every cached version except those any installation scope still names.
   // A directory is offered only after all declared install paths have been
@@ -475,9 +452,7 @@ async function scanPluginResidue(
       if (!version.isDirectory()) continue
       const absPath = path.join(versionsDir, version.name)
       if (installed.installPaths.has(installKey(absPath))) continue
-      candidates['superseded-plugin-versions'].push(
-        await measure(`${relative}/${version.name}`, absPath)
-      )
+      candidates['superseded-plugin-versions'].push(residue(`${relative}/${version.name}`))
     }
   }
 
@@ -490,9 +465,7 @@ async function scanPluginResidue(
   const data = await safeReaddir(dataDir, `${rootDisplay}/${PLUGIN_DATA_DIR}`, c, locator.userRoot)
   for (const entry of data) {
     if (!entry.isDirectory() || slugs.has(entry.name)) continue
-    candidates['orphan-plugin-residue'].push(
-      await measure(`${PLUGIN_DATA_DIR}/${entry.name}`, path.join(dataDir, entry.name))
-    )
+    candidates['orphan-plugin-residue'].push(residue(`${PLUGIN_DATA_DIR}/${entry.name}`))
   }
 
   // `plugins/.install-manifests/<id>.json` — the id verbatim, so no guessing.
@@ -506,35 +479,62 @@ async function scanPluginResidue(
   for (const entry of manifests) {
     if (!entry.isFile() || !entry.name.endsWith('.json')) continue
     if (installed.keys.has(entry.name.slice(0, -'.json'.length))) continue
-    const relative = `${PLUGIN_MANIFEST_DIR}/${entry.name}`
-    const display = `${rootDisplay}/${relative}`
-    const info = await safeStat(path.join(manifestDir, entry.name), display, c, locator.userRoot)
-    candidates['orphan-plugin-residue'].push({
-      paths: [`${rootRelative}/${relative}`],
-      bytes: info?.size ?? 0,
-      display
-    })
+    candidates['orphan-plugin-residue'].push(residue(`${PLUGIN_MANIFEST_DIR}/${entry.name}`))
   }
 }
 
-/** The dry run itself: counts and bytes per category, and nothing moved. */
-export function toTidyPreview(candidates: TidyCandidates, blocked: TidyBlocks = {}, withheldScratchCount = 0): TidyPreview {
-  const categories: TidyCategoryPreview[] = tidyCategories.map((category) => {
+/**
+ * The dry run itself: counts and bytes per category, and nothing moved.
+ *
+ * Each figure is measured over the very trash steps `tidyPlan` would build
+ * for that category alone — the same steps `tidyPreview` snapshots under the
+ * review token — so a session's sidecar directory and released marker are
+ * counted with its transcript, and a sweep grows the trash by exactly the
+ * number the row showed.
+ *
+ * One `counted` set runs through every category in order, so a path can only
+ * ever land in one figure. The candidate scan already queues a path under a
+ * single category; this makes summing a multi-category selection safe even
+ * if that ever stopped being true.
+ */
+export async function toTidyPreview(
+  candidates: TidyCandidates,
+  rootOf: (store: string) => string | null,
+  trashBytesBefore: number,
+  c: Collector,
+  blocked: TidyBlocks = {},
+  withheldScratchCount = 0
+): Promise<TidyPreview> {
+  const counted = new Set<string>()
+  const fail = (at: string, cause: unknown): void => c.fail('read-failed', at, cause)
+  let complete = true
+  const categories: TidyCategoryPreview[] = []
+  for (const category of tidyCategories) {
     const items = candidates[category]
-    return {
+    const measured = await reviewedBytes(tidyPlan(candidates, [category]), rootOf, counted, fail)
+    complete &&= measured.complete
+    categories.push({
       category,
       count: items.length,
-      bytes: items.reduce((sum, item) => sum + item.bytes, 0),
+      bytes: measured.bytes,
       examples: items.slice(0, EXAMPLES).map((item) => item.display),
       blocked: blocked[category] ?? null
-    }
-  })
+    })
+  }
+  const totalBytes = categories.reduce((sum, entry) => sum + entry.bytes, 0)
   return {
     reviewToken: null,
     withheldScratchCount,
     categories,
     totalCount: categories.reduce((sum, entry) => sum + entry.count, 0),
-    totalBytes: categories.reduce((sum, entry) => sum + entry.bytes, 0),
+    totalBytes,
+    estimate: {
+      movingBytes: totalBytes,
+      trashBytesBefore,
+      trashBytesAfter: trashBytesBefore + totalBytes,
+      freedOnEmptyBytes: trashBytesBefore + totalBytes,
+      incomplete: !complete
+    },
     staleAfterDays: STALE_AFTER_DAYS
   }
 }

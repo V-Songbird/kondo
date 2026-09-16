@@ -542,6 +542,23 @@ scan and a mutation can never disagree about where an entry lives.
   Kondo streams a transcript line by line, never whole, for its line and
   message counts, first user prompt and first and last timestamps; worked
   time is not computed yet.
+- ✅ **Kondo implementation:** every removal size is measured over the exact
+  deduplicated `trash` steps the review token binds — the per-category
+  `tidyPlan` steps `tidyPreview` snapshots, and the `sessionTrashPlan` steps
+  `snapshotSessions` snapshots — never a second walk of the store. Regular-file
+  bytes are summed with `inspectPhysicalTree`, giving directories and links
+  nothing, exactly as `trashSize` counts the trash, so a confirmed move grows
+  the trash by exactly the figure the screen showed. A transcript's sidecar
+  directory and `.desktop-released.json` marker are steps of the same plan, so
+  their bytes are in that figure; the per-session `bytes` in a listing remains
+  one transcript, which is the stat the inventory took (ADR-0007). Category
+  figures are disjoint — a path counted in one is counted in no other — so a
+  combined selection is the sum of its categories. `RemovalSizeEstimate`
+  carries three figures separately, because displacing into kondo's trash frees
+  no disk space and only a permanent empty does: what moves, what the trash
+  then holds, and what emptying it would free. A preview whose reviewed path
+  could not be read, or which was issued no review token, is marked
+  `incomplete` and its figures are a floor.
 - Two sessions in one project can be the *same work restarted*: the same
   opening prompt, a fresh uuid ✅. `sessionNearDuplicates(projectId)` groups
   them on the first `type: "user"` message, normalized to lower-case letters
@@ -552,9 +569,7 @@ scan and a mutation can never disagree about where an entry lives.
   mtime)` under `<kondo-data>` (ADR-0007); it is asked for one project at a
   time, never for the store. A session may be picked out of the listing and
   displaced into kondo's trash with its sidecar, as one journal entry
-  (`sessionTrash`, ADR-0001). The tidy preview does not count sidecar bytes
-  beside a session it offers, because measuring them would walk `projects/`;
-  an orphan sidecar is measured.
+  (`sessionTrash`, ADR-0001).
 
 ### Reviewed removal policy
 
@@ -563,7 +578,8 @@ finished with a file. `tidyPreview`, `sessionTrashPreview` and `skillDuplicates`
 retain exact reviewed identities and content/activity preconditions in main.
 Category additions, missing or changed members, resumed transcripts and changed
 duplicate groups require renewed review before mutation (ADR-0015). Session
-sidecars and released markers are part of the reviewed displacement.
+sidecars and released markers are part of the reviewed displacement, and of the
+size the preview reports for it.
 
 A temporary/worktree/job name alone is not enough to make its saved tree eligible.
 Scratch trees with memory, recent entries or unreadable activity evidence are

@@ -10,6 +10,7 @@ import type {
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import { openScanCache } from '../electron/main/workspace/scan-cache'
 import {
+  desktopReleased,
   exists,
   flattenPath,
   hashTree,
@@ -543,5 +544,94 @@ describe('reviewed session removal (102)', () => {
     const journal = await hashTree(world.kondoDataRoot)
     expect((await api.sessionTrash(ids(), reviewToken)).errors[0]?.code).toBe('stale-plan')
     expect(await hashTree(world.kondoDataRoot)).toBe(journal)
+  })
+})
+
+/**
+ * Entry 105, the selected-removal half of audit finding A10. `sessionTrashPlan`
+ * has always moved the sidecar directory and the released marker with the
+ * transcript; the confirmation quoted the transcript alone. The estimate is now
+ * measured over the plan's own steps, so what the screen says and what the
+ * trash gains are the same number.
+ */
+describe('companion bytes in the session-removal estimate (105)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+  const dir = 'D--Projects-companions'
+  const id = (uuid: string): string => `session:code:${dir}/${uuid}`
+  const file = (name: string): string => path.join(world.userRoot, 'projects', dir, name)
+
+  const MARKER = desktopReleased()
+  const NESTED = '{"tool":"state"}'
+  const COMPANION_BYTES = 5000
+  const FILLER = 'x'.repeat(
+    COMPANION_BYTES - Buffer.byteLength(MARKER) - Buffer.byteLength(NESTED)
+  )
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, {
+      'settings.json': '{}',
+      // One transcript carrying exactly 5,000 bytes of companions...
+      [`projects/${dir}/${UUID_A}.jsonl`]: opening(SHARED),
+      [`projects/${dir}/${UUID_A}.desktop-released.json`]: MARKER,
+      [`projects/${dir}/${UUID_A}/state.json`]: NESTED,
+      [`projects/${dir}/${UUID_A}/nested/big.bin`]: FILLER,
+      // ...and one carrying none, so the sum spans both shapes.
+      [`projects/${dir}/${UUID_B}.jsonl`]: opening(REWRITTEN)
+    })
+    api = createWorkspace({
+      locator: world.locator,
+      platform: process.platform,
+      guessExists: async () => 'absent'
+    })
+  })
+  afterEach(async () => { vi.restoreAllMocks(); await world.cleanup() })
+
+  const trashBytes = async (): Promise<number> => (await api.trashSize()).data.bytes
+
+  it('holds exactly 5,000 bytes of companions beside the transcript', async () => {
+    let total = 0
+    for (const name of [`${UUID_A}.desktop-released.json`, `${UUID_A}/state.json`, `${UUID_A}/nested/big.bin`]) {
+      total += (await fs.stat(file(name))).size
+    }
+    expect(total).toBe(COMPANION_BYTES)
+  })
+
+  it('counts the companions the per-session transcript size leaves out (A10)', async () => {
+    const preview = await api.sessionTrashPreview([id(UUID_A)])
+    expect(preview.errors).toEqual([])
+    const transcript = (await fs.stat(file(`${UUID_A}.jsonl`))).size
+    // What the row shows is still one transcript...
+    expect(preview.data?.sessions[0]?.bytes).toBe(transcript)
+    // ...and what the confirmation shows is every byte that moves.
+    expect(preview.data?.estimate.movingBytes).toBe(transcript + COMPANION_BYTES)
+  })
+
+  it('grows the trash by exactly the estimate it showed', async () => {
+    const ids = [id(UUID_A), id(UUID_B)]
+    const preview = await api.sessionTrashPreview(ids)
+    expect(preview.errors).toEqual([])
+    const estimate = preview.data!.estimate
+    const before = await trashBytes()
+    expect(estimate.trashBytesBefore).toBe(before)
+
+    const done = await api.sessionTrash(ids, preview.data!.reviewToken)
+    expect(done.errors).toEqual([])
+    expect(await trashBytes()).toBe(estimate.trashBytesAfter)
+    expect(await trashBytes()).toBe(before + estimate.movingBytes)
+  })
+
+  it('names what moves, what the trash then holds, and what an empty frees', async () => {
+    const ids = [id(UUID_A), id(UUID_B)]
+    const estimate = (await api.sessionTrashPreview(ids)).data!.estimate
+    expect(estimate.trashBytesAfter).toBe(estimate.trashBytesBefore + estimate.movingBytes)
+    expect(estimate.freedOnEmptyBytes).toBe(estimate.trashBytesAfter)
+    expect(estimate.incomplete).toBe(false)
+
+    const second = await api.sessionTrashPreview(ids)
+    expect((await api.sessionTrash(ids, second.data!.reviewToken)).errors).toEqual([])
+    // Moving frees nothing; only emptying does, and by the third figure.
+    expect((await api.trashEmpty()).data.bytes).toBe(estimate.freedOnEmptyBytes)
   })
 })

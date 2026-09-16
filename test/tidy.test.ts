@@ -10,6 +10,7 @@ import type {
 import { tidyCategories } from '../shared/contract'
 import { isScratchProjectName, STALE_AFTER_DAYS } from '../electron/main/workspace/analysis'
 import * as relocation from '../electron/main/workspace/relocation'
+import * as reviewed from '../electron/main/workspace/reviewed-removals'
 import { createWorkspace } from '../electron/main/workspace/workspace'
 import {
   desktopReleased,
@@ -253,7 +254,10 @@ describe('the tidy sweep (ADR-0001)', () => {
     expect(preview.data.categories.map((entry) => entry.category)).toEqual(tidyCategories)
     expect(preview.data.staleAfterDays).toBe(STALE_AFTER_DAYS)
 
-    const staleBytes = (await fs.stat(inStore(project(`${UUID_B}.jsonl`)))).size
+    // Transcript AND the sidecar state that rides with it into the same trash
+    // steps — one item, every byte that moves (105).
+    const staleBytes = (await fs.stat(inStore(project(`${UUID_B}.jsonl`)))).size +
+      (await fs.stat(inStore(project(`${UUID_B}/agent.json`)))).size
     expect(found['stale-sessions'].count).toBe(1)
     expect(found['stale-sessions'].bytes).toBe(staleBytes)
     expect(found['stale-sessions'].examples).toEqual([
@@ -1300,5 +1304,169 @@ describe('reviewed cleanup safety (102)', () => {
     expect(await exists(path.join(world.userRoot, 'projects', recent))).toBe(true)
     expect(await exists(path.join(world.userRoot, 'projects', memory))).toBe(true)
     expect((await api.journalUndo(result.data!.id)).errors).toEqual([])
+  })
+})
+
+/**
+ * Entry 105, inverting audit finding A10: a session's companion files travel
+ * with it into the same trash steps, so they belong in the number the screen
+ * shows. Every figure here is measured over those steps, which is what makes
+ * "the trash grew by exactly the estimate" a thing a test can assert.
+ */
+describe('companion files in removal size estimates (105)', () => {
+  let world: FixtureWorld
+  let api: KondoApi
+
+  const project = (relative: string): string => `projects/${DIR}/${relative}`
+  const inStore = (relative: string): string =>
+    path.join(world.userRoot, ...relative.split('/'))
+
+  /** A released marker plus sidecar files adding up to exactly 5,000 bytes. */
+  const MARKER = desktopReleased()
+  const NESTED = '{"tool":"state"}'
+  const COMPANION_BYTES = 5000
+  const FILLER = 'x'.repeat(
+    COMPANION_BYTES - Buffer.byteLength(MARKER) - Buffer.byteLength(NESTED)
+  )
+
+  beforeEach(async () => {
+    world = await makeWorld()
+    await writeFileTree(world.userRoot, {
+      // The A10 session: a transcript the desktop app released, carrying a
+      // marker and a two-file sidecar directory.
+      [project(`${UUID_A}.jsonl`)]: healthyTranscript(UUID_A),
+      [project(`${UUID_A}.desktop-released.json`)]: MARKER,
+      [project(`${UUID_A}/state.json`)]: NESTED,
+      [project(`${UUID_A}/nested/big.bin`)]: FILLER,
+      // Empty AND stale: two categories could claim it, and only one may.
+      [project(`${UUID_B}.jsonl`)]: '',
+      [project(`${UUID_B}/leftover.json`)]: '{"left":"over"}',
+      // Stale with a sidecar of its own, so a combined sweep spans categories.
+      [project(`${UUID_C}.jsonl`)]: healthyTranscript(UUID_C),
+      [project(`${UUID_C}/agent.json`)]: '{"subagent":"one"}',
+      'cache/blob.bin': 'y'.repeat(300),
+      'settings.json': '{}'
+    })
+    for (const name of [`${UUID_B}.jsonl`, `${UUID_C}.jsonl`]) {
+      await fs.utimes(inStore(project(name)), LONG_AGO, LONG_AGO)
+    }
+    await fs.utimes(inStore(project(`${UUID_A}.jsonl`)), FRESH, FRESH)
+    api = createWorkspace({
+      locator: world.locator,
+      platform: process.platform,
+      now: () => NOW,
+      guessExists: async () => 'absent'
+    })
+  })
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await world.cleanup()
+  })
+
+  const trashBytes = async (): Promise<number> => (await api.trashSize()).data.bytes
+
+  it('builds a fixture whose companions are exactly 5,000 bytes', async () => {
+    const companions = [
+      project(`${UUID_A}.desktop-released.json`),
+      project(`${UUID_A}/state.json`),
+      project(`${UUID_A}/nested/big.bin`)
+    ]
+    let total = 0
+    for (const relative of companions) total += (await fs.stat(inStore(relative))).size
+    expect(total).toBe(COMPANION_BYTES)
+  })
+
+  it('counts the 5,000 companion bytes the transcript alone leaves out (A10)', async () => {
+    const transcript = (await fs.stat(inStore(project(`${UUID_A}.jsonl`)))).size
+    const preview = await api.tidyPreview()
+    expect(preview.errors).toEqual([])
+    expect(byCategory(preview.data)['desktop-released-sessions'].bytes)
+      .toBe(transcript + COMPANION_BYTES)
+  })
+
+  it('grows the trash by exactly the figure the category showed', async () => {
+    const preview = await api.tidyPreview()
+    const estimate = byCategory(preview.data)['desktop-released-sessions'].bytes
+    const before = await trashBytes()
+    const done = await api.tidySweep(['desktop-released-sessions'], preview.data.reviewToken!)
+    expect(done.errors).toEqual([])
+    expect(await trashBytes()).toBe(before + estimate)
+  })
+
+  it('names what moves, what the trash then holds, and what an empty frees', async () => {
+    const preview = await api.tidyPreview()
+    const { estimate } = preview.data
+    expect(estimate.movingBytes).toBe(preview.data.totalBytes)
+    expect(estimate.trashBytesBefore).toBe(0)
+    expect(estimate.trashBytesAfter).toBe(estimate.trashBytesBefore + estimate.movingBytes)
+    expect(estimate.freedOnEmptyBytes).toBe(estimate.trashBytesAfter)
+    expect(estimate.incomplete).toBe(false)
+
+    const done = await api.tidySweep(ALL, preview.data.reviewToken!)
+    expect(done.errors).toEqual([])
+    // Moving frees nothing; the trash now holds what the preview promised...
+    expect(await trashBytes()).toBe(estimate.trashBytesAfter)
+    // ...and emptying it frees exactly what the third figure said it would.
+    expect((await api.trashEmpty()).data.bytes).toBe(estimate.freedOnEmptyBytes)
+  })
+
+  it('never counts a path twice across a combined sweep', async () => {
+    const preview = await api.tidyPreview()
+    const sum = preview.data.categories.reduce((total, entry) => total + entry.bytes, 0)
+    // The empty-and-stale session lands in one category, not two.
+    const found = byCategory(preview.data)
+    expect(found['empty-transcripts'].count).toBe(1)
+    expect(found['stale-sessions'].count).toBe(1)
+    expect(sum).toBe(preview.data.totalBytes)
+
+    const before = await trashBytes()
+    const done = await api.tidySweep(ALL, preview.data.reviewToken!)
+    expect(done.errors).toEqual([])
+    // The union of every category's paths, measured once — a double count
+    // would leave the estimate above what the trash actually gained.
+    expect(await trashBytes()).toBe(before + sum)
+  })
+
+  it('matches the displaced fixture bytes for every category it offers', async () => {
+    const preview = await api.tidyPreview()
+    const before = await listTree(world.userRoot)
+    const done = await api.tidySweep(ALL, preview.data.reviewToken!)
+    expect(done.errors).toEqual([])
+
+    const after = await listTree(world.userRoot)
+    const trash = path.join(world.kondoDataRoot, 'trash', done.data!.id.slice('journal:'.length))
+    let displaced = 0
+    for (const relative of await listTree(trash)) {
+      const info = await fs.stat(path.join(trash, ...relative.split('/')))
+      if (info.isFile()) displaced += info.size
+    }
+    expect(before.length).toBeGreaterThan(after.length)
+    expect(displaced).toBe(preview.data.totalBytes)
+  })
+
+  it('marks a preview incomplete when a reviewed path cannot be read', async () => {
+    const original = relocation.inspectPhysicalTree
+    vi.spyOn(relocation, 'inspectPhysicalTree').mockImplementation(async (from, boundary, onError) => {
+      if (String(from).endsWith(`${UUID_A}.jsonl`)) {
+        const cause = Object.assign(Error('EACCES: permission denied'), { code: 'EACCES' })
+        if (onError === undefined) throw cause
+        onError(String(from), cause)
+        return []
+      }
+      return original(from, boundary, onError)
+    })
+    const preview = await api.tidyPreview()
+    expect(preview.data.estimate.incomplete).toBe(true)
+    expect(preview.errors.map((error) => error.code)).toContain('read-failed')
+    // Nothing binds an unread figure, so nothing can move on it either.
+    expect(preview.data.reviewToken).toBeNull()
+  })
+
+  it('marks a preview incomplete when no review token was issued', async () => {
+    vi.spyOn(reviewed, 'snapshotRemovalTree').mockRejectedValue(Error('unreadable'))
+    const preview = await api.tidyPreview()
+    expect(preview.data.reviewToken).toBeNull()
+    expect(preview.data.estimate.incomplete).toBe(true)
+    expect(preview.errors.map((error) => error.code)).toContain('stale-plan')
   })
 })

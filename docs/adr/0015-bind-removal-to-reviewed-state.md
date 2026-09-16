@@ -20,6 +20,32 @@ skill groups refuse the whole selection with `stale-plan`. The renderer clears
 selection and offers a fresh review. An expired, missing or already consumed
 token cannot be retried as a deletion. Cancel discards the UI's review.
 
+## What a review is worth in bytes
+
+The size a preview reports is measured over the very trash steps the token
+binds, deduplicated, and never over a second walk of the store. A session's
+sidecar directory and released marker are steps of the same plan as its
+transcript, so their bytes are in its figure. Regular-file bytes are summed the
+way `trashSize` counts the trash, so a confirmed move grows the trash by exactly
+the figure reviewed. Category figures are disjoint — a path counted under one
+category is counted under no other — so a combined selection is the sum of the
+categories it picked.
+
+`TidyCategoryPreview.bytes` kept its name through that change and did not keep
+its meaning. It was the transcript and directory bytes the inventory had already
+stat'd, with a session's sidecar and marker riding along uncounted; it is now
+every reviewed trash-step byte for that category. `SessionSummary.bytes` is the
+field that still means one transcript, because a listing is a listing and stats
+no companion (ADR-0007). Reading the first as the second is the misreading this
+paragraph exists to prevent.
+
+`RemovalSizeEstimate` crosses the seam with those bytes separated into three:
+what will move, what kondo's trash then holds, and what a permanent empty would
+free. Displacing frees no disk space, and one number would be read as the third.
+A preview whose reviewed path could not be read, or which was issued no token,
+carries `incomplete` and its figures are a floor rather than a total. The
+renderer receives the figures and never a path to measure.
+
 Revalidation runs before journaling, after mutation step planning. It does not
 silently drop changed members, acquire newly eligible members or turn a stale
 review into a partial success. Unselected categories do not expand the selected

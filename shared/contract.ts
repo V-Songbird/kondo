@@ -327,6 +327,12 @@ export interface SessionSummary extends EntityIdentity {
   id: string
   uuid: string
   projectId: string
+  /**
+   * The transcript alone, as the listing stat'd it (ADR-0007) — a sidecar
+   * directory beside it is not walked to draw a row. What removing this
+   * session would move is `SessionTrashPreview.estimate`, which counts every
+   * companion; this figure is never that one.
+   */
   bytes: number
   mtimeMs: number
   stale: boolean
@@ -376,6 +382,12 @@ export interface SessionTrashPreview {
   reviewToken: string
   count: number
   sessions: SessionSummary[]
+  /**
+   * What this selection costs, over the exact paths the review token binds —
+   * every transcript, its sidecar directory and its released marker. The
+   * per-session `bytes` above stay what the listing measured: one transcript.
+   */
+  estimate: RemovalSizeEstimate
 }
 
 export interface SessionDetail {
@@ -953,6 +965,35 @@ export interface TrashReport {
   entryCount: number
 }
 
+/**
+ * What a reviewed removal costs, measured over the exact deduplicated trash
+ * steps the review token binds (ADR-0015) — companions included, and counted
+ * the way `trashSize` counts the trash, so the trash grows by exactly
+ * `movingBytes`.
+ *
+ * Three figures and not one, because a move and a deletion are different
+ * things: moving to kondo's trash frees no disk space at all, and only a
+ * permanent empty does. `freedOnEmptyBytes` equals `trashBytesAfter` — kondo's
+ * trash holds nothing but displaced bytes — and both are carried so the
+ * renderer states each figure rather than deriving one from another.
+ */
+export interface RemovalSizeEstimate {
+  /** Regular-file bytes that will move, sidecars and markers counted. */
+  movingBytes: number
+  /** What kondo's trash holds right now. */
+  trashBytesBefore: number
+  /** What it holds once the move lands: `trashBytesBefore + movingBytes`. */
+  trashBytesAfter: number
+  /** What permanently emptying the trash would then free from disk. */
+  freedOnEmptyBytes: number
+  /**
+   * A reviewed path could not be read, the trash could not be measured, or no
+   * review token bound the figure. The numbers are a floor, not a total, and
+   * the UI says so rather than showing them as exact.
+   */
+  incomplete: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Configuration orphans (ADR-0010)
 
@@ -1074,12 +1115,19 @@ export interface TidyCategoryPreview {
   /** Items this category would move; a session and its sidecar count once. */
   count: number
   /**
-   * What the store gets back. Transcript and directory bytes as the
-   * inventory measured them — a session's sidecar directory rides along
-   * uncounted, the same tier-1 limit the sessions view means by "transcript
-   * bytes" (ADR-0007). The whole-tree categories are the exception: a
-   * project directory is measured, because its size is the whole point of
-   * offering it.
+   * Regular-file bytes under every path this category's reviewed trash steps
+   * name, a session's sidecar directory and released marker included. Counted
+   * the way `trashSize` counts the trash, so a sweep of this category alone
+   * grows the trash by exactly this. Categories are disjoint: a path counted
+   * here is counted in no other, which is what makes summing a multi-category
+   * selection honest.
+   *
+   * The field kept its name when entry 105 changed what it counts. It used to
+   * be the transcript and directory bytes the inventory had already stat'd,
+   * with a session's companions riding along uncounted; it is now every
+   * reviewed trash-step byte. A reader of this seam should not carry the old
+   * transcript-only reading across — and `SessionSummary.bytes`, which is
+   * still one transcript, is the field that kept the old meaning.
    */
   bytes: number
   /** Display paths of the first few, so the count is inspectable. */
@@ -1101,6 +1149,12 @@ export interface TidyPreview {
   categories: TidyCategoryPreview[]
   totalCount: number
   totalBytes: number
+  /**
+   * What sweeping every category would cost. A selection is narrower, so the
+   * UI adds the categories it picked to `estimate.trashBytesBefore` rather
+   * than quoting this — but `incomplete` here covers the whole preview.
+   */
+  estimate: RemovalSizeEstimate
   /** The staleness threshold in days, so the UI names it rather than guesses. */
   staleAfterDays: number
 }

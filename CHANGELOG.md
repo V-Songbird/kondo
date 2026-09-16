@@ -151,6 +151,20 @@ All notable changes to kondo are documented here. The format follows
   whichever layer does state a real setting be the one in effect. The plugin
   control presses none of its three positions for such a layer and says why.
 
+- Clean up and the conversation-removal confirmation now count every file that
+  moves. A conversation's saved supporting folder and its desktop-released
+  marker travel with its transcript, and their bytes were missing from the size
+  on screen — a conversation with 5,000 bytes beside it read as the transcript
+  alone. Each figure is measured over the exact files the review covers, so
+  confirming a move grows kondo's trash by exactly the amount shown, and
+  selecting several categories never counts a file twice.
+
+- Both screens now show three figures instead of one: what moves to the trash,
+  what the trash holds afterwards, and what permanently emptying it would free.
+  Moving to the trash frees no disk space, and a single size read as though it
+  did. A preview that could not read one of its files says its sizes are a
+  minimum rather than showing them as exact.
+
 - Installers now carry attribution for every component they ship. The
   third-party notices add React, React DOM, scheduler and Tailwind CSS beside
   the IBM Plex fonts and Electron, and each release build checks the notices
