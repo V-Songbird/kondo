@@ -18,6 +18,10 @@ branches are listed in [status.md](../status.md).
 
 ## Index
 
+- [115 — Resolved overlap between Kondo's data root and Claude's stores](115-footprint-overlap.md)
+  — the operation-time resolved check that replaces the lexical,
+  construction-time one in `appearance.ts`, `mutations.ts`, `scan-cache.ts` and
+  `profile.ts`.
 - [132 — Sandboxed preload startup failure under load](132-sandbox-preload-startup.md)
   — the experiments that separate an Electron, smoke-harness or kondo startup
   cause; none has run yet.
