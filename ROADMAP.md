@@ -60,12 +60,7 @@ Four decisions frame this work and are not up for re-argument here:
 
 ### Accuracy and compatibility
 
-- **An unreadable local MCP project path must not read as a removable orphan
-  (135).**
-- **Every companion file counted in removal size estimates (105).** Until then,
-  a transcript's size must not be labelled the full removal size.
 - **Unreadable hook scripts reported as unverifiable rather than missing (127).**
-- **Non-boolean `enabledPlugins` values never read as a definite plugin state (129).**
 - **A `CLAUDE_CONFIG_DIR` set in a Claude settings `env` block followed (138).**
 - **A legacy `.config.json` registry in a configuration home read (139).**
 - **Transcripts stored under `CLAUDE_CODE_PROJECT_DIR_NAME` located (140).**

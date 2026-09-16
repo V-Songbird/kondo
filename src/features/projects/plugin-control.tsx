@@ -40,6 +40,7 @@ function positions(global: boolean): Array<{ choice: ProjectPluginChoice; label:
 
 function stateLabel(scope: PluginScopeState): string {
   if (scope.enabled === null) return 'not set'
+  if (scope.enabled === 'unknown') return 'unrecognized value'
   return scope.enabled ? 'on' : 'off'
 }
 
@@ -137,6 +138,16 @@ export function PluginControl({
           </span>
         </span>
       </div>
+      {/* No position is pressed when the file says something kondo cannot
+          read, and an unpressed control with no reason beside it reads as a
+          bug. The value itself never reaches here (ADR-0022) — the file is
+          named so the user can go and look. */}
+      {state.choice === 'unknown' && (
+        <p className="text-xs text-ink-2">
+          {target?.path ?? 'This settings file'} states this plugin with a value that is
+          neither true nor false, so kondo cannot say whether it is on or off here.
+        </p>
+      )}
       {/* Both refusals, read rather than hovered for. The toggle's answer and
           the move's answer are different questions, so both get printed. */}
       <Refusal reason={decision.allowed ? null : decision.reason} />

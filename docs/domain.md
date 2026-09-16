@@ -148,7 +148,7 @@ usage):
 |---|---|
 | `projects/` | Session transcripts, one subdirectory per working directory. The heart of kondo's session features. |
 | `settings.json` | User-scope settings. Observed keys: `env`, `permissions`, `skillOverrides`, `hooks`, `statusLine`, `enabledPlugins`, `extraKnownMarketplaces`, `outputStyle`, `language`, `modelSettings`, `autoUpdatesChannel`, `tui`, `theme`, and more ✅. The toggle surfaces kondo cares about: `enabledPlugins`, `skillOverrides`, `hooks`. `skillOverrides` is `{ <skill> → 'on' \| 'name-only' \| 'user-invocable-only' \| 'off' }` ✅ — the four values Claude Code's own settings schema admits, read off the 2.1.258 binary. Its description, verbatim: `name-only` lists the skill without its description, `user-invocable-only` hides it from the model but keeps `/name`, `off` hides it from both, absent = on. **Only `off` is a disabling**; the middle two leave the skill loaded. For this key precedence is the ordinary local > project > user ✅, and `/skills` writes the key into the *local* layer. It does **not** reach plugin-shipped skills ✅: Claude pins those to `on` before consulting it, and only managed-policy and CLI-flag settings override that — neither of which kondo reads. Kondo resolves it per skill and carries the winner as `SkillInfo.override`, with `enabled` false when it says `off`; configuration cleanup preserves every override because its skill sources cannot be completely enumerated (ADR-0010). **It is also what kondo's skill toggle plans** (execution refused, see above): `disable` splices `<skill>: "off"` into the scope's layer — the one already naming the skill, else `settings.local.json` for a project skill and `~/.claude/settings.json`, the only user layer Kondo reads, for a user skill — and `enable` removes the member from every layer in the chain that says `off`. A project page switches a *global* skill off for that project alone the same way: the `off` lands in the project's own layer and only that project's layers are ever withdrawn from, so `ProjectDetail.inheritedSkills` reads each global skill against the project's local and project layers and reports `off here` apart from `off in All projects`. The `hooks` object is `{ <event> → [ { matcher?, hooks: [ { type, command, timeout? } ] } ] }` ✅. |
-| `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo plans to disable (execution refused); a key that is simply absent is silence, not a false. A legacy array form is read (a listed key is enabled) but never written. |
+| `enabledPlugins` | An object keyed by `<plugin>@<marketplace>` whose value is a boolean — both `true` and an explicit `false` observed in the wild ✅. An explicit `false` is how a layer overrides a lower one, so it is what kondo plans to disable (execution refused); a key that is simply absent is silence, not a false. **Only `true` and `false` state anything.** A member holding any other value — a string, a number, `null`, an array, an object — reads as `'unknown'`: kondo has no evidence for what Claude makes of it, so it is never coerced into on or off, it never wins precedence over a layer that does state a boolean, and the plugin control presses none of its three positions for it. The scan carries one `parse-failed` per such member, naming the settings file and — only when the key matches the `<name>@<marketplace>` grammar, since any other key is file text — the member key, never the value (ADR-0022). The member still counts as the file mentioning the plugin, so a click can still target and repair it. A legacy array form is read (a listed key is enabled) but never written. |
 | `skills/` | User-scope skills, one directory per skill with a `SKILL.md`. |
 | `skills.disabled/` | **Kondo's parking spot, not Claude's convention** ✅. The directory exists on the owner's machine, but the string `skills.disabled` occurs nowhere in the Claude Code 2.1.255 or 2.1.258 binaries — nothing reads it. A skill moved here does stop loading, for the plain reason that it is no longer in `skills/`, which is the "remove from `.claude/skills`" half of Claude's own advice. Claude's *named* per-skill switch is `skillOverrides` above, which is what the toggle plans; Kondo never moves skills here. Kondo still reads the directory back as the `user-disabled` scope and offers each skill in it the way back into `skills/` (ADR-0006). |
 | `plugins/cache/<mp>/<plugin>/<ver>/skills/` | Skills a plugin ships ✅ — the default of several layouts, listed under "Plugin component layouts" below. These belong to the plugin, not the user: kondo's skills catalogue deliberately excludes them, because benching or relocating one leaves the plugin referring to a directory that is no longer there. They belong to the plugins view, alongside the plugin that owns them, where `pluginSkills(pluginId)` reads them on demand when a plugin's row is opened. The `plugin` skill scope and its capability-matrix row keep that listing read-only. |
@@ -410,17 +410,23 @@ one Claude reads), `restricted` (a readable `deniedMcpServers` names it),
 `rejected`, `pending`, `disabled` (the project's switch), `unknown`, then
 `approved` or `configured`. `unknown` replaces a positive answer whenever it
 depends on something kondo may not read: a settings layer or a registry that
-did not parse, an allowlist or a URL or command deny rule (kondo evaluates
-neither), or an untrusted project whose only approval sits in its local layer.
+did not parse, a project folder kondo could not look at, an allowlist or a URL
+or command deny rule (kondo evaluates neither), or an untrusted project whose
+only approval sits in its local layer.
 Managed settings, `managed-mcp.json`, `--settings`, the approvals a running
 session holds and the environment stay outside the boundary and are stated
 rather than guessed. No status says a server connects.
 
-A `local` declaration whose registry path fails its `stat` is reported with
-`orphan: true`, the dead-project signal in its MCP form. Only a path that is
-gone (ENOENT) makes it a leftover that `configOrphansPreview` offers to splice
-out (ADR-0010); any other failure also records a `stat-failed` error and is
-never offered.
+A `local` declaration's registry path is looked at once, and the look has three
+answers ✅. A path that is there adds nothing. A path that is **gone** (ENOENT)
+reports `orphan: true` — the dead-project signal in its MCP form — and makes
+the whole registry entry a leftover `configOrphansPreview` offers to splice out
+(ADR-0010). Any **other** failure is neither: kondo could not look, which is
+not evidence of deletion, so the declaration is not an orphan, records its
+`stat-failed` error, reads `unknown` with a fixed sentence naming the folder
+kondo could not check, and has both switch directions refused — without the
+Leftovers sentence, because Leftovers never offers it. Only ENOENT is deletion,
+the same split `sessions.ts` makes for a project's `location`.
 
 That switch is also what kondo's toggle plans (execution refused): `disable`
 adds the name to the project's `disabledMcpServers` and `enable` takes it out,
@@ -621,6 +627,23 @@ scan and a mutation can never disagree about where an entry lives.
   Kondo streams a transcript line by line, never whole, for its line and
   message counts, first user prompt and first and last timestamps; worked
   time is not computed yet.
+- ✅ **Kondo implementation:** every removal size is measured over the exact
+  deduplicated `trash` steps the review token binds — the per-category
+  `tidyPlan` steps `tidyPreview` snapshots, and the `sessionTrashPlan` steps
+  `snapshotSessions` snapshots — never a second walk of the store. Regular-file
+  bytes are summed with `inspectPhysicalTree`, giving directories and links
+  nothing, exactly as `trashSize` counts the trash, so a confirmed move grows
+  the trash by exactly the figure the screen showed. A transcript's sidecar
+  directory and `.desktop-released.json` marker are steps of the same plan, so
+  their bytes are in that figure; the per-session `bytes` in a listing remains
+  one transcript, which is the stat the inventory took (ADR-0007). Category
+  figures are disjoint — a path counted in one is counted in no other — so a
+  combined selection is the sum of its categories. `RemovalSizeEstimate`
+  carries three figures separately, because displacing into kondo's trash frees
+  no disk space and only a permanent empty does: what moves, what the trash
+  then holds, and what emptying it would free. A preview whose reviewed path
+  could not be read, or which was issued no review token, is marked
+  `incomplete` and its figures are a floor.
 - Two sessions in one project can be the *same work restarted*: the same
   opening prompt, a fresh uuid ✅. `sessionNearDuplicates(projectId)` groups
   them on the first `type: "user"` message, normalized to lower-case letters
@@ -631,9 +654,7 @@ scan and a mutation can never disagree about where an entry lives.
   mtime)` under `<kondo-data>` (ADR-0007); it is asked for one project at a
   time, never for the store. A session may be picked out of the listing and
   displaced into kondo's trash with its sidecar, as one journal entry
-  (`sessionTrash`, ADR-0001). The tidy preview does not count sidecar bytes
-  beside a session it offers, because measuring them would walk `projects/`;
-  an orphan sidecar is measured.
+  (`sessionTrash`, ADR-0001).
 
 ### Reviewed removal policy
 
@@ -642,7 +663,8 @@ finished with a file. `tidyPreview`, `sessionTrashPreview` and `skillDuplicates`
 retain exact reviewed identities and content/activity preconditions in main.
 Category additions, missing or changed members, resumed transcripts and changed
 duplicate groups require renewed review before mutation (ADR-0015). Session
-sidecars and released markers are part of the reviewed displacement.
+sidecars and released markers are part of the reviewed displacement, and of the
+size the preview reports for it.
 
 A temporary/worktree/job name alone is not enough to make its saved tree eligible.
 Scratch trees with memory, recent entries or unreadable activity evidence are

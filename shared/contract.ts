@@ -327,6 +327,12 @@ export interface SessionSummary extends EntityIdentity {
   id: string
   uuid: string
   projectId: string
+  /**
+   * The transcript alone, as the listing stat'd it (ADR-0007) — a sidecar
+   * directory beside it is not walked to draw a row. What removing this
+   * session would move is `SessionTrashPreview.estimate`, which counts every
+   * companion; this figure is never that one.
+   */
   bytes: number
   mtimeMs: number
   stale: boolean
@@ -376,6 +382,12 @@ export interface SessionTrashPreview {
   reviewToken: string
   count: number
   sessions: SessionSummary[]
+  /**
+   * What this selection costs, over the exact paths the review token binds —
+   * every transcript, its sidecar directory and its released marker. The
+   * per-session `bytes` above stay what the listing measured: one transcript.
+   */
+  estimate: RemovalSizeEstimate
 }
 
 export interface SessionDetail {
@@ -547,6 +559,18 @@ export interface PlacedEntryInfo extends EntityIdentity {
  * it there. A plugin's enabled state is a key in a settings file rather than
  * a property of the plugin (ADR-0006), so the toggle is per layer.
  */
+/**
+ * What one settings layer says about one plugin. `true` and `false` are the
+ * only statements Claude's own convention admits (ADR-0006); `'unknown'` is a
+ * member that is present but neither, which kondo cannot read as on or off and
+ * never resolves precedence with; `null` is a layer that says nothing at all.
+ *
+ * Silence and an unrecognized value stay distinct values rather than one
+ * collapsed `null`, for the reason ADR-0005 gives: where a type could say
+ * "not there" or "could not read it", it says both.
+ */
+export type PluginLayerState = boolean | 'unknown' | null
+
 export interface PluginScopeState {
   /** `settings:<layer>:<key>` — the layer a toggle would write. */
   layerId: string
@@ -565,8 +589,8 @@ export interface PluginScopeState {
   /** Display path of the settings file (tildified). */
   path: string
   exists: boolean
-  /** true, false, or null when this layer says nothing about the plugin. */
-  enabled: boolean | null
+  /** What this layer says, including that it holds something unreadable. */
+  enabled: PluginLayerState
   /** The matrix row for writing a plugin in this layer. */
   capabilities: Capabilities
 }
@@ -996,6 +1020,35 @@ export interface TrashReport {
   entryCount: number
 }
 
+/**
+ * What a reviewed removal costs, measured over the exact deduplicated trash
+ * steps the review token binds (ADR-0015) — companions included, and counted
+ * the way `trashSize` counts the trash, so the trash grows by exactly
+ * `movingBytes`.
+ *
+ * Three figures and not one, because a move and a deletion are different
+ * things: moving to kondo's trash frees no disk space at all, and only a
+ * permanent empty does. `freedOnEmptyBytes` equals `trashBytesAfter` — kondo's
+ * trash holds nothing but displaced bytes — and both are carried so the
+ * renderer states each figure rather than deriving one from another.
+ */
+export interface RemovalSizeEstimate {
+  /** Regular-file bytes that will move, sidecars and markers counted. */
+  movingBytes: number
+  /** What kondo's trash holds right now. */
+  trashBytesBefore: number
+  /** What it holds once the move lands: `trashBytesBefore + movingBytes`. */
+  trashBytesAfter: number
+  /** What permanently emptying the trash would then free from disk. */
+  freedOnEmptyBytes: number
+  /**
+   * A reviewed path could not be read, the trash could not be measured, or no
+   * review token bound the figure. The numbers are a floor, not a total, and
+   * the UI says so rather than showing them as exact.
+   */
+  incomplete: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Configuration orphans (ADR-0010)
 
@@ -1117,12 +1170,19 @@ export interface TidyCategoryPreview {
   /** Items this category would move; a session and its sidecar count once. */
   count: number
   /**
-   * What the store gets back. Transcript and directory bytes as the
-   * inventory measured them — a session's sidecar directory rides along
-   * uncounted, the same tier-1 limit the sessions view means by "transcript
-   * bytes" (ADR-0007). The whole-tree categories are the exception: a
-   * project directory is measured, because its size is the whole point of
-   * offering it.
+   * Regular-file bytes under every path this category's reviewed trash steps
+   * name, a session's sidecar directory and released marker included. Counted
+   * the way `trashSize` counts the trash, so a sweep of this category alone
+   * grows the trash by exactly this. Categories are disjoint: a path counted
+   * here is counted in no other, which is what makes summing a multi-category
+   * selection honest.
+   *
+   * The field kept its name when entry 105 changed what it counts. It used to
+   * be the transcript and directory bytes the inventory had already stat'd,
+   * with a session's companions riding along uncounted; it is now every
+   * reviewed trash-step byte. A reader of this seam should not carry the old
+   * transcript-only reading across — and `SessionSummary.bytes`, which is
+   * still one transcript, is the field that kept the old meaning.
    */
   bytes: number
   /** Display paths of the first few, so the count is inspectable. */
@@ -1144,6 +1204,12 @@ export interface TidyPreview {
   categories: TidyCategoryPreview[]
   totalCount: number
   totalBytes: number
+  /**
+   * What sweeping every category would cost. A selection is narrower, so the
+   * UI adds the categories it picked to `estimate.trashBytesBefore` rather
+   * than quoting this — but `incomplete` here covers the whole preview.
+   */
+  estimate: RemovalSizeEstimate
   /** The staleness threshold in days, so the UI names it rather than guesses. */
   staleAfterDays: number
 }
@@ -1239,6 +1305,13 @@ export interface ProjectRow {
 export type ProjectPluginChoice = 'on' | 'off' | 'inherit'
 
 /**
+ * Where the control actually sits, which has one position no click can ask
+ * for: this scope's own layer holds a value that is neither `true` nor
+ * `false`, so none of the three is pressed and the reason is printed instead.
+ */
+export type ProjectPluginPosition = ProjectPluginChoice | 'unknown'
+
+/**
  * One installed plugin as one scope sees it, and where a click would land. A
  * ghost row never reaches here: a key with no plugin behind it has nothing to
  * turn on, and `configOrphansPreview` is where it is acted on.
@@ -1255,7 +1328,7 @@ export interface ProjectPluginState {
   source: PluginSource
   installations: PluginInstallation[]
   /** Which position this scope's own layers put the control in. */
-  choice: ProjectPluginChoice
+  choice: ProjectPluginPosition
   /** What Claude honours here; null when no layer in the chain speaks. */
   effective: boolean | null
   /** The `settings:` id of the layer whose value stands, or null. */
