@@ -396,6 +396,43 @@ describe('a plugin installed in more than one place', () => {
     )
   })
 
+  it('keeps a record pointing into a project store without ever reading it', async () => {
+    // ADR-0002: a plugin's code lives under the user store. A record naming a
+    // path inside a verified project store is still a fact of the manifest, so
+    // it is kept and refused rather than followed — the project tree is not
+    // kondo's to walk, however the record is scoped.
+    const inProject = path.join(workdir, '.claude', 'plugins', 'multi', '4.0.0')
+    await writeFileTree(inProject, {
+      'skills/off-limits/SKILL.md': skillManifest('off-limits', 'Must never be read')
+    })
+    await writeFileTree(world.userRoot, {
+      'plugins/installed_plugins.json': writeJson({
+        version: 2,
+        plugins: {
+          'multi@acme': [
+            { scope: 'user', installPath: cacheAt('1.0.0'), version: '1.0.0' },
+            { scope: 'project', projectPath: workdir, installPath: inProject, version: '4.0.0' }
+          ]
+        }
+      })
+    })
+    const readdir = vi.spyOn(fsp, 'readdir')
+
+    const multi = (await api.pluginsList()).data.find((row) => row.id === 'plugin:multi@acme')!
+    expect(multi.installations.map((place) => [place.version, place.followed])).toEqual([
+      ['1.0.0', true],
+      ['4.0.0', false]
+    ])
+
+    const scan = await api.pluginSkills('plugin:multi@acme')
+    expect(scan.data.map((skill) => skill.name)).toEqual(['only-old', 'shared'])
+    expect(scan.errors.map((error) => error.code)).toEqual(['out-of-store'])
+    for (const call of readdir.mock.calls) {
+      expect(String(call[0]).startsWith(workdir)).toBe(false)
+    }
+    vi.restoreAllMocks()
+  })
+
   it('attributes the plugin on a project page exactly as the Library does', async () => {
     const library = (await api.pluginsList()).data.find((row) => row.id === 'plugin:multi@acme')!
     const detail = await api.projectDetail(`project:code:${flattenPath(workdir)}`)
