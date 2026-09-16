@@ -29,12 +29,12 @@ below covered Windows, macOS and Linux:
   [ADR-0015](adr/0015-bind-removal-to-reviewed-state.md) amended by 110 with a
   "What a review discloses" section. 115 changed no decision and no seam.
 - Local checks, reported by each worker from its own worktree through fnm
-  Node 22. On 115's tree `b2aeb87`, the last tree whose local results were
-  reported: `npm test` passed 860 with no failure, and `npm run guards`,
-  `npm run typecheck`, `npm run lint` and `npm run build` were clean. That run
-  reported no separate skipped count; 110's second half, at `367d34f`, reported
-  832 passed and 14 skipped because the host cannot create file symlinks. 110
-  ran `npm run test:e2e` locally (27 passed) and drove the built app with
+  Node 22. On 157's tree, which carries `74dee6a`'s code and this file:
+  `npm test` passed 860 and skipped 14 because the host cannot create file
+  symlinks, and `npm run guards`, `npm run typecheck` and `npm run lint` were
+  clean. On 115's tree `b2aeb87`: `npm test` passed 860 with no failure, and
+  guards, typecheck, lint and `npm run build` were clean. 110 ran
+  `npm run test:e2e` locally (27 passed) and drove the built app with
   `.claude/skills/run-kondo/` in Chalk and Carbon at 1360x860 and 900x600
   against a synthetic fixture outside the OS temp root; 115 ran no local smoke,
   and 147 was documentation only. Hosted CI ran the smoke on every pull
