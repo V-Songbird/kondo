@@ -256,7 +256,11 @@ configuration.
 once at startup.** Before reading or writing any of the files above, kondo
 resolves that path and the user and desktop store roots — a directory that does
 not exist yet through its nearest existing ancestor — and refuses equality or
-containment before the read or write happens. A journal step naming a project
+containment before the read or write happens. A Kondo path that cannot be
+resolved at all is refused, because an unverifiable footprint is not a proven
+safe one; a store root that cannot be resolved is compared by its literal path
+instead, because a Claude directory Kondo cannot read must never stop Kondo's
+own work (ADR-0005) and must never become a way into that store either. A journal step naming a project
 store is checked the same way against that project's resolved `.claude`. So a
 `KONDO_DATA_ROOT` that is a link into a store, one whose ancestor is, and one
 whose link appeared only after the app started are all refused, while a data

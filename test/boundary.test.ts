@@ -1012,6 +1012,34 @@ describe("Kondo's own footprint never resolves into a store (115)", () => {
     expect(await hashTree(project)).toBe(before)
   })
 
+  it('carries on lexically when a Claude root itself cannot be resolved', async (context) => {
+    await fsp.mkdir(path.join(world.desktopRoot, 'nested'), { recursive: true })
+    const linked = path.join(world.base, 'desktop-alias')
+    await fixtureLink(context, path.join(world.desktopRoot, 'nested'), linked, true)
+    await fsp.mkdir(world.kondoDataRoot, { recursive: true })
+    const realpath = fsp.realpath
+    vi.spyOn(fsp, 'realpath').mockImplementation((async (target: Parameters<typeof realpath>[0]) => {
+      if (path.resolve(String(target)) === world.desktopRoot) {
+        throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+      }
+      return realpath(target)
+    }) as typeof fsp.realpath)
+
+    // A Claude directory kondo cannot read is not a reason to refuse kondo's
+    // own work: the check compares that root lexically and goes on (ADR-0005).
+    const outside = createAppearance(at(world.kondoDataRoot))
+    expect(await outside.appearanceSet('slate')).toEqual({ data: { theme: 'slate' }, errors: [], unknown: [] })
+
+    // And it is never a way in: the lexical comparison still refuses a data
+    // root whose resolved path lands under that same unreadable root.
+    const before = await hashTree(world.desktopRoot)
+    const refused = await createAppearance(at(linked)).appearanceSet('carbon')
+    expect(refused.errors[0]?.code).toBe('out-of-store')
+    expect(refused.errors[0]?.message).toContain('resolves inside the Claude store at')
+    expect(refused.errors[0]?.message).toContain(tildify(world.desktopRoot, world.home))
+    expect(await hashTree(world.desktopRoot)).toBe(before)
+  })
+
   it('caches nothing through a cache directory that resolves into a store', async (context) => {
     const link = path.join(world.base, 'cache-link')
     await fixtureLink(context, world.userRoot, link, true)

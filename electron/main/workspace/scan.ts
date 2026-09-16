@@ -100,8 +100,11 @@ const OVERLAP_FIX =
  * its nearest existing ancestor, so a link anywhere along either path is seen
  * — and seen at the moment of the call, because one can appear at any time.
  * The roots are the locator's (ADR-0003); nothing here derives one. A kondo
- * path that cannot be resolved is refused too: an unverifiable footprint is
- * not a proven-safe one.
+ * path that cannot be resolved is refused: an unverifiable footprint is not a
+ * proven-safe one. A store root that cannot be resolved is not, because a
+ * Claude directory kondo cannot read must never stop kondo's own work — that
+ * root is compared lexically and the check goes on, the way the locator keeps
+ * lexical matching when a realpath fails (`locator.ts`, ADR-0005).
  */
 export async function overlapRefusal(
   kondoPath: string,
@@ -118,9 +121,8 @@ export async function overlapRefusal(
   }
   for (const root of roots) {
     if (root === null) continue
-    // A store root that cannot be resolved holds nothing to write into.
-    const store = await realpathWithMissing(path.resolve(root)).catch(() => null)
-    if (store === null) continue
+    const absolute = path.resolve(root)
+    const store = await realpathWithMissing(absolute).catch(() => absolute)
     if (!samePath(resolved, store) && !pathWithin(resolved, store)) continue
     return `${display} resolves inside the Claude store at ${home === null ? slashed(root) : tildify(root, home)}. ` +
       'Kondo keeps its journal, trash, preferences and caches outside every Claude store (ADR-0001), ' +

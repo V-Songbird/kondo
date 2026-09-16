@@ -127,7 +127,9 @@ These limits describe access to Claude's data. Kondo's separate
 [application footprint](foundations.md#kondos-own-footprint) also holds its
 journal, trash, caches and appearance preference, and every operation on one of
 those refuses before reading or writing when its resolved path lands inside a
-Claude store. The Themes screen stores
+Claude store. A Claude root Kondo cannot resolve is compared by its literal
+path instead, so an unreadable store neither blocks Kondo's own work nor
+becomes a way into one. The Themes screen stores
 that preference in Kondo's `appearance.json`; it does not read or write
 Claude's own `theme` setting to select Kondo's appearance.
 
