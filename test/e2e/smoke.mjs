@@ -1076,7 +1076,9 @@ test('a settings toggle states its refusal before the press and writes nothing',
   const printed = 'Kondo does not change settings files yet'
   await client.waitFor(`${toggle} !== null && ${toggle}.disabled === true`)
   assert.ok((await client.evaluate(`${toggle}.closest('td').textContent`)).includes(printed))
-  await assertInViewport(toggle)
+  // The reason is read, not hovered for, so it has to be reachable on screen.
+  await client.evaluate(`${toggle}.closest('tr').scrollIntoView({ block: 'center' })`)
+  await assertInViewport(`${toggle}.closest('tr')`)
   const settings = path.join(base, 'home', '.claude', 'settings.json')
   const beforeSettings = await fs.readFile(settings, 'utf8')
   const beforeFiles = await fixtureSnapshot()
@@ -1544,6 +1546,12 @@ test('settings cleanup preserves uncertain preferences and rechecks degraded inv
     const result = await call(`await window.kondo.configOrphansPreview()`)
     assert.ok(result.errors.some((error) => error.code === 'parse-failed'))
     assert.deepEqual([...new Set(result.data.map((row) => row.kind))].sort(), ['mcp-declaration', 'project-entry'])
+    // The removal that used to force this re-read is gone, so the screen is
+    // remounted the way a user would reach it again (ADR-0006: the store is
+    // the state, and a fresh read is what shows the degraded inventory).
+    await section('Cleanup sections', 'Files and caches')
+    await section('Cleanup sections', 'Settings leftovers')
+    await client.waitFor(ghost + ' === null')
     const problems = `[...document.querySelectorAll('button')].find((b) => /^\\d+ problems?$/.test(b.textContent.trim()))`
     await keyboardActivate(problems)
     await client.waitFor(`document.body.textContent.includes('installed_plugins.json')`)
