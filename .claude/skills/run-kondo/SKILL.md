@@ -243,7 +243,7 @@ bytes, so it reads `same name, different contents` and both buttons stay
 disabled. The user store also holds an agent (`planner`) and an output style
 (`terse`), and `apiserver` an agent (`reviewer`) and a command (`deploy`). They
 are listed under `Other tools`: the agent and command rows have a move picker,
-and the output style says `Response styles apply to all projects, so they
+and the output style says `Output styles apply to all projects, so they
 cannot be moved to one project.`
 
 The fixture sits under a temp directory, so its projects fold on the Projects
