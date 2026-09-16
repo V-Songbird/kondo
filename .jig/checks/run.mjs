@@ -16,12 +16,18 @@
 // Exit code is 1 when anything was found and 0 when nothing was. A selftest
 // exits 1 when a check failed to catch its own seeded violation.
 //
-// A check declares one of two detector kinds. A pattern detector is a regular
+// A check declares one of three detector kinds. A pattern detector is a regular
 // expression over the files a glob names. A paired-change detector names two
 // path sets and reports a staged change that touched the first and nothing in
 // the second — the doc left behind by the module, the migration left behind by
 // the schema. It reads the git index, so it has something to say at commit time
-// and reports itself skipped anywhere nothing is staged.
+// and reports itself skipped anywhere nothing is staged. An anchor detector
+// reads a doc that cites source by line — `[scan.ts:109](../path/to/scan.ts)` —
+// and opens what the citation names: the target has to be there, the line has to
+// be inside it, the link text has to name the file the path names, and a
+// backticked identifier written against the anchor has to be near the cited
+// line. That is the mistake neither other kind can reach, because the doc is
+// still correct about itself and it is the other file that moved.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -428,6 +434,285 @@ function pairedFindings(ctx, mod, det, changed) {
   return touched.map((rel) => ctx.finding(mod.id, rel, 1, "paired:" + p.pairedWith.join(","), note));
 }
 
+// ---------------------------------------------------------------------------
+// The anchor detector
+// ---------------------------------------------------------------------------
+//
+// The third kind, and the only one that opens a file the scanned file merely
+// names. A pattern detector asks what is inside one file; a paired-change
+// detector asks what moved together. Neither can answer whether `[scan.ts:109]`
+// still lands on anything, because that answer lives in the target's own length.
+// A doc that cites source by line goes stale every time the code moves and says
+// nothing while it does, which is exactly the shape a check is for.
+//
+// Five questions and no others, so every finding has a reason it can name. The
+// looser readings all cost false positives on correct anchors, and a check that
+// cries wolf on a correct doc is worse than no check: a symbol is read only
+// where a backticked plain identifier touches the anchor, and an anchor with
+// nothing against it is asked for existence and range alone.
+function anchorDetectors(mod) {
+  return mod.detectors.filter((det) => det && det.runner === "checks" && det.params &&
+    det.params.kind === "anchor" && Array.isArray(det.params.paths) && det.params.paths.length);
+}
+
+// `[text](href)`. The leading group catches an image, which names a picture
+// rather than a source location and is left alone.
+const DOC_LINK = /(!?)\[([^\]\n]*)\]\(([^)\s]+)\)/g;
+
+// The anchor's grammar, and the filename reading that makes the basename
+// comparison safe. `[plan](plans/132-…md)` names no file so nothing is compared;
+// `[testing.md](testing.md#the-guards)` names one, and `[scan.ts:109](…)` names
+// one with a line. A range carries its far end in the third group.
+const ANCHOR_TEXT = /^([\w.-]+\.\w+):(\d+)(?:-(\d+))?$/;
+const FILENAME_TEXT = /^([\w.-]+\.\w+)(?::\d+(?:-\d+)?)?$/;
+
+// `, line 1718` and ` and line 228` — a second line in the same breath as the
+// anchor it follows, checked against that anchor's target. Tied to the anchor's
+// own closing bracket rather than to the paragraph, because a line number
+// further off belongs to a file this check would have to guess at.
+const CONTINUATION = /^(?:,| and) line (\d+)\b/;
+
+// A cross-reference into the doc's own numbered list.
+const FINDING_REF = /\bfinding (\d+)\b/gi;
+
+// The narrow reading of "beside the anchor": a backticked token the anchor
+// touches, with horizontal space, at most one line break and at most one opening
+// bracket between them. Measured against docs/status.md, the looser readings
+// pick up prose — the word two clauses back, or a phrase in quotation marks.
+const ADJACENT_SYMBOL = /`([^`\n]+)`[^\S\n]*\n?[^\S\n]*\(?[^\S\n]*$/;
+
+// And only a plain identifier is taken as a symbol. A dotted name, a path or a
+// phrase is something the target need not carry literally, so asking for it
+// would report a correct anchor.
+const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]{2,}$/;
+
+function escapeRe(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Lines as an editor counts them, whatever the checkout's line endings are: a
+// trailing newline closes the last line rather than opening an empty one, and an
+// empty file has none at all. `.gitattributes` may hand this check CRLF on
+// Windows and LF everywhere else, and both have to give the same number.
+function countLines(text) {
+  if (!text.length) return 0;
+  let n = 0;
+  for (let i = 0; i < text.length; i++) if (text[i] === "\n") n++;
+  return text.endsWith("\n") ? n : n + 1;
+}
+
+// GitHub's own slug, near enough for a fragment somebody typed by hand.
+function headingSlugs(text) {
+  const out = new Set();
+  for (const m of text.matchAll(/^#{1,6}[ \t]+(.+?)[ \t]*$/gm)) {
+    out.add(m[1].replace(/`/g, "").toLowerCase().replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-"));
+  }
+  return out;
+}
+
+// A doc that DESCRIBES an anchor is not citing one. Fenced blocks and inline
+// code spans are blanked before the links are read — length and newlines kept,
+// the way blankRegions keeps them, so every finding still lands on the line the
+// reader will open — because a `[text](href)` written to explain the grammar
+// names no file and cannot have gone stale. The symbol is still read from the
+// original text: a symbol lives in backticks by definition, so reading it from
+// the blanked copy would find none anywhere.
+function blankMarkdownCode(text) {
+  const out = text.split("");
+  const blank = (from, to) => {
+    for (let i = from; i < to && i < out.length; i++) if (out[i] !== "\n") out[i] = " ";
+  };
+  let fence = null;
+  let i = 0;
+  while (i < text.length) {
+    const nl = text.indexOf("\n", i);
+    const end = nl === -1 ? text.length : nl;
+    const line = text.slice(i, end);
+    const opener = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      blank(i, end);
+      if (opener && opener[1][0] === fence[0] && opener[1].length >= fence.length) fence = null;
+    } else if (opener) {
+      fence = opener[1];
+      blank(i, end);
+    } else {
+      // Inline spans, one line at a time: a run of n backticks closes on the
+      // next run of exactly n. A run that never closes is not a span, so it
+      // blanks nothing — the same reading blankRegions gives an open quote.
+      let j = 0;
+      while (j < line.length) {
+        if (line[j] !== "`") { j++; continue; }
+        let k = j;
+        while (line[k] === "`") k++;
+        const run = k - j;
+        let p = k;
+        let closeAt = -1;
+        while (p < line.length) {
+          if (line[p] !== "`") { p++; continue; }
+          let q = p;
+          while (line[q] === "`") q++;
+          if (q - p === run) { closeAt = q; break; }
+          p = q;
+        }
+        if (closeAt === -1) { j = k; continue; }
+        blank(i + j, i + closeAt);
+        j = closeAt;
+      }
+    }
+    i = end + 1;
+  }
+  return out.join("");
+}
+
+function symbolNear(body, symbol, from, to, window) {
+  const lines = body.split("\n");
+  const re = new RegExp("(?:^|[^\\w$])" + escapeRe(symbol) + "(?![\\w$])");
+  for (let i = Math.max(1, from - window); i <= Math.min(lines.length, to + window); i++) {
+    if (re.test(lines[i - 1].replace(/\r$/, ""))) return true;
+  }
+  return false;
+}
+
+// The items under the doc's own findings heading, so `finding 4` can be held to
+// a list that exists. Null where the doc has no such heading: a list nobody
+// wrote is not a list the number fell off the end of.
+function findingsCount(text, heading) {
+  const lines = text.split("\n").map((s) => s.replace(/\r$/, ""));
+  const title = new RegExp("^#{1,6}[ \\t]+" + escapeRe(heading) + "[ \\t]*$");
+  let at = -1;
+  for (let i = 0; i < lines.length; i++) if (title.test(lines[i])) { at = i; break; }
+  if (at === -1) return null;
+  let count = 0;
+  for (let i = at + 1; i < lines.length; i++) {
+    if (/^#{1,6}[ \t]/.test(lines[i])) break;
+    if (/^\d+\.[ \t]/.test(lines[i])) count++;
+  }
+  return count;
+}
+
+// One finding per citation, and the first reason in a fixed order wins. An
+// anchor whose text names the wrong file and whose line is past the end is one
+// mistake to a reader, and two lines about it would only bury the fix.
+//
+// The finding names the DOC and the anchor's own line. The target's line is not
+// where anybody has to type: nothing there is wrong. The note carries the target
+// and the one number that settles it, and no other text from the doc travels
+// into the report — a finding says which check spoke and where, never what
+// somebody's prose said.
+function docAnchorFindings(ctx, classId, rel, text, window, heading) {
+  const out = [];
+  const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+  const say = (at, pattern, note) => out.push(ctx.finding(classId, rel, lineOf(text, at), pattern, note));
+  const source = blankMarkdownCode(text);
+
+  for (const m of source.matchAll(DOC_LINK)) {
+    const [whole, image, label, href] = m;
+    // A picture, a URL and a bare fragment all name something this check has no
+    // way to open, so none of them is claimed.
+    if (image === "!" || href.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(href)) continue;
+    const hash = href.indexOf("#");
+    const bare = hash === -1 ? href : href.slice(0, hash);
+    const fragment = hash === -1 ? "" : href.slice(hash + 1);
+    if (!bare) continue;
+
+    // Resolved against the doc's own directory, forward slashes and all, and
+    // dropped the moment it leaves the repository. A link like `../../releases`
+    // resolves on the hosting side and nowhere a check can follow.
+    const target = path.relative(ctx.root, path.resolve(ctx.root, dir, bare)).split(path.sep).join("/");
+    if (!target || target.startsWith("..") || path.isAbsolute(target)) continue;
+
+    const body = ctx.read(target);
+    if (body === null) {
+      // A directory reads back null too, and a link to one is not a stale
+      // anchor. Only an absence is reported.
+      if (!fs.existsSync(path.join(ctx.root, ...target.split("/")))) {
+        say(m.index, "anchor:target", "no file at " + href);
+      }
+      continue;
+    }
+
+    const named = FILENAME_TEXT.exec(label);
+    const base = target.slice(target.lastIndexOf("/") + 1);
+    if (named && named[1] !== base) {
+      say(m.index, "anchor:basename", "link text says " + named[1] + ", path says " + base);
+      continue;
+    }
+    if (fragment && target.endsWith(".md") && !headingSlugs(body).has(fragment.toLowerCase())) {
+      say(m.index, "anchor:fragment", "no heading #" + fragment + " in " + bare);
+      continue;
+    }
+
+    const anchor = ANCHOR_TEXT.exec(label);
+    if (!anchor) continue;
+    const total = countLines(body);
+    const plural = total === 1 ? " line" : " lines";
+    const from = Number(anchor[2]);
+    const to = anchor[3] ? Number(anchor[3]) : from;
+    if (from < 1 || to < from || to > total) {
+      say(m.index, "anchor:line", bare + " has " + total + plural);
+      continue;
+    }
+    const adjacent = ADJACENT_SYMBOL.exec(text.slice(Math.max(0, m.index - 200), m.index));
+    const symbol = adjacent && IDENTIFIER.test(adjacent[1]) ? adjacent[1] : null;
+    if (symbol && !symbolNear(body, symbol, from, to, window)) {
+      say(m.index, "anchor:symbol", symbol + " is not within " + window + " lines of " + from + " in " + bare);
+      continue;
+    }
+    // The continuation is a second citation, so it earns its own finding at its
+    // own position rather than being folded into the anchor's.
+    const after = m.index + whole.length;
+    const continuation = CONTINUATION.exec(source.slice(after, after + 24));
+    if (continuation) {
+      const line = Number(continuation[1]);
+      if (line < 1 || line > total) say(after, "anchor:line", bare + " has " + total + plural);
+    }
+  }
+
+  const items = heading ? findingsCount(source, heading) : null;
+  if (items !== null) {
+    for (const m of source.matchAll(FINDING_REF)) {
+      const n = Number(m[1]);
+      if (n < 1 || n > items) {
+        say(m.index, "anchor:finding", "the " + heading + " list has " + items + (items === 1 ? " item" : " items"));
+      }
+    }
+  }
+  return out;
+}
+
+function anchorFindings(ctx, mod, det) {
+  const p = det.params;
+  const window = typeof p.symbolWindow === "number" ? p.symbolWindow : 2;
+  const heading = typeof p.findingsHeading === "string" ? p.findingsHeading : null;
+  const out = [];
+  for (const rel of ctx.files(p.paths)) {
+    const text = ctx.read(rel);
+    if (text === null) continue;
+    out.push(...docAnchorFindings(ctx, mod.id, rel, text, window, heading));
+  }
+  return out;
+}
+
+// An anchor fixture is a doc and the files it points at: one string, fenced by
+// `--- targets`, with each target introduced by a `=== <path>` line naming where
+// it sits relative to the throwaway root. These halves DO go to disk, unlike the
+// paired-change fixture's change set, because the thing under test is whether
+// the check can open a target and count it — and only a real tree proves the
+// glob, the path resolution and the line count together.
+function anchorFixture(text) {
+  const at = text.search(/^--- targets$/m);
+  if (at === -1) return null;
+  const nl = text.indexOf("\n", at);
+  const files = [];
+  let current = null;
+  for (const line of (nl === -1 ? "" : text.slice(nl + 1)).split("\n")) {
+    const head = /^=== (\S+)$/.exec(line);
+    if (head) { current = { path: head[1], body: [] }; files.push(current); continue; }
+    if (current) current.body.push(line);
+  }
+  return { doc: text.slice(0, at), files: files.map((f) => ({ path: f.path, body: f.body.join("\n") })) };
+}
+
 // The fixture pair is stored inline, so the driver has to invent the path it
 // would have lived under. That path has to satisfy the detector's own globs, or
 // ctx.scan filters the fixture straight back out and every precise check reports
@@ -484,12 +769,14 @@ async function runChecks(root, only) {
     if (mod.broken) { broken.push({ id: mod.id, why: mod.broken }); continue; }
     const mine = driverDetectors(mod);
     const paired = pairedDetectors(mod);
-    if (!mine.length && !paired.length) {
+    const anchors = anchorDetectors(mod);
+    if (!mine.length && !paired.length && !anchors.length) {
       skipped.push({ id: mod.id, why: "no detector this driver runs — it is watched elsewhere", command: null });
       continue;
     }
     try {
       for (const det of mine) findings.push(...scanWith(ctx, mod, det));
+      for (const det of anchors) findings.push(...anchorFindings(ctx, mod, det));
       if (paired.length) {
         if (changed === undefined) changed = ctx.changed();
         if (changed === null) {
@@ -523,8 +810,9 @@ async function runSelftest() {
       if (mod.broken) { results.push({ id: mod.id, caught: false, why: mod.broken }); continue; }
       const mine = driverDetectors(mod);
       const paired = pairedDetectors(mod);
+      const anchors = anchorDetectors(mod);
       const pair = mod.fixtures;
-      if ((!mine.length && !paired.length) || !pair ||
+      if ((!mine.length && !paired.length && !anchors.length) || !pair ||
           typeof pair.violation !== "string" || typeof pair.nearMiss !== "string") {
         results.push({ id: mod.id, caught: null, why: "carries no fixture pair this driver can run", command: null });
         continue;
@@ -560,6 +848,40 @@ async function runSelftest() {
           if (!seeded) seeded = (det.params.paths || []).join(", ") || null;
           hits += pairedFindings(bare, mod, det, asSet(pair.violation)).length;
           nearMissHits += pairedFindings(bare, mod, det, asSet(pair.nearMiss)).length;
+        }
+      }
+      // An anchor fixture is written out whole — the doc and every target it
+      // names — and read back by the unmodified detector, so the temp tree
+      // proves the glob, the path resolution and the line count the same way a
+      // real run does.
+      if (!failed && anchors.length) {
+        for (const det of anchors) {
+          const name = fixturePath(det);
+          if (!seeded) seeded = name;
+          for (const half of ["violation", "nearMiss"]) {
+            const parsed = anchorFixture(pair[half]);
+            if (!parsed) {
+              failed = "an anchor detector's fixture carries no `--- targets` fence, so there is nothing for it to open";
+              break;
+            }
+            const written = [];
+            try {
+              for (const file of [{ path: name, body: parsed.doc }, ...parsed.files]) {
+                const full = path.join(dir, ...file.path.split("/"));
+                fs.mkdirSync(path.dirname(full), { recursive: true });
+                fs.writeFileSync(full, file.body);
+                written.push(full);
+              }
+              const count = anchorFindings(makeContext(dir, [name]), mod, det).length;
+              if (half === "violation") hits += count; else nearMissHits += count;
+            } catch (err) {
+              failed = err.message;
+            } finally {
+              for (const full of written) fs.rmSync(full, { force: true });
+            }
+            if (failed) break;
+          }
+          if (failed) break;
         }
       }
       if (failed) { results.push({ id: mod.id, caught: false, why: failed }); continue; }
