@@ -101,7 +101,7 @@ describe('the Library catalog', () => {
       ...empty,
       skills: [
         skill('run-kondo'),
-        skill('run-kondo', { projectId: 'project:code:slag', scope: 'project' }),
+        skill('run-kondo', { projectId: 'project:code:other', scope: 'project' }),
         skill('hush')
       ]
     }
