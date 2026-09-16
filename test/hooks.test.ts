@@ -186,7 +186,7 @@ describe('hooks, their scripts, and the scripts nothing arms', () => {
 
     const [global, project] = groups
     expect(global!.projectId).toBeNull()
-    expect(global!.label).toBe('Global')
+    expect(global!.label).toBe('All projects')
     expect(global!.hooks.map((hook) => hook.event).sort()).toEqual(
       ['Notification', 'PreToolUse', 'SessionStart', 'Stop'].sort()
     )

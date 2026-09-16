@@ -231,14 +231,14 @@ describe('trashing one skill (ADR-0001)', () => {
     expect(done.errors).toEqual([])
     // The scope is an ADR-0008 id segment. A History row is read by someone
     // who never chose the word `user`, so the glossary's word goes there.
-    expect(done.data?.summary).toContain('Move skill twin-skill (Global)')
+    expect(done.data?.summary).toContain('Move skill twin-skill (All projects)')
   })
 
   it('trashes a benched skill out of its own directory', async () => {
     const reviewToken = (await api.skillDuplicates()).data.find((group) => group.name === 'benched-skill')!.reviewToken!
     const done = await api.entityMutate('skill:user-disabled:benched-skill', { op: 'trash', reviewToken })
     expect(done.errors).toEqual([])
-    expect(done.data?.summary).toContain('(Global, disabled)')
+    expect(done.data?.summary).toContain('(All projects, disabled)')
     expect(done.data?.stepCount).toBe(1)
     expect(await exists(path.join(world.userRoot, 'skills.disabled', 'benched-skill'))).toBe(
       false

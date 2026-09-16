@@ -125,10 +125,14 @@ All notable changes to kondo are documented here. The format follows
 
 - One word per state. An MCP connection Kondo cannot establish reads "cannot
   tell" in the item list as well as on the row, where the list used to say
-  "unknown". Every scope column in Library is headed "Location", body copy
-  says "Output styles" where it used to say "response styles", and a History
-  row for a skill says "Global" or "this project" instead of an internal
-  scope id.
+  "unknown". Every scope column in Library is headed "Location", and body copy
+  says "Output styles" where it used to say "response styles".
+
+- The shared scope is called "All projects" wherever it is read, where some
+  screens said "Global" and others "All projects" for the same thing. This
+  covers the Projects list row, Library headings and detail rows, the "Manage
+  in" button, hook groups, move destinations and the History row a skill's
+  removal writes, which also stops printing an internal scope id.
 
 - Settings and connection screens say which sources Kondo reads: local, then
   project, then user, and not managed policy or command-line settings, so a

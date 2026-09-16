@@ -389,8 +389,8 @@ export function createWorkspace(options: WorkspaceOptions): KondoApi {
 
   const globalRow = async (c: Collector): Promise<ProjectRow> => ({
     id: GLOBAL_ROW,
-    label: 'Global',
-    name: 'Global',
+    label: 'All projects',
+    name: 'All projects',
     parent: null,
     path: tildify(locator.userRoot, locator.home),
     global: true,

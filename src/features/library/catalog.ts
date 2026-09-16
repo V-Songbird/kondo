@@ -112,12 +112,12 @@ export function objectKey(kind: LibraryKind, name: string): string {
 }
 
 /**
- * A scope's name on screen. The user store is `Global`; a project is whatever
+ * A scope's name on screen. The user store is `All projects`; a project is whatever
  * its row is called, and an id with no row is printed as the id rather than
  * guessed at — an honest null beats a plausible label.
  */
 export function scopeLabel(projectId: string | null, projects: ProjectRow[]): string {
-  if (projectId === null) return 'Global'
+  if (projectId === null) return 'All projects'
   const row = projects.find((project) => project.id === projectId)
   return row?.name ?? projectId
 }

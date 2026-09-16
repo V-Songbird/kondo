@@ -486,7 +486,7 @@ test('Library lists the machine by object, and finds what needs a look', async (
     `[...document.querySelectorAll('.row-item')].find((b) => b.textContent.includes('api-notes')).click()`
   )
   await client.waitFor(`document.querySelector('.library-workspace h1')?.textContent === 'api-notes'`)
-  assert.equal(await client.evaluate(`${button('Manage in Global')} !== undefined`), true)
+  assert.equal(await client.evaluate(`${button('Manage in All projects')} !== undefined`), true)
   assert.equal(await client.evaluate(`${button('Manage in apiserver')} !== undefined`), true)
   await browseLibrary()
   await client.evaluate(`[...document.querySelectorAll('.row-item')].find((b) => b.textContent.startsWith('ghost')).click()`)
@@ -500,7 +500,7 @@ test('Library lists the machine by object, and finds what needs a look', async (
   await client.waitFor(`document.querySelectorAll('li button').length > 0`)
 })
 
-test('the projects list is the fixture union: Global plus the five registry members', async () => {
+test('the projects list is the fixture union: All projects plus the five registry members', async () => {
   const rows = await call(`(await window.kondo.projectsList()).data`)
   assert.equal(rows.length, 6)
   assert.equal(rows[0].global, true)
@@ -512,7 +512,7 @@ test('the projects list is the fixture union: Global plus the five registry memb
   assert.equal(rows.filter((row) => row.location === 'gone').length, 2)
 })
 
-test('the Global page lists the fixture skills and the two plugins', async () => {
+test('the All projects page lists the fixture skills and the two plugins', async () => {
   const detail = await call(`(await window.kondo.projectDetail('store:user:user')).data`)
   assert.deepEqual(
     detail.skills.map((skill) => skill.name).sort(),
@@ -929,10 +929,10 @@ test('settings-derived secrets stay out of pages, tooltips and bridge responses 
         assert.deepEqual(await leaks(), [])
 
         await backToLibrary()
-        const layer = `[...document.querySelectorAll('[data-library-key]')].find((item) => item.textContent.includes('Global · user'))`
+        const layer = `[...document.querySelectorAll('[data-library-key]')].find((item) => item.textContent.includes('All projects · user'))`
         await client.waitFor(`${layer} !== undefined`)
         await keyboardActivate(layer)
-        await client.waitFor(`document.querySelector('.workspace-detail h1')?.textContent === 'Global · user'`)
+        await client.waitFor(`document.querySelector('.workspace-detail h1')?.textContent === 'All projects · user'`)
         await client.waitFor(`document.querySelector('.workspace-detail details') !== null`)
         await client.evaluate(`document.querySelector('.workspace-detail details').open = true`)
         await client.waitFor(`document.body.innerText.includes('Other top-level settings are not shown')`)

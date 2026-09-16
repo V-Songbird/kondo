@@ -375,9 +375,9 @@ function benchTarget(entity: SkillInfo, operation: ToggleOperation): string | nu
 function scopeWord(scope: string): string {
   switch (scope) {
     case 'user':
-      return 'Global'
+      return 'All projects'
     case 'user-disabled':
-      return 'Global, disabled'
+      return 'All projects, disabled'
     case 'project':
       return 'this project'
     case 'project-disabled':
@@ -607,7 +607,7 @@ async function inheritedSkillTogglePlan(
   if (steps.length === 0) return refused('not-permitted', `This project does not switch ${entity.name} off.`)
   return settingsEdit(
     entity,
-    `Let skill ${entity.name} follow Global again: stop switching it off in ${cleared.join(', ')}`,
+    `Let skill ${entity.name} follow All projects again: stop switching it off in ${cleared.join(', ')}`,
     steps
   )
 }

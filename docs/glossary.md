@@ -11,11 +11,12 @@ code keeps the left. This table is the mapping layer between the two: types,
 IPC channel names and `shared/contract.ts` fields never move to the right-hand
 spelling, and a string a user can read should use the right-hand one.
 
-Two words the screens kept apart, because they answer different questions:
-**Location** is where a copy lives, and `Global` is the name of the user
-store's place in that column; **All projects** is what it makes the item
-available to. Every scope column in Library and Projects is headed
-`Location`.
+Two words the screens agreed on. Every scope column in Library is headed
+**Location**, and the user store is called **All projects** wherever a user
+reads it: the Projects list row, the Library heading and detail rows, the
+"Manage in" button, a hook group, a destination in a move picker, and the
+History row a skill's removal writes. `Global` survives only as an internal
+name — `ProjectRow.global`, the `GLOBAL_ROW` id, code comments.
 
 | Internal term | What the UI shows |
 | --- | --- |
@@ -39,9 +40,8 @@ available to. Every scope column in Library and Projects is headed
 | Scope (the column) | Location |
 | Winning / effective layer | In effect |
 | Unknown entries | Files kondo did not recognize |
-| Global / user scope (the place) | Global |
-| Global / user scope (what it reaches) | All projects |
-| Skill scope id in a History row (`user-disabled`) | Global, disabled |
+| Global / user scope | All projects |
+| Skill scope id in a History row (`user-disabled`) | All projects, disabled |
 | Inherited from Global | Shared from All projects |
 | Inherit / follows global | Follow shared setting |
 | MCP server | Connections (MCP) |

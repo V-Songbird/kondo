@@ -209,7 +209,7 @@ describe('the projects home', () => {
     // The known fixture project lives inside its injected temporary root.
     expect(row?.throwaway).toBe(true)
     const global = list.data.find((entry) => entry.global)
-    expect(global?.name).toBe('Global')
+    expect(global?.name).toBe('All projects')
     expect(global?.parent).toBeNull()
     expect(global?.location).toBe('here')
   })

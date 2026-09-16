@@ -333,7 +333,7 @@ export function mcpSwitchCapabilities(state: McpSwitchState): Capabilities {
   }
 }
 
-const PROJECT_SAYS_NOTHING = 'This project does not switch the skill off itself; it follows Global.'
+const PROJECT_SAYS_NOTHING = 'This project does not switch the skill off itself; it follows All projects.'
 const PROJECT_SAYS_OFF = 'This project already switches the skill off in its own settings.'
 
 /**
@@ -345,8 +345,8 @@ export function inheritedSkillCapabilities(choice: 'off' | 'inherit'): Capabilit
   return {
     enable: choice === 'off' ? ALLOW : deny(PROJECT_SAYS_NOTHING),
     disable: choice === 'inherit' ? ALLOW : deny(PROJECT_SAYS_OFF),
-    move: deny('A global skill is moved from the Global page, not from a project that inherits it.'),
-    trash: deny('A global skill is removed from the Global page, not from a project that inherits it.')
+    move: deny('A skill in All projects is moved from the All projects page, not from a project that inherits it.'),
+    trash: deny('A skill in All projects is removed from the All projects page, not from a project that inherits it.')
   }
 }
 

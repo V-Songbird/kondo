@@ -10,8 +10,8 @@ const row = (
 ): ProjectRow =>
   ({
     id: global ? 'store:user:user' : `project:code:${name}`,
-    label: global ? 'Global' : `D:/Projects/${name}`,
-    name: global ? 'Global' : name,
+    label: global ? 'All projects' : `D:/Projects/${name}`,
+    name: global ? 'All projects' : name,
     parent: global ? null : 'D:/Projects',
     path: global ? '~/.claude' : `D:/Projects/${name}`,
     global,
@@ -23,7 +23,7 @@ const row = (
     counts: { skills: 0, agents: 0, commands: 0, rules: 0, settings: 0, hooks: null, mcpServers: null }
   }) as ProjectRow
 
-const GLOBAL = row('Global', 'here', true)
+const GLOBAL = row('All projects', 'here', true)
 
 describe('the projects list view (entry 060)', () => {
   it('folds gone and throwaway projects behind a count and keeps the global row first', () => {
@@ -37,7 +37,7 @@ describe('the projects list view (entry 060)', () => {
       ],
       { query: '', showFolded: false, limit: PAGE }
     )
-    expect(view.shown.map((entry) => entry.name)).toEqual(['Global', 'app', 'lost'])
+    expect(view.shown.map((entry) => entry.name)).toEqual(['All projects', 'app', 'lost'])
     expect(view.hidden).toBe(2)
     expect(view.matched).toBe(true)
   })
@@ -48,7 +48,7 @@ describe('the projects list view (entry 060)', () => {
       showFolded: true,
       limit: PAGE
     })
-    expect(view.shown.map((entry) => entry.name)).toEqual(['Global', 'old', 'tmp'])
+    expect(view.shown.map((entry) => entry.name)).toEqual(['All projects', 'old', 'tmp'])
     expect(view.hidden).toBe(0)
   })
 
@@ -67,9 +67,9 @@ describe('the projects list view (entry 060)', () => {
       showFolded: false,
       limit: PAGE
     })
-    expect(view.shown.map((entry) => entry.name)).toEqual(['Global', 'kondo'])
+    expect(view.shown.map((entry) => entry.name)).toEqual(['All projects', 'kondo'])
     const none = listView([GLOBAL, row('app')], { query: 'zzz', showFolded: false, limit: PAGE })
-    expect(none.shown.map((entry) => entry.name)).toEqual(['Global'])
+    expect(none.shown.map((entry) => entry.name)).toEqual(['All projects'])
     expect(none.matched).toBe(false)
   })
 })

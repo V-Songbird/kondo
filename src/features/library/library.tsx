@@ -282,7 +282,7 @@ export function Library({
             : <>
               <ObjectPage object={open} input={input} management={<Section title="Manage this item">
                 {management.length > 0 ? <>
-                  <p className="mb-2">Choose where to manage this {KIND_LABEL[open.kind]}. Global means all projects.</p>
+                  <p className="mb-2">Choose where to manage this {KIND_LABEL[open.kind]}. All projects holds your shared configuration.</p>
                   <div className="flex flex-wrap gap-3">
                     {management.map((project) => <button key={project.id} type="button" className="btn"
                       title={project.label} onClick={() => onOpenProject(project.id, open.kind)}>
@@ -432,7 +432,7 @@ function SkillPage({ object, input, management }: ObjectPageProps) {
       {management}
 
       <Section title="Where it lives" count={members.length}>
-        <p className="mb-3">Global is available across projects. A copy in a project belongs to that project.</p>
+        <p className="mb-3">A copy in All projects is available across projects. A copy in a project belongs to that project.</p>
         <table className="ledger">
           <thead><tr><th>Location</th><th>Availability</th><th>Details</th></tr></thead>
           <tbody>{members.map((skill) => <tr key={skill.id} data-force={skill.enabled ? undefined : 'off'}>
@@ -574,7 +574,7 @@ function HookPage({ object, input, management }: ObjectPageProps) {
     <div>
       <Head
         object={object}
-        facts={`${hook.layer} · ${hook.projectLabel ?? 'Global'}`}
+        facts={`${hook.layer} · ${hook.projectLabel ?? 'All projects'}`}
       />
       {management}
       <Section title="What it runs">
@@ -631,7 +631,7 @@ function McpPage({ object, input, management }: ObjectPageProps) {
         <table className="ledger">
           <thead><tr><th>Location</th><th>In Claude Code</th><th>Details</th></tr></thead>
           <tbody>{members.map((server) => <tr key={server.id}>
-            <td>{server.project ?? (server.scope === 'user' ? 'Global' : server.scope)}</td>
+            <td>{server.project ?? (server.scope === 'user' ? 'All projects' : server.scope)}</td>
             <td>{server.orphan ? <span className="stamp-bad">project is gone</span>
               : <Chip flag={mcpStatusFlag(server.status)} />}
               {server.statusReason !== null && <p className="mt-1 text-xs text-ink-2">{server.statusReason}</p>}</td>
