@@ -67,12 +67,19 @@ Four decisions frame this work and are not up for re-argument here:
 - **MCP allowlists and URL or command deny rules evaluated (143).**
 - **`.mcp.json` reads measured on a large registry before the release
   candidate (144).**
+- **The version-1 and `installed_plugins_v2.json` plugin files read as Claude
+  Code does (151).**
+- **The managed plugin scope in the capability matrix (152).**
+- **The plugin components kondo does not list inventoried (153).**
+- **A non-object `enabledPlugins` root and non-string legacy array members
+  reported (154).**
 
 ### Privacy and safety
 
 - Kondo's data directory never resolving inside a Claude store (115).
 - A profile data root keyed by its resolved path, and a refusal that names the
   store set (141).
+- Raw filesystem exception text kept out of `Scan.errors` (155).
 
 ### Product claims (110)
 
@@ -112,6 +119,11 @@ In-app wording reconciled with the accepted decisions. Acceptance criteria:
 - The real-store guard scanning every test file type, not only `test/**/*.ts` (134).
 - Repository checks that never collect `.claude/worktrees` (137).
 - The bundle inventory diffed against the notice table in CI (142).
+- The run-kondo fixture location and screenshot traps recorded in the skill (148).
+- Drifting `file:line` anchors in [docs/status.md](docs/status.md) caught by a
+  jig check (149).
+- The seam-contract check reworded for amended ADRs (150).
+- The JetBrains MCP rule scoped to the checkout WebStorm has open (156).
 
 ### Publication
 
